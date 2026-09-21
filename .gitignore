@@ -1,0 +1,9 @@
+# Dependencies and builds
+node_modules/
+**/target/
+dist/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+*.tmp

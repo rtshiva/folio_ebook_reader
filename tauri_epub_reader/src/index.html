@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/epubjs@0.3/dist/epub.min.js"></script>
+<script src="./vendor/jszip.min.js"></script>
+<script src="./vendor/epub.min.js"></script>
 <style>
 :root{
   --desk:#e8dfca; --page:#f7f1e3; --ink:#26211a; --muted:#7a6c56;
@@ -2038,5 +2038,37 @@ addEventListener('load', () => {
   }
 });
 </script>
+
+<script>
+// --- Desktop Tauri Integration ---
+async function initTauriDesktop(){
+  if(window.__TAURI_INTERNALS__){
+    try{
+      const { invoke } = window.__TAURI_INTERNALS__;
+      const initialPath = await invoke('get_initial_file');
+      if(initialPath){
+        if(typeof showLoader === 'function') showLoader('Opening book…');
+        const bytes = await invoke('read_file_bytes', { path: initialPath });
+        const buf = new Uint8Array(bytes).buffer;
+        const fileName = initialPath.split(/[\\/]/).pop() || '';
+        const titleHint = fileName.replace(/.epub$/i, '').trim();
+        if(typeof openBuffer === 'function') openBuffer(buf, titleHint);
+      }
+    }catch(e){
+      console.warn('Tauri desktop init:', e);
+    }
+  }
+}
+window.addEventListener('DOMContentLoaded', initTauriDesktop);
+// Support Ctrl+O hotkey to open files
+window.addEventListener('keydown', e => {
+  if((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')){
+    e.preventDefault();
+    const btn = document.getElementById('btnOpen');
+    if(btn) btn.click();
+  }
+});
+</script>
+
 </body>
 </html>
