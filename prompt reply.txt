@@ -3592,7 +3592,7 @@ poke();
 
 
 <SIVA>
-
+this is fine, can you also add capability to read two pages at a time somthing that gives the appearance of a book kept open in front of us on a open bookholder ? post these changes can you generate the complete html file again ? 
 </SIVA>
 
 <thought>
