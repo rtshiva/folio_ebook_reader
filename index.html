@@ -238,8 +238,10 @@ body.guide-on #guide{opacity:1}
   background:color-mix(in srgb,var(--accent) 42%,transparent)}
 
 /* ---------- page-turn fx ---------- */
-.snap{position:fixed;z-index:60;border:0;pointer-events:none;background:var(--page);will-change:transform}
-.flip3d{position:fixed;z-index:62;pointer-events:none;perspective:2200px}
+.snap-slider{position:fixed;overflow:hidden;pointer-events:none;z-index:61;will-change:transform;background:var(--page)}
+.snap-box{position:absolute;overflow:hidden;background:var(--page);pointer-events:none}
+.snap-iframe{position:absolute;border:none;pointer-events:none;background:var(--page)}
+.flip3d{position:fixed;pointer-events:none;perspective:2400px;z-index:63}
 .leaf{position:absolute;inset:0;transform-style:preserve-3d;will-change:transform}
 .leaf .face{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--page)}
 .leaf .face.back{transform:rotateY(180deg)}
@@ -247,8 +249,7 @@ body.guide-on #guide{opacity:1}
   color-mix(in srgb,var(--page) 88%,#6b5b3e),var(--page) 14%,
   var(--page) 86%,color-mix(in srgb,var(--page) 80%,#6b5b3e));
   box-shadow:inset 0 0 42px rgba(45,35,18,.10);border:1px solid var(--hair)}
-.leaf .face iframe{position:absolute;border:0;background:var(--page)}
-.cast{position:fixed;z-index:61;pointer-events:none;opacity:0}
+.cast{position:fixed;pointer-events:none;opacity:0;z-index:62}
 body.turning .arrow{opacity:0!important;pointer-events:none}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
@@ -369,8 +370,15 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <section><h4 class="lbl">Word spacing</h4>
       <div class="slider-row"><input type="range" id="wsRange" min="0" max="300" step="10"><output id="wsOut"></output></div>
     </section>
-    <section><h4 class="lbl">Measure — line length</h4>
-      <div class="slider-row"><input type="range" id="msRange" min="28" max="44" step="1"><output id="msOut"></output></div>
+    <section>
+      <div class="row-head"><h4 class="lbl">Page width</h4><button class="chip" id="widthAuto">Auto</button></div>
+      <div class="slider-row">
+        <button class="step" id="widthMinus" aria-label="Narrower">−</button>
+        <input type="range" id="widthRange" min="460" max="1600" step="10" aria-label="Page width">
+        <button class="step" id="widthPlus" aria-label="Wider">+</button>
+        <output id="widthOut"></output>
+      </div>
+      <p class="fine">Adjust the reading width of the page or spread.</p>
     </section>
 
     <section>
@@ -428,7 +436,8 @@ const body = document.body;
 const DEFAULTS = {
   theme:'paper', font:'literata', auto:true, size:19.5,
   lineHeight:1.65, letter:0, word:0, measure:34, justify:false,
-  bionic:false, guide:false, rate:1, voice:null, turnFx:'slide', spread:'auto'
+  bionic:false, guide:false, rate:1, voice:null, turnFx:'slide', spread:'auto',
+  widthAuto:true, widthSingle:670, widthSpread:1160
 };
 let settings = {...DEFAULTS};
 try{ Object.assign(settings, JSON.parse(localStorage.getItem('folio-settings')||'{}')); }catch(e){}
@@ -491,22 +500,58 @@ function effSize(){
   if(state.spreadOn) return spreadMetrics().fs;
   return settings.auto ? fitInfo().fs : settings.size;
 }
+function effWidth(){
+  const padX = clamp(innerWidth*0.05, 16, 48);
+  const availW = Math.round(innerWidth - padX*2);
+  const sp = !!state.spreadOn;
+  if(settings.widthAuto){
+    return sp ? spreadMetrics().mw : fitInfo().mw;
+  }
+  if(sp){
+    const minW = Math.min(720, availW);
+    const maxW = Math.min(1600, availW);
+    const w = settings.widthSpread || spreadMetrics().mw;
+    return Math.round(clamp(w, minW, maxW));
+  } else {
+    const minW = Math.min(460, availW);
+    const maxW = Math.min(1100, availW);
+    const w = settings.widthSingle || fitInfo().mw;
+    return Math.round(clamp(w, minW, maxW));
+  }
+}
+function syncWidthSlider(){
+  const wInput = el('widthRange');
+  if(!wInput) return;
+  const padX = clamp(innerWidth*0.05, 16, 48);
+  const availW = Math.round(innerWidth - padX*2);
+  const sp = !!state.spreadOn;
+  const minW = sp ? Math.min(720, availW) : Math.min(460, availW);
+  const maxW = sp ? Math.min(1600, availW) : Math.min(1100, availW);
+  const mw = effWidth();
+
+  wInput.min = minW;
+  wInput.max = maxW;
+  wInput.value = mw;
+  el('widthAuto').classList.toggle('on', settings.widthAuto);
+  el('widthOut').textContent = mw + 'px';
+  if(typeof setFill === 'function') setFill(wInput);
+}
 function coloText(){
   const es = effSize();
+  const mw = effWidth();
   const adv = 0.5 + settings.letter/1000;
   if(state.spreadOn){
     const sm = spreadMetrics();
-    const cpl = Math.round(sm.pageW/(es*adv));
-    return `Two pages · ${es.toFixed(1)}px · ${sm.pageW}px a page · ≈${cpl} characters a line`;
+    const pageW = Math.round((mw - sm.gutter) / 2);
+    const cpl = Math.round(pageW / (es * adv));
+    return `${settings.widthAuto?'Fitted':'Manual'} · Two pages · ${mw}px spread (${pageW}px a page) · ≈${cpl} characters a line`;
   }
-  const padX = clamp(innerWidth*0.05,16,48);
-  const mw = Math.round(Math.min(settings.measure*es, innerWidth - padX*2));
-  const cpl = Math.round(mw/(es*adv));
-  return `${settings.auto?'Fitted':'Manual'} · ${es.toFixed(1)}px · ${mw}px measure · ≈${cpl} characters a line`;
+  const cpl = Math.round(mw / (es * adv));
+  return `${settings.widthAuto?'Fitted':'Manual'} · ${mw}px width · ≈${cpl} characters a line`;
 }
 function applyFit(){
   const f = fitInfo(), sm = spreadMetrics(), sp = !!state.spreadOn, es = effSize();
-  const mw = sp ? sm.mw : f.mw;
+  const mw = effWidth();
   const rs = document.documentElement.style;
   rs.setProperty('--fit-fs', es+'px');
   rs.setProperty('--fit-lh', settings.lineHeight);
@@ -515,11 +560,11 @@ function applyFit(){
   rs.setProperty('--mw', mw+'px');
   rs.setProperty('--gut', sm.gutter+'px');
   el('sizeOut').textContent = es.toFixed(1)+'px';
-  el('msOut').textContent = settings.measure+'em';
-  el('landingColophon').textContent = 'Set for this screen · '+coloText().replace(/^(Fitted|Manual|Two pages) · /,'');
+  el('landingColophon').textContent = 'Set for this screen · '+coloText().replace(/^(Fitted|Manual) · /,'');
   el('colophon').textContent = coloText();
   el('sizeRange').value = es;
   setFill(el('sizeRange'));
+  syncWidthSlider();
   el('stage').classList.toggle('no-arrows', innerWidth - mw < 150);
 }
 
@@ -574,7 +619,7 @@ function refreshCSS(){
 
 /* ---------------- app state ---------------- */
 const state = { book:null, rendition:null, loading:false, posKey:null,
-                spreadOn:false, spreadPending:false, recreating:false, turning:false };
+                spreadOn:false, spreadPending:false, recreating:false, turning:false, settling:false };
 let tocItems = [];
 
 /* ---------------- book lifecycle ---------------- */
@@ -599,16 +644,23 @@ function createRendition(opts={}){
   const spreadOn = effectiveSpread();
   state.spreadOn = spreadOn;
   body.classList.toggle('spread', spreadOn);
+  syncSpreadUI();
+  const sm = spreadMetrics();
   const r = state.book.renderTo('viewer',{
     width:'100%', height:'100%', flow:'paginated',
-    spread: spreadOn ? 'always' : 'none', manager:'default'
+    spread: spreadOn ? 'always' : 'none',
+    minSpreadWidth: 1,
+    gap: sm.gutter,
+    manager:'default'
   });
   r.hooks.content.register(onContent);
   r.on('relocated', onRelocated);
   r.on('displayError', ()=>toast('That section could not be displayed'));
   if(opts.first){
     let hidden=false;
-    const onceHide=()=>{ if(hidden)return; hidden=true; hideLoader(); };
+    const onceHide=async()=>{ if(hidden)return; hidden=true;
+      while(state.settling){ await new Promise(r=>setTimeout(r,50)); }
+      hideLoader(); };
     r.on('rendered', onceHide);
     setTimeout(onceHide, 9000);
   }
@@ -636,9 +688,20 @@ async function openBuffer(buf){
 
     body.classList.add('state-reading');
     body.classList.remove('state-landing');
+    state.spreadOn = effectiveSpread();
+    body.classList.toggle('spread', state.spreadOn);
+    syncSpreadUI();
     applyFit();
     createRendition({first:true});
     await state.rendition.display(target).catch(()=>state.rendition.display(0));
+
+    /* settle pass: epub.js sizes its columns from its very first container
+       measurement, which can race the stage layout on open. Recreating once
+       (silently, under the loader) guarantees it measures the settled DOM. */
+    if(state.spreadOn){
+      state.settling = true;
+      try{ await recreateRendition(); } finally { state.settling = false; }
+    }
 
     buildTOC(book);
     if(!seenHint){ seenHint=true; toast('Swipe or tap the page edges to turn · D toggles two pages'); }
@@ -655,24 +718,29 @@ let seenHint=false;
 
 /* switch between one and two pages (recreates the renderer, keeps position) */
 let spreadBusy=false;
+async function recreateRendition(){
+  let cfi = null;
+  try{ const l=state.rendition.currentLocation(); cfi = l&&l.start ? l.start.cfi : null; }catch(e){}
+  try{ state.rendition && state.rendition.destroy(); }catch(e){}
+  state.rendition = null;
+  el('viewer').innerHTML = '';
+  applyFit();
+  createRendition({});
+  await state.rendition.display(cfi || 0).catch(async()=>{ await state.rendition.display(0); });
+  refreshCSS();
+}
 async function applySpread(){
   const want = effectiveSpread();
   const changed = (want !== state.spreadOn);
   state.spreadOn = want;
   body.classList.toggle('spread', want);
   syncSpreadUI();
+  applyFit();
   if(!changed || !state.rendition || spreadBusy) return;
   if(state.turning){ state.spreadPending = true; return; }
   spreadBusy = true; state.recreating = true;
-  try{
-    let cfi = null;
-    try{ const l=state.rendition.currentLocation(); cfi = l&&l.start ? l.start.cfi : null; }catch(e){}
-    try{ state.rendition.destroy(); }catch(e){}
-    state.rendition = null;
-    createRendition({});
-    if(cfi) await state.rendition.display(cfi).catch(async()=>{ await state.rendition.display(0); });
-    refreshCSS();
-  }finally{
+  try{ await recreateRendition(); }
+  finally{
     spreadBusy = false; state.recreating = false;
     if(state.spreadPending){ state.spreadPending=false; applySpread(); }
   }
@@ -848,95 +916,232 @@ function snapshotPage(){
   if(!frame) return null;
   const doc = frame.contentDocument;
   if(!doc || !doc.documentElement) return null;
-  const r = frame.getBoundingClientRect();
-  if(r.width < 40 || r.height < 40) return null;
+
+  const v = el('viewer');
+  const vRect = v.getBoundingClientRect();
+  const fRect = frame.getBoundingClientRect();
+  if(vRect.width < 40 || vRect.height < 40) return null;
+
+  const relLeft = fRect.left - vRect.left;
+  const relTop = fRect.top - vRect.top;
+
   let html;
   try{ html = '<!DOCTYPE html>' + doc.documentElement.outerHTML; }catch(e){ return null; }
   html = html.replace(/<script[\s\S]*?<\/script>/gi,'');
+
+  return {
+    docHtml: html,
+    vRect: {
+      left: Math.round(vRect.left),
+      top: Math.round(vRect.top),
+      width: Math.round(vRect.width),
+      height: Math.round(vRect.height)
+    },
+    fRect: {
+      width: Math.round(fRect.width),
+      height: Math.round(fRect.height)
+    },
+    relLeft: Math.round(relLeft),
+    relTop: Math.round(relTop),
+    isSpread: !!state.spreadOn
+  };
+}
+
+function createSnapBox(snapInfo, cropLeft, cropWidth){
+  const box = document.createElement('div');
+  box.className = 'snap-box';
+  box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
+
   const snap = document.createElement('iframe');
-  snap.className = 'snap';
+  snap.className = 'snap-iframe';
   snap.setAttribute('scrolling','no');
   snap.setAttribute('aria-hidden','true');
-  Object.assign(snap.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
-  return {snap, r, html};
+  snap.setAttribute('tabindex','-1');
+  const innerLeft = snapInfo.relLeft - cropLeft;
+  snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${snapInfo.fRect.width}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
+  box.appendChild(snap);
+
+  return { box, snap };
 }
-function mountSnap(part, z){
-  if(z) part.snap.style.zIndex = String(z);
-  document.body.appendChild(part.snap);
-  return new Promise(res=>{
-    let done=false;
-    const fin=()=>{ if(done)return; done=true; requestAnimationFrame(()=>res(true)); };
-    part.snap.addEventListener('load', fin, {once:true});
-    setTimeout(fin, 400);
-    part.snap.srcdoc = part.html;
-  });
+
+function populateSnap(snap, html){
+  try{
+    const sDoc = snap.contentDocument;
+    if(sDoc){
+      sDoc.open();
+      sDoc.write(html);
+      sDoc.close();
+      return;
+    }
+  }catch(e){}
+  snap.srcdoc = html;
 }
-/* true book flip for spreads: only the leading page lifts, and its back
-   is the opposite page of the NEXT spread (snapshotted after advancing) */
-function fxSlide(dir, part){
-  const dur = 460, ease = 'cubic-bezier(.4,.1,.3,1)';
-  part.snap.style.boxShadow = (dir>0 ? '-20px' : '20px') + ' 0 32px rgba(25,18,8,.22)';
-  const a = part.snap.animate(
-    [{transform:'translateX(0)'},{transform:`translateX(${dir>0?-103:103}%)`}],
-    {duration:dur, easing:ease, fill:'forwards'});
-  return a.finished.catch(()=>{});
+
+async function fxSlide(dir, snapInfo){
+  const dur = 400;
+  const ease = 'cubic-bezier(.35,.1,.25,1)';
+  const { vRect } = snapInfo;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'snap-slider';
+  wrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;box-shadow:${dir > 0 ? '-16px' : '16px'} 0 28px rgba(25,18,8,.2);will-change:transform;`;
+
+  const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+  populateSnap(snap, snapInfo.docHtml);
+
+  const targetX = dir > 0 ? -vRect.width - 20 : vRect.width + 20;
+  const anim = wrap.animate(
+    [{ transform: 'translateX(0)' }, { transform: `translateX(${targetX}px)` }],
+    { duration: dur, easing: ease, fill: 'forwards' }
+  );
+
+  try{ await anim.finished; }catch(e){}
+  finally{ wrap.remove(); }
 }
-function fxFlip(dir, part, spread){
-  const r = part.r;
-  const leafW = spread ? Math.round(r.width/2) : r.width;
-  const hx = dir>0 ? (spread ? r.left + leafW : r.left) : r.left;
-  // front face carries the painted clone of the old page
-  const front = document.createElement('div'); front.className='face front';
-  Object.assign(part.snap.style,{position:'absolute',
-    left:(dir>0 ? -leafW : 0)+'px', top:'0',
-    width:r.width+'px', height:r.height+'px', boxShadow:'none', zIndex:''});
-  front.appendChild(part.snap);
-  // back face is plain paper — it reads as the back of the leaf
-  const back = document.createElement('div'); back.className='face back paper';
-  const leaf = document.createElement('div'); leaf.className='leaf';
-  leaf.style.transformOrigin = (dir>0 ? 'left' : 'right') + ' center';
-  leaf.appendChild(front); leaf.appendChild(back);
-  const flip = document.createElement('div'); flip.className='flip3d';
-  Object.assign(flip.style,{left:hx+'px',top:r.top+'px',width:leafW+'px',height:r.height+'px'});
-  flip.appendChild(leaf);
-  // shadow cast on the page being revealed
-  const cast = document.createElement('div'); cast.className='cast';
-  Object.assign(cast.style,{left:hx+'px',top:r.top+'px',width:leafW+'px',height:r.height+'px',
-    background: dir>0 ? 'linear-gradient(to right, rgba(28,21,10,.30), rgba(28,21,10,0) 62%)'
-                      : 'linear-gradient(to left,  rgba(28,21,10,.30), rgba(28,21,10,0) 62%)'});
-  document.body.appendChild(cast);
-  document.body.appendChild(flip);
-  const dur = spread ? 760 : 620;
-  const a1 = leaf.animate(
-    [{transform:'rotateY(0deg)'},{transform:`rotateY(${dir>0?-178:178}deg)`}],
-    {duration:dur, easing:'cubic-bezier(.42,.05,.3,1)', fill:'forwards'});
-  part.snap.animate(
-    [{filter:'brightness(1)'},{filter:'brightness(.8)',offset:.5},{filter:'brightness(.95)'}],
-    {duration:dur, easing:'ease-in-out'});
-  const a2 = cast.animate([{opacity:0},{opacity:1,offset:.45},{opacity:0}],{duration:dur,easing:'ease-in-out'});
-  const a3 = flip.animate([{opacity:1,offset:.88},{opacity:0}],{duration:dur,easing:'ease-in'});
-  return Promise.all([a1.finished,a2.finished,a3.finished]).catch(()=>{})
-    .finally(()=>{ flip.remove(); cast.remove(); });
+
+async function fxFlip(dir, snapInfo){
+  const { vRect, isSpread } = snapInfo;
+  const dur = isSpread ? 680 : 540;
+  const ease = 'cubic-bezier(.4, .08, .25, 1)';
+
+  if(!isSpread){
+    const flipWrap = document.createElement('div');
+    flipWrap.className = 'flip3d';
+    flipWrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;perspective:2400px;pointer-events:none;z-index:63;`;
+
+    const leaf = document.createElement('div');
+    leaf.className = 'leaf';
+    leaf.style.transformOrigin = (dir > 0 ? 'left' : 'right') + ' center';
+
+    const front = document.createElement('div');
+    front.className = 'face front';
+    front.style.boxShadow = (dir > 0 ? '-10px' : '10px') + ' 0 25px rgba(25,18,8,.2)';
+    const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
+    front.appendChild(box);
+
+    const back = document.createElement('div');
+    back.className = 'face back paper';
+
+    leaf.appendChild(front);
+    leaf.appendChild(back);
+    flipWrap.appendChild(leaf);
+
+    const cast = document.createElement('div');
+    cast.className = 'cast';
+    cast.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;pointer-events:none;z-index:62;background:${dir > 0 ? 'linear-gradient(to right, rgba(28,21,10,.32), rgba(28,21,10,0) 65%)' : 'linear-gradient(to left, rgba(28,21,10,.32), rgba(28,21,10,0) 65%)'};`;
+
+    document.body.appendChild(cast);
+    document.body.appendChild(flipWrap);
+    populateSnap(snap, snapInfo.docHtml);
+
+    const targetRot = dir > 0 ? -178 : 178;
+    const leafAnim = leaf.animate(
+      [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${targetRot}deg)` }],
+      { duration: dur, easing: ease, fill: 'forwards' }
+    );
+    const castAnim = cast.animate(
+      [{ opacity: 0 }, { opacity: 1, offset: 0.45 }, { opacity: 0 }],
+      { duration: dur, easing: 'ease-in-out' }
+    );
+    const fadeAnim = flipWrap.animate(
+      [{ opacity: 1, offset: 0.9 }, { opacity: 0 }],
+      { duration: dur, easing: 'ease-in' }
+    );
+
+    try{ await Promise.all([leafAnim.finished, castAnim.finished, fadeAnim.finished]); }catch(e){}
+    finally{ flipWrap.remove(); cast.remove(); }
+  } else {
+    // Two-page spread flip
+    const halfW = Math.round(vRect.width / 2);
+    const rightW = vRect.width - halfW;
+    const leafW = dir > 0 ? rightW : halfW;
+    const leafLeft = dir > 0 ? vRect.left + halfW : vRect.left;
+    const leafCropLeft = dir > 0 ? halfW : 0;
+    const origin = dir > 0 ? 'left center' : 'right center';
+
+    // Static freeze of the non-flipping page so it stays visible while leaf turns
+    const staticW = dir > 0 ? halfW : rightW;
+    const staticLeft = dir > 0 ? vRect.left : vRect.left + halfW;
+    const staticCropLeft = dir > 0 ? 0 : halfW;
+
+    const staticWrap = document.createElement('div');
+    staticWrap.className = 'snap-box';
+    staticWrap.style.cssText = `position:fixed;left:${staticLeft}px;top:${vRect.top}px;width:${staticW}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;`;
+    const { box: staticBox, snap: staticSnap } = createSnapBox(snapInfo, staticCropLeft, staticW);
+    staticWrap.appendChild(staticBox);
+    document.body.appendChild(staticWrap);
+    populateSnap(staticSnap, snapInfo.docHtml);
+
+    // 3D flipping leaf
+    const flipWrap = document.createElement('div');
+    flipWrap.className = 'flip3d';
+    flipWrap.style.cssText = `position:fixed;left:${leafLeft}px;top:${vRect.top}px;width:${leafW}px;height:${vRect.height}px;perspective:2400px;pointer-events:none;z-index:63;`;
+
+    const leaf = document.createElement('div');
+    leaf.className = 'leaf';
+    leaf.style.transformOrigin = origin;
+
+    const front = document.createElement('div');
+    front.className = 'face front';
+    front.style.boxShadow = (dir > 0 ? '-12px' : '12px') + ' 0 30px rgba(25,18,8,.22)';
+    const { box: leafBox, snap: leafSnap } = createSnapBox(snapInfo, leafCropLeft, leafW);
+    front.appendChild(leafBox);
+
+    const back = document.createElement('div');
+    back.className = 'face back paper';
+
+    leaf.appendChild(front);
+    leaf.appendChild(back);
+    flipWrap.appendChild(leaf);
+
+    const cast = document.createElement('div');
+    cast.className = 'cast';
+    cast.style.cssText = `position:fixed;left:${leafLeft}px;top:${vRect.top}px;width:${leafW}px;height:${vRect.height}px;pointer-events:none;z-index:62;background:${dir > 0 ? 'linear-gradient(to right, rgba(28,21,10,.35), rgba(28,21,10,0) 65%)' : 'linear-gradient(to left, rgba(28,21,10,.35), rgba(28,21,10,0) 65%)'};`;
+
+    document.body.appendChild(cast);
+    document.body.appendChild(flipWrap);
+    populateSnap(leafSnap, snapInfo.docHtml);
+
+    const targetRot = dir > 0 ? -178 : 178;
+    const leafAnim = leaf.animate(
+      [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${targetRot}deg)` }],
+      { duration: dur, easing: ease, fill: 'forwards' }
+    );
+    const castAnim = cast.animate(
+      [{ opacity: 0 }, { opacity: 1, offset: 0.45 }, { opacity: 0 }],
+      { duration: dur, easing: 'ease-in-out' }
+    );
+    const fadeAnim = flipWrap.animate(
+      [{ opacity: 1, offset: 0.9 }, { opacity: 0 }],
+      { duration: dur, easing: 'ease-in' }
+    );
+
+    try{ await Promise.all([leafAnim.finished, castAnim.finished, fadeAnim.finished]); }catch(e){}
+    finally{
+      flipWrap.remove();
+      staticWrap.remove();
+      cast.remove();
+    }
+  }
 }
+
 async function playTurnFx(dir, fx){
-  const part = snapshotPage();
-  if(!part || !part.snap.animate){
+  const snapInfo = snapshotPage();
+  if(!snapInfo){
     (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
     return;
   }
   state.turning = true; body.classList.add('turning');
   try{
-    // 1 — freeze the old page on top of the live view
-    await mountSnap(part, 61);
-    // 2 — advance underneath and wait until the new page is really rendered
     const arrived = nextRelocated(1500);
-    (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-    await arrived;
-    await new Promise(res=>setTimeout(res,50));   // let the fresh iframe settle one frame
-    // 3 — animate the old page away, revealing the new one beneath
-    if(fx === 'slide') await fxSlide(dir, part);
-    else               await fxFlip(dir, part, state.spreadOn);
-    part.snap.remove();
+    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+
+    if(fx === 'slide') await fxSlide(dir, snapInfo);
+    else               await fxFlip(dir, snapInfo);
+
+    await Promise.all([arrived, moveP]);
   } finally {
     state.turning = false; body.classList.remove('turning');
     if(state.spreadPending){ state.spreadPending=false; applySpread(); }
@@ -1114,8 +1319,8 @@ function onKey(e){
     case 'd': {
       const order=['auto','on','off'];
       settings.spread=order[(order.indexOf(settings.spread)+1)%3];
-      save(); syncSpreadUI(); relayout();
-      const on=effectiveSpread();
+      save(); relayout();
+      const on=state.spreadOn;
       toast('Layout: '+(settings.spread==='auto' ? 'Auto — '+(on?'two pages':'one page')
         : settings.spread==='on' ? (on?'Two pages':'Two pages (screen too narrow — keeping one)') : 'One page'));
       break;
@@ -1131,8 +1336,8 @@ function onKey(e){
 addEventListener('keydown',onKey);
 
 /* ---------------- relayout ---------------- */
-function relayout(){
-  applySpread();
+async function relayout(){
+  await applySpread();
   applyFit(); refreshCSS();
   if(state.rendition && !state.recreating && !state.turning){
     const w=el('wrap');
@@ -1188,7 +1393,7 @@ function syncTurnSeg(){
     b.classList.toggle('sel', b.dataset.fx === (settings.turnFx||'slide')));
 }
 function syncSpreadUI(){
-  el('btnSpread').setAttribute('aria-pressed', effectiveSpread() ? 'true':'false');
+  el('btnSpread').setAttribute('aria-pressed', state.spreadOn ? 'true':'false');
   document.querySelectorAll('#spreadSeg button').forEach(b=>
     b.classList.toggle('sel', b.dataset.spread === (settings.spread||'auto')));
 }
@@ -1201,6 +1406,19 @@ function nudgeSize(d){
   if(settings.auto)settings.auto=false;
   settings.size=clamp(Math.round(((settings.auto?fitInfo().fs:settings.size)+d)*10)/10,15,28);
   save(); syncSize(); relayout();
+}
+function nudgeWidth(d){
+  if(settings.widthAuto) settings.widthAuto = false;
+  const padX = clamp(innerWidth*0.05, 16, 48);
+  const availW = Math.round(innerWidth - padX*2);
+  const sp = !!state.spreadOn;
+  const minW = sp ? Math.min(720, availW) : Math.min(460, availW);
+  const maxW = sp ? Math.min(1600, availW) : Math.min(1100, availW);
+  const cur = effWidth();
+  const nw = clamp(cur + d, minW, maxW);
+  if(sp) settings.widthSpread = nw;
+  else settings.widthSingle = nw;
+  save(); applyFit(); relayout();
 }
 function buildVoices(){
   if(!('speechSynthesis' in window))return;
@@ -1225,10 +1443,9 @@ function syncControls(){
   el('lhRange').value=settings.lineHeight; el('lhOut').textContent=(+settings.lineHeight).toFixed(2);
   el('lsRange').value=settings.letter;     el('lsOut').textContent=(settings.letter/1000).toFixed(3)+'em';
   el('wsRange').value=settings.word;       el('wsOut').textContent=(settings.word/1000).toFixed(3)+'em';
-  el('msRange').value=settings.measure;
   el('rateRange').value=settings.rate;     el('rateOut').textContent='×'+(+settings.rate).toFixed(2);
-  ['lhRange','lsRange','wsRange','msRange','rateRange'].forEach(id=>setFill(el(id)));
-  syncSize(); syncTurnSeg(); syncSpreadUI(); buildVoices();
+  ['lhRange','lsRange','wsRange','rateRange'].forEach(id=>setFill(el(id)));
+  syncSize(); syncWidthSlider(); syncTurnSeg(); syncSpreadUI(); buildVoices();
 }
 
 /* ---------------- wiring ---------------- */
@@ -1251,10 +1468,22 @@ el('sizeAuto').addEventListener('click',()=>{ settings.auto=true; save(); syncSi
 el('sizeRange').addEventListener('input',e=>{
   settings.auto=false; settings.size=+e.target.value; save(); syncSize(); relayout();
 });
+el('widthMinus').addEventListener('click',()=>nudgeWidth(-30));
+el('widthPlus').addEventListener('click',()=>nudgeWidth(30));
+el('widthAuto').addEventListener('click',()=>{
+  settings.widthAuto = true;
+  save(); applyFit(); relayout();
+});
+el('widthRange').addEventListener('input',e=>{
+  settings.widthAuto = false;
+  const val = +e.target.value;
+  if(state.spreadOn) settings.widthSpread = val;
+  else settings.widthSingle = val;
+  save(); applyFit(); relayout();
+});
 el('lhRange').addEventListener('input',e=>{ settings.lineHeight=+e.target.value; el('lhOut').textContent=settings.lineHeight.toFixed(2); setFill(e.target); save(); relayout(); });
 el('lsRange').addEventListener('input',e=>{ settings.letter=+e.target.value; el('lsOut').textContent=(settings.letter/1000).toFixed(3)+'em'; setFill(e.target); save(); relayout(); });
 el('wsRange').addEventListener('input',e=>{ settings.word=+e.target.value; el('wsOut').textContent=(settings.word/1000).toFixed(3)+'em'; setFill(e.target); save(); relayout(); });
-el('msRange').addEventListener('input',e=>{ settings.measure=+e.target.value; setFill(e.target); save(); relayout(); });
 el('rateRange').addEventListener('input',e=>{ settings.rate=+e.target.value; el('rateOut').textContent='×'+settings.rate.toFixed(2); setFill(e.target); save(); });
 el('swBionic').addEventListener('change',e=>setBionic(e.target.checked));
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
@@ -1265,14 +1494,15 @@ document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('clic
   settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
 }));
-document.querySelectorAll('#spreadSeg button').forEach(b=>b.addEventListener('click',()=>{
-  settings.spread=b.dataset.spread; save(); relayout();
+document.querySelectorAll('#spreadSeg button').forEach(b=>b.addEventListener('click', async ()=>{
+  settings.spread=b.dataset.spread; save(); await relayout();
   toast('Layout: '+(settings.spread==='auto'?'Auto':settings.spread==='on'?'Two pages':'One page'));
 }));
-el('btnSpread').addEventListener('click',()=>{
-  settings.spread = (settings.spread==='on') ? 'off' : 'on';
-  save(); relayout();
-  const on=effectiveSpread();
+el('btnSpread').addEventListener('click', async ()=>{
+  const isCurrentlyOn = state.spreadOn;
+  settings.spread = isCurrentlyOn ? 'off' : 'on';
+  save(); await relayout();
+  const on=state.spreadOn;
   toast(settings.spread==='on' ? (on?'Two pages':'Screen too narrow — keeping one page') : 'One page');
 });
 
