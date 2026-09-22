@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Folio — a reading room for EPUB</title>
+<title>Folio — EPUB reader for your books</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -79,7 +79,14 @@ body:not(.state-reading) #topbar,body:not(.state-reading) #bottombar,
 body:not(.state-reading) #stage{opacity:0;visibility:hidden;pointer-events:none}
 body.chrome-hidden #topbar{transform:translateY(-101%)}
 body.chrome-hidden #bottombar{transform:translateY(101%)}
-body.chrome-hidden .arrow{opacity:0!important;pointer-events:none}
+/* note: side arrows stay on stage-hover even while the bars are hidden,
+   so mouse users can still turn pages without summoning the top bar */
+/* slim edge shadows hinting at the hidden bars (desktop clue) */
+#topHint,#botHint{position:fixed;left:0;right:0;height:5px;z-index:29;pointer-events:none;
+  opacity:0;transition:opacity .45s ease}
+#topHint{top:0;background:linear-gradient(to bottom,rgba(38,33,26,.30),transparent)}
+#botHint{bottom:0;background:linear-gradient(to top,rgba(38,33,26,.30),transparent)}
+body.state-reading.chrome-hidden #topHint,body.state-reading.chrome-hidden #botHint{opacity:1}
 
 #topbar{top:0;display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:calc(8px + env(safe-area-inset-top)) 14px 8px;height:calc(60px + env(safe-area-inset-top));
@@ -96,18 +103,26 @@ body.chrome-hidden .arrow{opacity:0!important;pointer-events:none}
 #btnFullscreen.is-fs .ic-fs-exit{display:block}
 .aa-btn{width:auto;padding:0 13px;height:38px;font:600 16px var(--serif);border-radius:10px}
 .aa-btn:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}
-#btnSpeak.live::after{content:'';position:absolute;top:7px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
-#btnSpeak .ic-pause{display:none}
-#btnSpeak.on .ic-pause{display:block}
-#btnSpeak.on .ic-idle{display:none}
-#btnSpeak[disabled]{opacity:.35;pointer-events:none}
-
 #stage{position:fixed;inset:0;display:grid;grid-template-columns:1fr minmax(0,var(--mw,640px)) 1fr;
-  align-items:stretch;padding:calc(68px + env(safe-area-inset-top)) 16px calc(62px + env(safe-area-inset-bottom));
+  align-items:stretch;padding:calc(var(--pad-y, 28px) + 38px + env(safe-area-inset-top)) 16px calc(var(--pad-y, 28px) + 32px + env(safe-area-inset-bottom));
   transition:opacity .35s,visibility .35s}
 #wrap{grid-column:2;grid-row:1;height:100%;position:relative;animation:pagein .5s cubic-bezier(.22,.7,.25,1)}
 @keyframes pagein{from{opacity:0;transform:scale(.985)}}
-#viewer{width:100%;height:100%;background:var(--page)}
+#viewer{width:100%;height:100%;background:var(--page);touch-action:pan-y}
+
+.running-header{position:absolute;top:-24px;left:0;right:0;height:20px;display:flex;justify-content:space-between;
+  align-items:center;padding:0 8px;pointer-events:none;user-select:none;z-index:10;opacity:.75;}
+.run-head-col{font:600 10.5px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%;}
+body:not(.spread) #runningHeader{justify-content:center;}
+body:not(.spread) #runHeadLeft{display:none;}
+body:not(.spread) #runHeadRight{max-width:90%;}
+
+.bookmark-ribbon{position:absolute;right:28px;top:-6px;z-index:22;cursor:pointer;color:var(--hairS);
+  transition:transform .25s cubic-bezier(.34,1.56,.64,1),color .2s;transform:translateY(-8px);padding:0;}
+.bookmark-ribbon:hover{transform:translateY(-2px);color:var(--accent);}
+.bookmark-ribbon.bookmarked{transform:translateY(0);color:var(--accent);}
+
 .arrow{grid-row:1;align-self:center;justify-self:center;z-index:25;width:46px;height:46px;border-radius:50%;
   display:grid;place-items:center;border:1px solid var(--hair);color:var(--ink);
   background:color-mix(in srgb,var(--page) 92%,transparent);opacity:0;transition:opacity .3s,border-color .2s,transform .15s}
@@ -122,8 +137,12 @@ body:not(.state-reading) .arrow{opacity:0!important;pointer-events:none}
 #bottombar{bottom:0;display:flex;align-items:center;gap:14px;padding:12px 0 16px;
   width:min(var(--mw,640px),calc(100vw - 32px));left:50%;transform:translateX(-50%)}
 body.chrome-hidden #bottombar{transform:translate(-50%,101%)}
+.bb-meta{display:flex;align-items:center;gap:7px;min-width:0;flex:0 1 auto;max-width:44%;overflow:hidden;}
 .bb-chapter{font:600 10.5px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;max-width:32%}
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bb-pages{font:600 11px var(--sans);color:var(--muted);white-space:nowrap;}
+.bb-time{font:400 11px var(--sans);color:var(--muted);opacity:.85;white-space:nowrap;}
+.bb-dot{color:var(--hairS);font-size:10px;}
 #rail{flex:1;position:relative;height:22px;cursor:pointer}
 #rail::before{content:'';position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;background:var(--hair)}
 #railFill{position:absolute;left:0;top:50%;height:2px;margin-top:-1px;background:var(--accent);width:0}
@@ -212,18 +231,105 @@ select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--ha
   body.sheet-open #sheet{transform:translateY(0)}
 }
 
-/* ---------- toc drawer ---------- */
-#toc{position:fixed;top:0;left:0;bottom:0;width:322px;max-width:88vw;z-index:46;background:var(--page);
+/* ---------- toc & bookmarks drawer ---------- */
+#toc{position:fixed;top:0;left:0;bottom:0;width:340px;max-width:88vw;z-index:46;background:var(--page);
   border-right:1px solid var(--hair);transform:translateX(-106%);transition:transform .4s cubic-bezier(.32,.72,.24,1);
   display:flex;flex-direction:column}
 body.toc-open #toc{transform:translateX(0)}
+.toc-tab-row{display:flex;align-items:center;gap:4px;background:color-mix(in srgb,var(--ink) 6%,transparent);
+  padding:3px;border-radius:10px;margin-right:8px;}
+.toc-tab-btn{padding:5px 12px;font:600 12px var(--sans);border-radius:8px;color:var(--muted);cursor:pointer;
+  transition:background .15s,color .15s;}
+.toc-tab-btn.active{background:var(--page);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.bm-badge{font-size:10px;background:var(--accent);color:#fff;border-radius:999px;padding:1px 6px;margin-left:4px;display:none;}
+.bm-badge.has-items{display:inline-block;}
 #tocList{list-style:none;margin:0;padding:8px 0;overflow-y:auto;flex:1}
 #tocList button{display:block;width:100%;text-align:left;padding:11px 20px;font:400 14.5px/1.4 var(--serif);color:var(--ink)}
 #tocList button:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 #tocList li.cur button{color:var(--accent);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
 #tocList .empty{padding:22px 20px;font:italic 400 14px var(--serif);color:var(--muted)}
+.bm-list{list-style:none;margin:0;padding:12px;overflow-y:auto;flex:1;}
+.bm-item{padding:12px 14px;border-radius:10px;border:1px solid var(--hair);margin-bottom:8px;cursor:pointer;
+  position:relative;transition:background .15s,border-color .15s;}
+.bm-item:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);border-color:var(--hairS);}
+.bm-item-head{display:flex;justify-content:space-between;align-items:center;font:600 11px var(--sans);color:var(--accent);margin-bottom:4px;letter-spacing:.08em;text-transform:uppercase;}
+.bm-item-text{font:italic 400 12.5px/1.45 var(--serif);color:var(--ink);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.bm-del-btn{color:var(--muted);opacity:.5;cursor:pointer;padding:2px 6px;font-size:13px;border-radius:4px;}
+.bm-del-btn:hover{opacity:1;color:#d32f2f;background:color-mix(in srgb,#d32f2f 10%,transparent);}
+
+/* ---------- search drawer ---------- */
+#searchDrawer{position:fixed;top:0;right:0;bottom:0;width:min(380px,92vw);background:var(--page);
+  border-left:1px solid var(--hair);box-shadow:-20px 0 45px rgba(25,18,8,.18);z-index:46;
+  display:flex;flex-direction:column;transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1);}
+body.search-open #searchDrawer{transform:translateX(0);}
+.search-input-wrap{display:flex;align-items:center;gap:10px;margin:14px 18px 8px;padding:8px 14px;
+  background:color-mix(in srgb,var(--ink) 5%,transparent);border:1px solid var(--hairS);border-radius:12px;}
+.search-input-wrap input{border:none;background:none;font:400 14px var(--sans);color:var(--ink);width:100%;outline:none;}
+.search-clear-btn{font-size:12px;color:var(--muted);opacity:.6;cursor:pointer;padding:2px 6px;display:none;}
+.search-clear-btn.visible{display:block;}
+.search-meta{font:500 11.5px var(--sans);color:var(--muted);padding:4px 20px 10px;}
+.search-results{flex:1;overflow-y:auto;list-style:none;margin:0;padding:0 12px 24px;}
+.search-res-item{padding:12px 14px;border-radius:10px;cursor:pointer;transition:background .15s;margin-bottom:4px;border:1px solid transparent;}
+.search-res-item:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);border-color:var(--hair);}
+.search-res-ch{font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:4px;}
+.search-res-snip{font:400 13px/1.5 var(--serif);color:var(--ink);}
+.search-res-snip mark{background:var(--sel);color:inherit;border-radius:2px;padding:0 2px;}
+
+/* ---------- recent shelf on landing ---------- */
+.recent-shelf{margin-top:28px;width:100%;max-width:620px;}
+.recent-title{font:600 11.5px var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;}
+.recent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;justify-content:center;}
+.recent-card{display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--ink) 4%,transparent);
+  border:1px solid var(--hairS);border-radius:14px;padding:12px 16px;cursor:pointer;text-align:left;
+  transition:transform .15s,background .15s,border-color .15s;}
+.recent-card:hover{transform:translateY(-2px);background:color-mix(in srgb,var(--ink) 8%,transparent);border-color:var(--ink);}
+.recent-cover-art{width:36px;height:48px;background:var(--ink);border-radius:4px;display:grid;place-items:center;
+  color:var(--page);font:700 16px var(--serif);position:relative;box-shadow:2px 2px 8px rgba(0,0,0,.2);flex-shrink:0;}
+.recent-spine-edge{position:absolute;left:0;top:0;bottom:0;width:4px;background:rgba(255,255,255,.2);border-radius:4px 0 0 4px;}
+.recent-info{min-width:0;flex:1;}
+.recent-book-title{font:600 13.5px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.recent-book-author{font:400 12px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+.recent-progress-bar{height:4px;background:var(--hair);border-radius:2px;margin-top:6px;overflow:hidden;}
+.recent-progress-fill{height:100%;background:var(--accent);border-radius:2px;}
+.recent-meta{font:500 10.5px var(--sans);color:var(--muted);margin-top:4px;}
 #scrim{position:fixed;inset:0;z-index:44;background:rgba(22,16,8,.34);opacity:0;pointer-events:none;transition:opacity .3s}
 #scrim.show{opacity:1;pointer-events:auto}
+#scrim.clear{background:transparent}
+/* selection lookup toolbar */
+#selBar{position:fixed;z-index:65;min-width:236px;max-width:300px;background:var(--ink);color:var(--page);
+  border-radius:12px;padding:6px;box-shadow:0 14px 34px -10px rgba(20,12,4,.55);
+  opacity:0;visibility:hidden;transform:translate(-50%,4px);transition:opacity .18s,transform .18s,visibility .18s}
+#selBar.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.sel-row{display:flex;gap:2px}
+.sel-btn{flex:1;font:600 12px var(--sans);padding:8px 6px;border-radius:8px;color:var(--page);white-space:nowrap}
+.sel-btn:hover{background:rgba(255,255,255,.14)}
+#selDef{font:400 12.5px/1.5 var(--serif);padding:8px 10px 6px;border-top:1px solid rgba(255,255,255,.18);
+  margin-top:4px;max-height:130px;overflow-y:auto}
+/* keyboard shortcuts dialog */
+#helpOverlay{position:fixed;inset:0;z-index:48;display:grid;place-items:center;padding:20px;
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s,visibility .3s}
+body.help-open #helpOverlay{opacity:1;visibility:visible;pointer-events:auto}
+.help-card{width:min(430px,94vw);max-height:84dvh;overflow-y:auto;background:var(--page);
+  border:1px solid var(--hair);border-radius:16px;box-shadow:0 30px 70px -20px rgba(30,20,8,.5)}
+.help-list{margin:0;padding:4px 20px 18px}
+.help-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:8px 0;border-bottom:1px solid var(--hair)}
+.help-list>div:last-child{border-bottom:none}
+.help-list dt{margin:0}
+.help-list dd{margin:0;font:400 13px var(--sans);color:var(--muted);text-align:right}
+kbd{display:inline-block;min-width:22px;text-align:center;font:600 11.5px var(--sans);
+  padding:3px 7px;border:1px solid var(--hairS);border-bottom-width:2px;border-radius:6px;
+  background:color-mix(in srgb,var(--page) 60%,var(--desk));color:var(--ink)}
+.btn kbd{margin-left:6px}
+/* collapsed advanced section (power options stay out of the way) */
+details.adv summary{cursor:pointer;list-style:none;display:flex;align-items:center;
+  justify-content:space-between;user-select:none;-webkit-user-select:none}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary::after{content:'+';font:500 16px var(--sans);color:var(--muted)}
+details.adv[open] summary::after{content:'–'}
+details.adv .adv-body{margin-top:12px}
+details.adv .adv-group{margin-top:20px}
+details.adv .adv-group:first-child{margin-top:2px}
 
 /* ---------- overlays ---------- */
 #drop{position:fixed;inset:0;z-index:90;display:none;background:color-mix(in srgb,var(--desk) 72%,transparent);backdrop-filter:blur(6px)}
@@ -251,19 +357,78 @@ body.guide-on #guide{opacity:1}
 #guide::after{content:'';position:absolute;left:0;right:0;top:50%;height:1px;margin-top:-1px;
   background:color-mix(in srgb,var(--accent) 42%,transparent)}
 
-/* ---------- page-turn fx ---------- */
+/* ---------- physical page-turn engine ---------- */
 .snap-slider{position:fixed;overflow:hidden;pointer-events:none;z-index:61;will-change:transform;background:var(--page)}
 .snap-box{position:absolute;overflow:hidden;background:var(--page);pointer-events:none}
 .snap-iframe{position:absolute;border:none;pointer-events:none;background:var(--page)}
-.flip3d{position:fixed;pointer-events:none;perspective:2400px;z-index:63}
-.leaf{position:absolute;inset:0;transform-style:preserve-3d;will-change:transform}
-.leaf .face{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--page)}
-.leaf .face.back{transform:rotateY(180deg)}
-.leaf .face.paper{background:linear-gradient(105deg,
-  color-mix(in srgb,var(--page) 88%,#6b5b3e),var(--page) 14%,
-  var(--page) 86%,color-mix(in srgb,var(--page) 80%,#6b5b3e));
-  box-shadow:inset 0 0 42px rgba(45,35,18,.10);border:1px solid var(--hair)}
-.cast{position:fixed;pointer-events:none;opacity:0;z-index:62}
+
+.pt-compositor{
+  position:fixed;pointer-events:none;z-index:62;overflow:hidden;
+  perspective:2400px;-webkit-perspective:2400px;
+  background:var(--desk);contain:paint;
+}
+
+/* Stationary base layer & revealed page layer */
+.pt-stationary-leaf{
+  position:absolute;top:0;bottom:0;overflow:hidden;z-index:1;background:var(--page);
+}
+.pt-underneath-leaf{
+  position:absolute;top:0;bottom:0;overflow:hidden;z-index:2;background:var(--page);
+}
+
+/* Center book gutter / spine valley shadow */
+.pt-spine-valley{
+  position:absolute;top:0;bottom:0;width:36px;margin-left:-18px;z-index:3;pointer-events:none;
+  background:linear-gradient(to right,
+    rgba(15,10,5,0) 0%,
+    rgba(15,10,5,0.08) 25%,
+    rgba(15,10,5,0.22) 50%,
+    rgba(15,10,5,0.08) 75%,
+    rgba(15,10,5,0) 100%);
+}
+
+/* Ambient shadow cast on stationary pages */
+.pt-ambient-shadow{
+  position:absolute;top:0;bottom:0;z-index:4;pointer-events:none;
+  will-change:opacity;
+}
+
+/* ---- Fold-sheet page model (spec §8-9): the turning sheet stays flat and
+   shrinks via clip-path as fold x sweeps; only a small paper flap curls.
+   Live iframes are NEVER 3D-rotated (Chromium flattens them -> mirrored /
+   upside-down text), so the flap is plain paper. ---- */
+.pt-sheet{
+  position:absolute;top:0;bottom:0;overflow:hidden;z-index:10;background:var(--page);
+  will-change:clip-path;
+}
+.pt-flap{
+  position:absolute;top:0;bottom:0;z-index:11;pointer-events:none;
+  background:linear-gradient(105deg,
+    color-mix(in srgb,var(--page) 86%,#6b5b3e),var(--page) 22%,
+    var(--page) 78%,color-mix(in srgb,var(--page) 78%,#6b5b3e));
+  box-shadow:inset 0 0 26px rgba(45,35,18,.12);
+  transform-style:preserve-3d;-webkit-transform-style:preserve-3d;
+  will-change:transform,opacity,left;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+}
+/* Gaussian fold shadow S(d) = A·exp(-d²/2σ²), centred on the fold */
+.pt-fold-shadow{
+  position:absolute;top:0;bottom:0;pointer-events:none;z-index:12;
+  background:radial-gradient(closest-side, rgba(15,10,5,.38), rgba(15,10,5,0) 72%);
+  opacity:0;will-change:opacity,left;
+}
+/* narrow specular highlight riding the fold crease */
+.pt-curl-highlight{
+  position:absolute;top:0;bottom:0;width:3px;pointer-events:none;z-index:13;
+  background:linear-gradient(to right, rgba(255,255,255,0), rgba(255,252,244,.85), rgba(255,255,255,0));
+  opacity:0;will-change:opacity,left;
+}
+.pt-drag-capture{
+  position:fixed;inset:0;z-index:9999;
+  cursor:grabbing;cursor:-webkit-grabbing;
+  touch-action:none;user-select:none;-webkit-user-select:none;
+  background:transparent;
+}
 body.turning .arrow{opacity:0!important;pointer-events:none}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
@@ -275,13 +440,14 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
 <div id="landing">
   <div id="ghost">F</div>
   <div class="landing-card">
-    <p class="kicker">A reading room, right in the browser</p>
+    <p class="kicker">An EPUB reader for your books</p>
     <h1 class="wordmark">Folio<span class="dot">.</span></h1>
     <div class="rule-double"></div>
-    <p id="lede">Open any EPUB and Folio sets it the way a good paperback would — type sized to your
+    <p id="lede">Folio is an EPUB reader that helps you read books comfortably — open any
+      DRM-free .epub and it sets the text the way a good paperback would: type sized to your
       screen, a measure your eye can hold, leading with room to breathe. Wide windows open into a
-      two-page spread on its stand. The tools quietly include readers who need them: bionic text,
-      dyslexia-tuned typefaces, a guided line, and read-aloud.</p>
+      two-page spread on its stand, with bionic reading, dyslexia-tuned typefaces, and a
+      guided line to help you keep reading.</p>
     <p class="colophon" id="landingColophon"></p>
     <div class="landing-actions">
       <button class="btn btn-primary" id="btnResume" style="display:none" title="Return to currently open book">
@@ -298,9 +464,13 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       <div class="cur-book-dot"></div>
       <span id="curBookBadgeText">Currently reading</span>
     </div>
+    <div id="recentShelf" class="recent-shelf" style="display:none">
+      <h3 class="recent-title">Recent Books</h3>
+      <div id="recentList" class="recent-grid"></div>
+    </div>
     <p class="drop-hint" id="dropHint">— or drop a .epub anywhere on this page</p>
   </div>
-  <footer class="landing-foot">Auto-fit typography <i>·</i> Two-page spread <i>·</i> Page-flip &amp; slide <i>·</i> Four typefaces <i>·</i> Bionic reading <i>·</i> Read-aloud</footer>
+  <footer class="landing-foot">Auto-fit typography <i>·</i> Two-page spread <i>·</i> Page-flip &amp; slide <i>·</i> Four typefaces <i>·</i> Bionic reading <i>·</i> Bookmarks &amp; search</footer>
 </div>
 
 <!-- ============ reading chrome ============ -->
@@ -314,14 +484,13 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <span id="bookTitle"></span>
   </div>
   <div class="tb-right">
-    <button class="icon-btn" id="btnSpeak" title="Read aloud from here (P)" aria-label="Read aloud">
-      <svg class="ic-idle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6.5 8.5H3v7h3.5L11 19V5z"/><path d="M15 9.5a3.5 3.5 0 0 1 0 5"/><path d="M17.5 7a7 7 0 0 1 0 10"/></svg>
-      <svg class="ic-pause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.5" height="14" rx="1.2"/><rect x="13.5" y="5" width="3.5" height="14" rx="1.2"/></svg>
+    <button class="icon-btn" id="btnSearch" title="Search book (Ctrl+F)" aria-label="Search book">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     </button>
     <button class="icon-btn" id="btnSpread" title="Two pages (D)" aria-label="Toggle two-page spread" aria-pressed="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8.5 4.5 6 4.5c-1 0-2 .1-3 .4V18c1-.3 2-.4 3-.4 2.5 0 4.5.5 6 1.9 1.5-1.4 3.5-1.9 6-1.9 1 0 2 .1 3 .4V4.9c-1-.3-2-.4-3-.4-2.5 0-4.5.5-6 2z"/><path d="M12 6.5v13"/></svg>
     </button>
-    <button class="icon-btn" id="btnToc" title="Contents (T)" aria-label="Contents">
+    <button class="icon-btn" id="btnToc" title="Contents & Bookmarks (T)" aria-label="Contents and bookmarks">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg>
     </button>
     <button class="icon-btn" id="btnFullscreen" title="Full screen (F)" aria-label="Toggle full screen">
@@ -337,6 +506,13 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5 8 12l6.5 7"/></svg>
   </button>
   <div id="wrap">
+    <div id="runningHeader" class="running-header">
+      <span id="runHeadLeft" class="run-head-col"></span>
+      <span id="runHeadRight" class="run-head-col"></span>
+    </div>
+    <button id="bookmarkRibbon" class="bookmark-ribbon" title="Bookmark this page (B)" aria-label="Bookmark page">
+      <svg width="22" height="34" viewBox="0 0 24 36" fill="currentColor"><path d="M0 0h24v34l-12-8-12 8z"/></svg>
+    </button>
     <div id="viewer"></div>
     <div id="gutter"></div>
     <div id="stand"></div>
@@ -347,7 +523,12 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
 </main>
 
 <footer id="bottombar">
-  <span id="chapter" class="bb-chapter"></span>
+  <div class="bb-meta">
+    <span id="chapter" class="bb-chapter"></span>
+    <span class="bb-dot">·</span>
+    <span id="pageBadge" class="bb-pages"></span>
+    <span id="timeLeft" class="bb-time"></span>
+  </div>
   <div id="rail" title="Jump (chapter granularity)"><div id="railFill"></div><div id="railKnob"></div></div>
   <span id="pct"></span>
 </footer>
@@ -360,6 +541,19 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     </button>
   </div>
   <div class="sh-body">
+    <section>
+      <div class="row-head">
+        <h4 class="lbl">Reading preset</h4>
+        <button class="chip on" id="btnResetHarmony" title="Reset all spacing to harmonious defaults">Auto-tune</button>
+      </div>
+      <div class="seg" id="presetSeg">
+        <button data-preset="classic" type="button" class="sel">📖 Classic</button>
+        <button data-preset="relaxed" type="button">🌿 Relaxed</button>
+        <button data-preset="focus" type="button">🎯 Focus</button>
+      </div>
+      <p class="fine" id="presetDesc">Classic book proportions balanced for immersive novel reading.</p>
+    </section>
+
     <section><h4 class="lbl">Typeface</h4><div class="font-grid" id="fontGrid"></div></section>
 
     <section>
@@ -390,27 +584,9 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       <p class="fine">Paper flip turns the page like a leaf; slide pushes it across; instant keeps only the swap.</p>
     </section>
 
-    <section><h4 class="lbl">Line height</h4>
-      <div class="slider-row"><input type="range" id="lhRange" min="1.3" max="2.2" step="0.05"><output id="lhOut"></output></div>
-    </section>
-    <section><h4 class="lbl">Letter spacing</h4>
-      <div class="slider-row"><input type="range" id="lsRange" min="0" max="150" step="5"><output id="lsOut"></output></div>
-    </section>
-    <section><h4 class="lbl">Word spacing</h4>
-      <div class="slider-row"><input type="range" id="wsRange" min="0" max="300" step="10"><output id="wsOut"></output></div>
-    </section>
     <section>
-      <div class="row-head"><h4 class="lbl">Page width</h4><button class="chip" id="widthAuto">Auto</button></div>
-      <div class="slider-row">
-        <button class="step" id="widthMinus" aria-label="Narrower">−</button>
-        <input type="range" id="widthRange" min="460" max="2000" step="10" aria-label="Page width">
-        <button class="step" id="widthPlus" aria-label="Wider">+</button>
-        <output id="widthOut"></output>
-      </div>
-      <p class="fine">Adjust the reading width of the page or spread.</p>
-    </section>
-
-    <section>
+      <label class="sw"><input type="checkbox" id="swDropCaps"><span class="tr"></span>
+        <span class="tx"><b>Drop capitals</b><small>Large decorative opening letter on chapter beginnings.</small></span></label>
       <label class="sw"><input type="checkbox" id="swBionic"><span class="tr"></span>
         <span class="tx"><b>Bionic reading</b><small>The first letters of words are bolded to anchor the eye.</small></span></label>
       <label class="sw"><input type="checkbox" id="swGuide"><span class="tr"></span>
@@ -421,33 +597,132 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
 
     <section><h4 class="lbl">Paper</h4><div class="theme-row" id="themeRow"></div></section>
 
-    <section><h4 class="lbl">Read aloud</h4>
-      <select id="voiceSel" aria-label="Voice"></select>
-      <div class="slider-row"><span class="lbl" style="margin:0;flex:0 0 auto">Speed</span>
-        <input type="range" id="rateRange" min="0.7" max="1.6" step="0.05"><output id="rateOut"></output></div>
-      <p class="fine">Starts from the top of the page you are on, highlights the text being read, and turns pages for you.</p>
+    <section><h4 class="lbl">Help</h4>
+      <button class="btn btn-ghost" id="btnHelp" type="button" style="width:100%;justify-content:center">Keyboard shortcuts <kbd>?</kbd></button>
+    </section>
+
+    <section>
+      <details class="adv">
+        <summary><span class="lbl" style="margin:0">Advanced</span></summary>
+        <div class="adv-body">
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Line height</h4><button class="chip" id="lhAuto">Auto</button></div>
+            <div class="slider-row"><input type="range" id="lhRange" min="1.2" max="2.3" step="0.02"><output id="lhOut"></output></div>
+          </div>
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Letter spacing</h4><button class="chip" id="lsAuto">Auto</button></div>
+            <div class="slider-row"><input type="range" id="lsRange" min="-20" max="150" step="5"><output id="lsOut"></output></div>
+          </div>
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Word spacing</h4><button class="chip" id="wsAuto">Auto</button></div>
+            <div class="slider-row"><input type="range" id="wsRange" min="-50" max="300" step="10"><output id="wsOut"></output></div>
+          </div>
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Page width</h4><button class="chip" id="widthAuto">Auto</button></div>
+            <div class="slider-row">
+              <button class="step" id="widthMinus" aria-label="Narrower">−</button>
+              <input type="range" id="widthRange" min="460" max="2000" step="10" aria-label="Page width">
+              <button class="step" id="widthPlus" aria-label="Wider">+</button>
+              <output id="widthOut"></output>
+            </div>
+            <p class="fine">Adjust the reading width of the page or spread.</p>
+          </div>
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Vertical margin</h4><button class="chip" id="marginAuto">Default</button></div>
+            <div class="slider-row">
+              <button class="step" id="marginMinus" aria-label="Tighter">−</button>
+              <input type="range" id="marginRange" min="14" max="64" step="2" aria-label="Vertical margin">
+              <button class="step" id="marginPlus" aria-label="Roomier">+</button>
+              <output id="marginOut"></output>
+            </div>
+          </div>
+          <div class="adv-group">
+            <h4 class="lbl">Flip realism</h4>
+            <div class="seg" id="flipQSeg">
+              <button data-flipq="basic" type="button" title="Fold + shadow only, fastest">Basic</button>
+              <button data-flipq="realistic" type="button" title="Fold + curl + lighting">Realistic</button>
+              <button data-flipq="premium" type="button" title="Full curl, shadows and crease highlight">Premium</button>
+            </div>
+            <p class="fine">Premium is the default and most lifelike; basic is fastest on weak hardware.</p>
+          </div>
+        </div>
+      </details>
     </section>
   </div>
   <footer id="colophon"></footer>
 </aside>
 
-<!-- ============ toc drawer ============ -->
-<aside id="toc" aria-label="Table of contents">
-  <div class="sh-head"><span class="sh-title">Contents</span>
+<!-- ============ toc & bookmarks drawer ============ -->
+<aside id="toc" aria-label="Table of contents and bookmarks">
+  <div class="sh-head">
+    <div class="toc-tab-row">
+      <button class="toc-tab-btn active" id="tabToc">Contents</button>
+      <button class="toc-tab-btn" id="tabBm">Bookmarks <span id="bmCountBadge" class="bm-badge">0</span></button>
+    </div>
     <button class="icon-btn" id="tocClose" aria-label="Close">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
     </button>
   </div>
   <ol id="tocList"></ol>
+  <ul id="bmList" class="bm-list" style="display:none"></ul>
+</aside>
+
+<!-- ============ search drawer ============ -->
+<aside id="searchDrawer" aria-label="Search book">
+  <div class="sh-head">
+    <span class="sh-title">Search Book</span>
+    <button class="icon-btn" id="searchClose" aria-label="Close">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="search-input-wrap">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="search" id="searchInput" placeholder="Search characters, quotes, words…" autocomplete="off">
+    <button id="searchClear" class="search-clear-btn" title="Clear">✕</button>
+  </div>
+  <div id="searchMeta" class="search-meta">Type to search across all chapters</div>
+  <ul id="searchResults" class="search-results"></ul>
 </aside>
 
 <div id="scrim"></div>
+<div id="helpOverlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+  <div class="help-card">
+    <div class="sh-head"><span class="sh-title">Keyboard shortcuts</span>
+      <button class="icon-btn" id="helpClose" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <dl class="help-list">
+      <div><dt><kbd>→</kbd> <kbd>Space</kbd> <kbd>PgDn</kbd></dt><dd>Next page</dd></div>
+      <div><dt><kbd>←</kbd> <kbd>PgUp</kbd></dt><dd>Previous page</dd></div>
+      <div><dt><kbd>T</kbd></dt><dd>Contents &amp; bookmarks</dd></div>
+      <div><dt><kbd>S</kbd></dt><dd>Typography settings</dd></div>
+      <div><dt><kbd>B</kbd> / <kbd>Ctrl</kbd>+<kbd>B</kbd></dt><dd>Bookmark this page</dd></div>
+      <div><dt><kbd>Ctrl</kbd>+<kbd>F</kbd></dt><dd>Search this book</dd></div>
+      <div><dt><kbd>G</kbd></dt><dd>Reading guide</dd></div>
+      <div><dt><kbd>D</kbd></dt><dd>One / two page layout</dd></div>
+      <div><dt><kbd>V</kbd></dt><dd>Page-turn effect</dd></div>
+      <div><dt><kbd>F</kbd></dt><dd>Full screen</dd></div>
+      <div><dt><kbd>H</kbd></dt><dd>Home / continue reading</dd></div>
+      <div><dt><kbd>?</kbd> <kbd>Esc</kbd></dt><dd>Open / close this panel</dd></div>
+    </dl>
+  </div>
+</div>
+<div id="topHint"></div><div id="botHint"></div>
 <div id="drop"><div class="frame"><p>Drop your EPUB to open it</p></div></div>
 <div id="loader" class="hide">
   <div><span class="wm" style="font-size:22px">Folio<span class="dot">.</span></span>
     <div class="loader-rule"></div><p class="kicker" id="loaderMsg">Typesetting…</p></div>
 </div>
 <div id="guide"></div>
+<div id="selBar" role="toolbar" aria-label="Selection tools">
+  <div class="sel-row">
+    <button class="sel-btn" id="selDefine">Define</button>
+    <button class="sel-btn" id="selFind">Find in book</button>
+    <button class="sel-btn" id="selCopy">Copy</button>
+  </div>
+  <div id="selDef" hidden></div>
+</div>
 <div id="toast"></div>
 <input id="file" type="file" accept=".epub,application/epub+zip" hidden>
 
@@ -464,9 +739,14 @@ const body = document.body;
 /* ---------------- settings ---------------- */
 const DEFAULTS = {
   theme:'paper', font:'literata', auto:true, size:19.5,
-  lineHeight:1.65, letter:0, word:0, measure:34, justify:false,
-  bionic:false, guide:false, rate:1, voice:null, turnFx:'slide', spread:'auto',
-  widthAuto:true, widthSingle:670, widthSpread:1160
+  preset:'classic',
+  lhAuto:true, lineHeight:1.65,
+  lsAuto:true, letter:0,
+  wsAuto:true, word:0,
+  measure:34, justify:false,
+  bionic:false, guide:false, turnFx:'paper', turnQuality:'premium', spread:'auto',
+  widthAuto:true, widthSingle:670, widthSpread:1160,
+  marginAuto:true, marginVertical:28, dropCaps:false
 };
 let settings = {...DEFAULTS};
 try{ Object.assign(settings, JSON.parse(localStorage.getItem('folio-settings')||'{}')); }catch(e){}
@@ -477,7 +757,9 @@ function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{localStorage.se
 const THEMES = {
   paper:   {label:'Paper',    desk:'#e8dfca', page:'#f7f1e3', ink:'#26211a', muted:'#7a6c56', accent:'#b23c17', hair:'rgba(38,33,26,.15)',  hairS:'rgba(38,33,26,.34)', dim:'rgba(31,24,14,.14)',  sel:'rgba(178,60,23,.25)'},
   sepia:   {label:'Sepia',    desk:'#dfcfae', page:'#f1e4c8', ink:'#4a3a22', muted:'#8a7452', accent:'#8c4a18', hair:'rgba(74,58,34,.18)',  hairS:'rgba(74,58,34,.42)', dim:'rgba(60,45,20,.12)',  sel:'rgba(140,74,24,.25)'},
+  matcha:  {label:'Matcha',   desk:'#dce6dd', page:'#eef4ef', ink:'#1c2b21', muted:'#587060', accent:'#2e6b46', hair:'rgba(28,43,33,.14)',  hairS:'rgba(28,43,33,.35)', dim:'rgba(28,43,33,.12)',  sel:'rgba(46,107,70,.22)'},
   noir:    {label:'Noir',     desk:'#0f0d0a', page:'#171410', ink:'#e8ddc7', muted:'#a08f74', accent:'#e0764a', hair:'rgba(232,221,199,.14)',hairS:'rgba(232,221,199,.36)',dim:'rgba(0,0,0,.4)',   sel:'rgba(224,118,74,.32)'},
+  oled:    {label:'OLED',     desk:'#000000', page:'#050505', ink:'#e0e0e0', muted:'#888888', accent:'#4da3ff', hair:'rgba(255,255,255,.12)',hairS:'rgba(255,255,255,.32)',dim:'rgba(0,0,0,.8)',   sel:'rgba(77,163,255,.35)'},
   contrast:{label:'Contrast', desk:'#d9d9d9', page:'#ffffff', ink:'#000000', muted:'#333333', accent:'#9c2f00', hair:'rgba(0,0,0,.42)',     hairS:'rgba(0,0,0,.68)',    dim:'rgba(0,0,0,.22)',     sel:'rgba(156,47,0,.22)'}
 };
 function rgba(hex,a){
@@ -501,6 +783,102 @@ const FONTS = {
   lexend:      {name:'Lexend',              note:'Shaped for fluent reading',         stack:`'Lexend','Atkinson Hyperlegible',sans-serif`},
   opendyslexic:{name:'OpenDyslexic',        note:'Weighted, anti-rotation letterforms',stack:`'OpenDyslexic','Lexend','Atkinson Hyperlegible',sans-serif`}
 };
+
+/* ---------------- typographic DNA & reading presets ---------------- */
+const FONT_DNA = {
+  literata:     { baseLH: 1.58, baseLS: 0,   baseWS: 0,   charAdvance: 0.50, xHeight: 1.00 },
+  atkinson:     { baseLH: 1.62, baseLS: 12,  baseWS: 18,  charAdvance: 0.53, xHeight: 1.05 },
+  lexend:       { baseLH: 1.66, baseLS: 24,  baseWS: 32,  charAdvance: 0.55, xHeight: 1.08 },
+  opendyslexic: { baseLH: 1.76, baseLS: 40,  baseWS: 50,  charAdvance: 0.58, xHeight: 1.15 }
+};
+
+const PRESETS = {
+  classic: {
+    label: '📖 Classic',
+    desc: 'Classic book proportions balanced for immersive novel reading.',
+    lhMult: 1.0,
+    lsAdd: 0,
+    wsAdd: 0,
+    marginVertical: 28
+  },
+  relaxed: {
+    label: '🌿 Relaxed',
+    desc: 'Roomier leading and open letter breathing space for tired eyes.',
+    lhMult: 1.10,
+    lsAdd: 12,
+    wsAdd: 20,
+    marginVertical: 36
+  },
+  focus: {
+    label: '🎯 Focus',
+    desc: 'Crisp, compact spacing for rapid skimming and high information density.',
+    lhMult: 0.92,
+    lsAdd: -6,
+    wsAdd: -10,
+    marginVertical: 20
+  }
+};
+
+function calcCPL(){
+  const es = effSize();
+  const mw = effWidth();
+  const fontKey = settings.font || 'literata';
+  const charAdvance = (FONT_DNA[fontKey] && FONT_DNA[fontKey].charAdvance) || 0.52;
+  const sp = !!state.spreadOn;
+  if(sp){
+    const sm = spreadMetrics();
+    const pageW = Math.round((mw - sm.gutter) / 2);
+    return Math.max(25, Math.round(pageW / (es * charAdvance)));
+  }
+  return Math.max(25, Math.round(mw / (es * charAdvance)));
+}
+
+function calcTypographicHarmony(){
+  const fontKey = settings.font || 'literata';
+  const dna = FONT_DNA[fontKey] || FONT_DNA.literata;
+  const presetKey = settings.preset || 'classic';
+  const preset = PRESETS[presetKey] || PRESETS.classic;
+  const cpl = calcCPL();
+  const fs = effSize();
+
+  // 1. Line height: Bringhurst dynamic leading based on measure (CPL)
+  // Base 48 CPL -> baseLH. Wide measures get generous headroom to prevent doubling.
+  const cplDelta = (cpl - 48) * 0.0035;
+  const sizeDelta = (19.5 - fs) * 0.004;
+  let autoLH = (dna.baseLH + cplDelta + sizeDelta) * preset.lhMult;
+  autoLH = clamp(Math.round(autoLH * 50) / 50, 1.30, 2.20);
+
+  // 2. Letter spacing (in thousandths of an em, e.g. 15 = 0.015em)
+  // Optical sizing: small sizes expand (+), large sizes tighten (-)
+  const opticalLS = clamp(Math.round((18 - fs) * 1.8), -15, 30);
+  let autoLS = dna.baseLS + opticalLS + preset.lsAdd;
+  autoLS = clamp(Math.round(autoLS / 5) * 5, -20, 150);
+
+  // 3. Word spacing (in thousandths of an em)
+  const justifyAdj = settings.justify ? -15 : 0;
+  let autoWS = dna.baseWS + Math.round(autoLS * 1.25) + justifyAdj + preset.wsAdd;
+  autoWS = clamp(Math.round(autoWS / 10) * 10, -50, 300);
+
+  return {
+    lineHeight: autoLH,
+    letter: autoLS,
+    word: autoWS,
+    marginVertical: preset.marginVertical
+  };
+}
+
+function effLineHeight(){
+  return settings.lhAuto ? calcTypographicHarmony().lineHeight : settings.lineHeight;
+}
+function effLetterSpacing(){
+  return settings.lsAuto ? calcTypographicHarmony().letter : settings.letter;
+}
+function effWordSpacing(){
+  return settings.wsAuto ? calcTypographicHarmony().word : settings.word;
+}
+function effMarginVertical(){
+  return settings.marginAuto ? calcTypographicHarmony().marginVertical : (settings.marginVertical || 28);
+}
 
 /* ---------------- the fit engine ----------------
    Safari-Reader logic, for one page or two: type follows the screen,
@@ -568,32 +946,86 @@ function syncWidthSlider(){
 function coloText(){
   const es = effSize();
   const mw = effWidth();
-  const adv = 0.5 + settings.letter/1000;
+  const cpl = calcCPL();
+  const lh = effLineHeight();
+  const lhAutoStr = settings.lhAuto ? ' (auto)' : '';
   if(state.spreadOn){
     const sm = spreadMetrics();
     const pageW = Math.round((mw - sm.gutter) / 2);
-    const cpl = Math.round(pageW / (es * adv));
-    return `${settings.widthAuto?'Fitted':'Manual'} · Two pages · ${mw}px spread (${pageW}px a page) · ≈${cpl} characters a line`;
+    return `${settings.widthAuto?'Fitted':'Manual'} · Two pages · ${mw}px spread (${pageW}px a page) · ≈${cpl} chars/line · ${lh.toFixed(2)} leading${lhAutoStr}`;
   }
-  const cpl = Math.round(mw / (es * adv));
-  return `${settings.widthAuto?'Fitted':'Manual'} · ${mw}px width · ≈${cpl} characters a line`;
+  return `${settings.widthAuto?'Fitted':'Manual'} · ${mw}px width · ≈${cpl} chars/line · ${lh.toFixed(2)} leading${lhAutoStr}`;
+}
+function syncMarginSlider(){
+  const mInput = el('marginRange');
+  if(!mInput) return;
+  const val = effMarginVertical();
+  mInput.value = val;
+  el('marginOut').textContent = val + 'px' + (settings.marginAuto ? ' (Auto)' : '');
+  if(el('marginAuto')) el('marginAuto').classList.toggle('on', !!settings.marginAuto);
+  setFill(mInput);
+}
+function syncLhSlider(){
+  const input = el('lhRange');
+  if(!input) return;
+  const val = effLineHeight();
+  input.value = val;
+  el('lhOut').textContent = val.toFixed(2) + (settings.lhAuto ? ' (Auto)' : '');
+  if(el('lhAuto')) el('lhAuto').classList.toggle('on', !!settings.lhAuto);
+  setFill(input);
+}
+function syncLsSlider(){
+  const input = el('lsRange');
+  if(!input) return;
+  const val = effLetterSpacing();
+  input.value = val;
+  el('lsOut').textContent = (val/1000).toFixed(3) + 'em' + (settings.lsAuto ? ' (Auto)' : '');
+  if(el('lsAuto')) el('lsAuto').classList.toggle('on', !!settings.lsAuto);
+  setFill(input);
+}
+function syncWsSlider(){
+  const input = el('wsRange');
+  if(!input) return;
+  const val = effWordSpacing();
+  input.value = val;
+  el('wsOut').textContent = (val/1000).toFixed(3) + 'em' + (settings.wsAuto ? ' (Auto)' : '');
+  if(el('wsAuto')) el('wsAuto').classList.toggle('on', !!settings.wsAuto);
+  setFill(input);
+}
+function syncPresetUI(){
+  const p = settings.preset || 'classic';
+  document.querySelectorAll('#presetSeg button').forEach(b => {
+    b.classList.toggle('sel', b.dataset.preset === p);
+  });
+  const pObj = PRESETS[p] || PRESETS.classic;
+  if(el('presetDesc')) el('presetDesc').textContent = pObj.desc;
+  const allAuto = settings.lhAuto && settings.lsAuto && settings.wsAuto;
+  if(el('btnResetHarmony')) el('btnResetHarmony').classList.toggle('on', allAuto);
 }
 function applyFit(){
   const f = fitInfo(), sm = spreadMetrics(), sp = !!state.spreadOn, es = effSize();
   const mw = effWidth();
   const rs = document.documentElement.style;
+  const lh = effLineHeight();
+  const my = effMarginVertical();
   rs.setProperty('--fit-fs', es+'px');
-  rs.setProperty('--fit-lh', settings.lineHeight);
+  rs.setProperty('--fit-lh', lh);
   rs.setProperty('--fit-mw', f.mw+'px');
   rs.setProperty('--fit-font', (FONTS[settings.font]||FONTS.literata).stack);
   rs.setProperty('--mw', mw+'px');
   rs.setProperty('--gut', sm.gutter+'px');
+  rs.setProperty('--pad-y', my+'px');
   el('sizeOut').textContent = es.toFixed(1)+'px';
   el('landingColophon').textContent = 'Set for this screen · '+coloText().replace(/^(Fitted|Manual) · /,'');
   el('colophon').textContent = coloText();
   el('sizeRange').value = es;
   setFill(el('sizeRange'));
   syncWidthSlider();
+  syncMarginSlider();
+  syncLhSlider();
+  syncLsSlider();
+  syncWsSlider();
+  syncPresetUI();
   el('stage').classList.toggle('no-arrows', innerWidth - mw < 150);
 }
 
@@ -603,6 +1035,23 @@ function buildCSS(){
   const fs = effSize();
   const stack = (FONTS[settings.font]||FONTS.literata).stack;
   const j = settings.justify;
+  const lh = effLineHeight();
+  const ls = effLetterSpacing();
+  const ws = effWordSpacing();
+  const dropCapCss = settings.dropCaps ? `
+body > p:first-of-type::first-letter,
+section > p:first-of-type::first-letter,
+article > p:first-of-type::first-letter,
+div > p:first-of-type::first-letter {
+  font-size: 3.1em !important;
+  float: left !important;
+  line-height: 0.82 !important;
+  margin: 0.08em 0.12em 0 0 !important;
+  font-family: ${stack} !important;
+  color: ${t.accent} !important;
+  font-weight: 700 !important;
+}` : '';
+
   return FONT_FACES + `
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
@@ -610,12 +1059,13 @@ body{
   color:${t.ink} !important;
   font-family:${stack} !important;
   font-size:${fs}px !important;
-  line-height:${settings.lineHeight} !important;
-  letter-spacing:${(settings.letter/1000).toFixed(3)}em !important;
-  word-spacing:${(settings.word/1000).toFixed(3)}em !important;
+  line-height:${lh} !important;
+  letter-spacing:${(ls/1000).toFixed(3)}em !important;
+  word-spacing:${(ws/1000).toFixed(3)}em !important;
   text-align:${j?'justify':'left'} !important;
   margin:0 !important; padding:0 !important;
   -webkit-hyphens:auto; hyphens:auto; overflow-wrap:break-word;
+  touch-action:pan-y !important; /* horizontal drags become pointer events for the fold engine */
 }
 p,li,dd,dt,blockquote,td,th,figcaption,div,section,article,span,h1,h2,h3,h4,h5,h6,a,strong,b,em,i,small,pre{
   letter-spacing:inherit !important; word-spacing:inherit !important; line-height:inherit !important;}
@@ -630,6 +1080,7 @@ img,svg,video,canvas{max-width:100% !important;height:auto !important;}
 b.fio-b{font-weight:700;}
 .epubjs-hl{background:${rgba(t.accent,.16)} !important;box-shadow:none !important;border-radius:2px;
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
+${dropCapCss}
 `;
 }
 function eachContent(fn){
@@ -646,26 +1097,156 @@ function refreshCSS(){
   });
 }
 
+/* ---------------- offline book storage (IndexedDB) ---------------- */
+const BookStorage = {
+  DB_NAME: 'folio-books-db',
+  DB_VERSION: 1,
+  STORE_NAME: 'books',
+  _db: null,
+
+  async getDB(){
+    if(this._db) return this._db;
+    return new Promise((resolve, reject) => {
+      if(!('indexedDB' in window)){
+        reject(new Error('IndexedDB not supported'));
+        return;
+      }
+      const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(this.STORE_NAME)){
+          const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'title' });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+      req.onsuccess = e => {
+        this._db = e.target.result;
+        resolve(this._db);
+      };
+      req.onerror = e => reject(e.target.error);
+    });
+  },
+
+  async saveBook(record){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.put({
+          title: record.title,
+          author: record.author || 'Unknown Author',
+          buffer: record.buffer,
+          filePath: record.filePath || null,
+          cfi: record.cfi || null,
+          pct: record.pct !== undefined ? record.pct : 0,
+          timestamp: Date.now()
+        });
+        req.onsuccess = () => resolve(true);
+        req.onerror = e => reject(e.target.error);
+      });
+    }catch(err){
+      console.warn('BookStorage.saveBook error:', err);
+      return false;
+    }
+  },
+
+  async getBook(title){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.get(title);
+        req.onsuccess = e => resolve(e.target.result || null);
+        req.onerror = e => reject(e.target.error);
+      });
+    }catch(err){
+      console.warn('BookStorage.getBook error:', err);
+      return null;
+    }
+  },
+
+  async updateProgress(title, pct, cfi){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        const getReq = store.get(title);
+        getReq.onsuccess = () => {
+          const item = getReq.result;
+          if(item){
+            if(pct !== undefined) item.pct = pct;
+            if(cfi) item.cfi = cfi;
+            item.timestamp = Date.now();
+            store.put(item);
+          }
+          resolve(true);
+        };
+        getReq.onerror = () => resolve(false);
+      });
+    }catch(e){
+      return false;
+    }
+  },
+
+  async deleteBook(title){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.delete(title);
+        req.onsuccess = () => resolve(true);
+        req.onerror = () => resolve(false);
+      });
+    }catch(e){
+      return false;
+    }
+  }
+};
+
 /* ---------------- app state ---------------- */
 const state = { book:null, rendition:null, loading:false, posKey:null,
-                spreadOn:false, spreadPending:false, recreating:false, turning:false, settling:false };
+                spreadOn:false, spreadPending:false, recreating:false, turning:false, settling:false,
+                currentTitle:'', currentAuthor:'', currentFilePath:null, currentCfi:null };
 let tocItems = [];
+let turnGesture = null;
+
+function getActiveTitle(){
+  if(state.currentTitle && state.currentTitle !== 'Untitled') return state.currentTitle;
+  if(state.book && state.book.package && state.book.package.metadata && state.book.package.metadata.title){
+    return state.book.package.metadata.title.trim();
+  }
+  const elTitle = el('bookTitle') && el('bookTitle').textContent;
+  if(elTitle && elTitle !== 'Untitled' && elTitle !== 'Folio') return elTitle.trim();
+  return 'Folio';
+}
+function getActiveAuthor(){
+  if(state.currentAuthor) return state.currentAuthor;
+  if(state.book && state.book.package && state.book.package.metadata && state.book.package.metadata.creator){
+    return state.book.package.metadata.creator.trim();
+  }
+  return '';
+}
 
 /* ---------------- book lifecycle ---------------- */
 function showLoader(msg){ el('loaderMsg').textContent=msg||'Typesetting…'; el('loader').classList.remove('hide'); state.t0=Date.now(); }
 function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('loader').classList.add('hide'), Math.max(0,450-d)); }
 
 async function closeBook(){
-  ttsStop();
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
-  state.rendition=null; state.book=null; el('viewer').innerHTML='';
+  state.rendition=null; state.book=null;
+  state.currentTitle=''; state.currentAuthor=''; state.currentFilePath=null; state.currentCfi=null;
+  el('viewer').innerHTML='';
   updateLandingUI();
 }
 
 function updateLandingUI(){
   const hasBook = !!(state.book && state.rendition);
-  const title = (state.book && state.book.packaging && state.book.packaging.metadata && state.book.packaging.metadata.title) || (el('bookTitle')&&el('bookTitle').textContent) || 'Untitled';
+  const title = getActiveTitle();
   const resumeBtn = el('btnResume');
   const openBtn = el('btnOpen');
   const openLbl = el('openLabel');
@@ -695,11 +1276,11 @@ function updateLandingUI(){
     if(curBadge) curBadge.style.display = 'none';
     if(dropHint) dropHint.textContent = '— or drop a .epub anywhere on this page';
   }
+  renderRecentShelf();
 }
 
 function goHome(){
   closePanels();
-  ttsStop();
   body.classList.remove('state-reading');
   body.classList.add('state-landing');
   updateLandingUI();
@@ -748,7 +1329,7 @@ function createRendition(opts={}){
   return r;
 }
 
-async function openBuffer(buf, titleHint){
+async function openBuffer(buf, titleHint, filePath, targetCfi){
   if(state.loading) return; state.loading=true;
   showLoader('Typesetting…');
   try{
@@ -756,16 +1337,46 @@ async function openBuffer(buf, titleHint){
     const book = ePub(buf);
     state.book = book;
     const initialTitle = (titleHint || '').trim() || 'Untitled';
+    state.currentTitle = initialTitle;
+    state.currentAuthor = '';
+    state.currentFilePath = filePath || null;
+    state.currentCfi = targetCfi || null;
+
     el('bookTitle').textContent = initialTitle;
     el('bookTitle').setAttribute('title', initialTitle);
     state.posKey = 'folio-pos:'+initialTitle;
 
+    // Cache to IndexedDB asynchronously
+    try{
+      const bufCopy = buf.slice ? buf.slice(0) : buf;
+      BookStorage.saveBook({
+        title: initialTitle,
+        author: state.currentAuthor,
+        buffer: bufCopy,
+        filePath: state.currentFilePath,
+        cfi: targetCfi || null
+      });
+    }catch(e){}
+
     book.loaded.metadata.then(meta => {
       if(meta && meta.title && meta.title.trim()){
         const realTitle = meta.title.trim();
+        state.currentTitle = realTitle;
+        if(meta.creator) state.currentAuthor = meta.creator.trim();
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
         state.posKey = 'folio-pos:'+realTitle;
+        saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
+        try{
+          const bufCopy2 = buf.slice ? buf.slice(0) : buf;
+          BookStorage.saveBook({
+            title: realTitle,
+            author: state.currentAuthor,
+            buffer: bufCopy2,
+            filePath: state.currentFilePath,
+            cfi: targetCfi || null
+          });
+        }catch(e){}
         updateLandingUI();
       }
     }).catch(()=>{});
@@ -774,8 +1385,10 @@ async function openBuffer(buf, titleHint){
     el('pct').textContent=''; el('chapter').textContent='';
     el('tocList').innerHTML='<li class="empty">Loading contents…</li>';
 
-    let target = 0;
-    try{ const saved=localStorage.getItem(state.posKey); if(saved) target=saved; }catch(e){}
+    let target = targetCfi || 0;
+    if(!targetCfi){
+      try{ const saved=localStorage.getItem(state.posKey); if(saved) target=saved; }catch(e){}
+    }
 
     body.classList.add('state-reading');
     body.classList.remove('state-landing');
@@ -844,15 +1457,16 @@ async function applySpread(){
   }
 }
 
-function loadFile(file){
+function loadFile(file, optionalPath){
   if(!file) return;
   if(!/\.epub$/i.test(file.name) && file.type!=='application/epub+zip'){
     toast('That does not look like an EPUB file'); return;
   }
   showLoader('Opening…');
   const cleanName = (file.name || '').replace(/\.epub$/i, '').trim();
+  const filePath = optionalPath || file.path || null;
   const fr=new FileReader();
-  fr.onload=()=>openBuffer(fr.result, cleanName);
+  fr.onload=()=>openBuffer(fr.result, cleanName, filePath);
   fr.onerror=()=>{ hideLoader(); toast('The file could not be read'); };
   fr.readAsArrayBuffer(file);
 }
@@ -870,29 +1484,70 @@ function onContent(contents){
   if(settings.bionic && d.body.dataset.fioBionic!=='1'){ bionifyDoc(d); d.body.dataset.fioBionic='1'; }
   wireContents(contents);
 }
+/* ---------------- selection lookup toolbar ---------------- */
+let selText='';
+function hideSelBar(){
+  const b=el('selBar');
+  if(b) b.classList.remove('show');
+  const def=el('selDef');
+  if(def){ def.hidden=true; def.textContent=''; }
+  selText='';
+}
+function showSelBar(cx, y, h, text){
+  const b=el('selBar');
+  if(!b) return;
+  selText=text;
+  el('selDef').hidden=true; el('selDef').textContent='';
+  const w=280;
+  const left=clamp(cx, w/2+8, innerWidth-w/2-8);
+  let top=y-12;
+  b.style.visibility='hidden'; b.classList.add('show');
+  const bh=b.offsetHeight||52;
+  b.classList.remove('show'); b.style.visibility='';
+  top=y-bh-10;
+  if(top<76) top=y+h+10; // keep clear of the topbar
+  b.style.left=left+'px'; b.style.top=Math.round(top)+'px';
+  b.classList.add('show');
+}
+function wireSelection(contents){
+  const d=contents.document;
+  const onSel=()=>{
+    try{
+      const sel=d.getSelection();
+      if(!sel||sel.isCollapsed||sel.rangeCount===0){ hideSelBar(); return; }
+      const text=sel.toString().trim().replace(/\s+/g,' ').slice(0,140);
+      if(text.length<2){ hideSelBar(); return; }
+      const r=sel.getRangeAt(0).getBoundingClientRect();
+      if(!r||(r.width===0&&r.height===0)){ hideSelBar(); return; }
+      let fx=0, fy=0;
+      el('viewer').querySelectorAll('iframe').forEach(f=>{
+        try{ if(f.contentDocument===d){ const fr=f.getBoundingClientRect(); fx=fr.left; fy=fr.top; } }catch(e){}
+      });
+      showSelBar(fx+r.left+r.width/2, fy+r.top, r.height, text);
+    }catch(e){}
+  };
+  d.addEventListener('mouseup',onSel);
+  d.addEventListener('keyup',e=>{ if(e.shiftKey) onSel(); });
+  d.addEventListener('pointerdown',()=>hideSelBar());
+}
 function wireContents(contents){
   const d=contents.document;
-  d.addEventListener('click', e=>{
-    const sel=d.getSelection?d.getSelection():null;
-    if(sel && sel.toString().length) return;
-    if(e.target && e.target.closest && e.target.closest('a')) return;
-    const w=(d.documentElement&&d.documentElement.clientWidth)||1;
-    const x=e.clientX/w;
-    if(x<0.3) turn(-1);
-    else if(x>0.7) turn(1);
-    else if(matchMedia('(hover: none)').matches) toggleChrome();
-  });
-  let sw=null;
-  d.addEventListener('touchstart',e=>{
-    if(e.touches.length===1){const t=e.touches[0];sw={x:t.clientX,y:t.clientY,t:Date.now()};}
-    else sw=null;
-  },{passive:true});
-  d.addEventListener('touchend',e=>{
-    if(!sw)return;
-    const t=e.changedTouches[0];
-    const dx=t.clientX-sw.x, dy=t.clientY-sw.y, dt=Date.now()-sw.t; sw=null;
-    if(dt<800 && Math.abs(dx)>56 && Math.abs(dx)>2.2*Math.abs(dy)) turn(dx<0?1:-1);
-  },{passive:true});
+  wireSelection(contents);
+  if(typeof turnGesture !== 'undefined' && turnGesture) turnGesture.bind(d);
+  // When OUR fold engine owns the drag in this document, swallow the
+  // touchend so EPUB.js internal swipe can't double-navigate (spec §31:
+  // EPUB.js must not know a drag is happening).
+  const guard = e => {
+    try {
+      if(typeof turnGesture !== 'undefined' && turnGesture &&
+         turnGesture.active && turnGesture.dragDoc === d) {
+        e.preventDefault();
+        if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+    } catch(err) {}
+  };
+  d.addEventListener('touchend', guard, { capture:true, passive:false });
+  d.addEventListener('touchcancel', guard, { capture:true, passive:false });
   d.addEventListener('keydown', onKey);
 }
 
@@ -962,9 +1617,48 @@ function onRelocated(loc){
   el('railFill').style.width=(frac*100)+'%';
   el('railKnob').style.left=(frac*100)+'%';
   el('pct').textContent=Math.round(frac*100)+'%';
-  el('chapter').textContent=chapterFor(loc.start.href);
+
+  const chTitle = chapterFor(loc.start.href);
+  el('chapter').textContent=chTitle;
   markTocCurrent(loc.start.href);
   try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
+
+  // Page badge & reading time remaining
+  const pageBadge = el('pageBadge');
+  const timeLeft = el('timeLeft');
+  if(d && d.total){
+    const curP = d.page;
+    const totP = d.total;
+    if(pageBadge){
+      if(state.spreadOn && curP < totP){
+        pageBadge.textContent = `Pages ${curP}–${curP+1} of ${totP}`;
+      } else {
+        pageBadge.textContent = `Page ${curP} of ${totP}`;
+      }
+    }
+    if(timeLeft){
+      const rem = Math.max(0, totP - (state.spreadOn ? curP + 1 : curP));
+      const mins = Math.max(1, Math.round(rem * 1.1));
+      timeLeft.textContent = `· ⏱ ${mins} min left`;
+    }
+  } else {
+    if(pageBadge) pageBadge.textContent = Math.round(frac*100) + '%';
+    if(timeLeft) timeLeft.textContent = '';
+  }
+
+  // Running headers (Book title on left, Chapter on right)
+  const bTitle = getActiveTitle();
+  const bAuthor = getActiveAuthor();
+  if(el('runHeadLeft')) el('runHeadLeft').textContent = bTitle;
+  if(el('runHeadRight')) el('runHeadRight').textContent = chTitle || bTitle;
+
+  // Bookmark ribbon state
+  updateRibbonState(loc.start.cfi);
+
+  // Recent book persistence
+  state.currentCfi = loc.start.cfi;
+  saveRecentBook(bTitle, bAuthor, Math.round(frac * 100), loc.start.cfi, state.currentFilePath);
+
   updateLandingUI();
 
   // Feed 15-page sliding window cache (5 back, 1 current, 10 forward)
@@ -1001,7 +1695,6 @@ async function buildTOC(book){
       b.textContent=it.label;
       b.style.paddingLeft=(20+it.depth*14)+'px';
       b.addEventListener('click',()=>{
-        if(tts.active)ttsStop();
         closePanels();
         state.rendition&&state.rendition.display(it.href).catch(()=>{});
       });
@@ -1009,6 +1702,7 @@ async function buildTOC(book){
     });
     const loc=state.rendition&&state.rendition.currentLocation();
     if(loc&&loc.start)markTocCurrent(loc.start.href);
+    syncBookmarkBadge();
   }catch(e){
     el('tocList').innerHTML='<li class="empty">This book has no table of contents.</li>';
   }
@@ -1017,6 +1711,325 @@ function markTocCurrent(href){
   const base=x=>String(x||'').split('/').pop().split('#')[0];
   const idx=tocItems.findIndex(i=>base(i.href)===base(href));
   [...el('tocList').children].forEach((li,i)=>li.classList.toggle('cur',i===idx));
+}
+
+/* ---------------- recent books shelf ---------------- */
+function getRecents(){
+  try{ return JSON.parse(localStorage.getItem('folio-recents')||'[]'); }catch(e){ return []; }
+}
+function saveRecentBook(title, author, pct, cfi, filePath){
+  if(!title || title === 'Untitled' || title === 'Folio') return;
+  const all = getRecents();
+  const existing = all.find(x => x.title === title) || {};
+  let list = all.filter(x => x.title !== title);
+  list.unshift({
+    title,
+    author: author || existing.author || 'Unknown Author',
+    pct: pct !== undefined ? pct : (existing.pct || 0),
+    cfi: cfi || existing.cfi || null,
+    filePath: filePath || existing.filePath || null,
+    timestamp: Date.now()
+  });
+  if(list.length > 8) list = list.slice(0, 8);
+  try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
+  BookStorage.updateProgress(title, pct, cfi);
+  renderRecentShelf();
+}
+function renderRecentShelf(){
+  const shelf = el('recentShelf');
+  const listEl = el('recentList');
+  if(!shelf || !listEl) return;
+  const recents = getRecents();
+  if(!recents.length){
+    shelf.style.display = 'none';
+    return;
+  }
+  shelf.style.display = 'block';
+  listEl.innerHTML = '';
+  recents.forEach(b => {
+    const card = document.createElement('div');
+    card.className = 'recent-card';
+    const initial = (b.title || 'F')[0].toUpperCase();
+    card.innerHTML = `
+      <div class="recent-cover-art">
+        <div class="recent-spine-edge"></div>
+        <span>${initial}</span>
+      </div>
+      <div class="recent-info">
+        <div class="recent-book-title" title="${b.title}">${b.title}</div>
+        <div class="recent-book-author">${b.author}</div>
+        <div class="recent-progress-bar"><div class="recent-progress-fill" style="width:${b.pct}%"></div></div>
+        <div class="recent-meta">${b.pct}% completed</div>
+      </div>
+    `;
+    card.addEventListener('click', async () => {
+      const curTitle = getActiveTitle();
+      // 1. If currently active book in memory, resume reading directly
+      if(state.book && state.rendition && curTitle === b.title){
+        resumeReading();
+        return;
+      }
+      // 2. Demo book
+      if(b.title === 'The Time Machine'){
+        await loadDemo();
+        return;
+      }
+      showLoader(`Opening ${b.title}…`);
+      // 3. In Tauri desktop app with saved filePath, read directly from disk
+      if(window.__TAURI_INTERNALS__ && b.filePath){
+        try{
+          const { invoke } = window.__TAURI_INTERNALS__;
+          const bytes = await invoke('read_file_bytes', { path: b.filePath });
+          if(bytes && bytes.length){
+            const buf = new Uint8Array(bytes).buffer;
+            await openBuffer(buf, b.title, b.filePath, b.cfi);
+            return;
+          }
+        }catch(err){
+          console.warn('Native read failed for path, falling back to cache:', b.filePath, err);
+        }
+      }
+      // 4. Retrieve cached buffer from BookStorage (IndexedDB)
+      try{
+        const record = await BookStorage.getBook(b.title);
+        if(record && record.buffer){
+          await openBuffer(record.buffer, b.title, record.filePath || b.filePath, b.cfi);
+          return;
+        }
+      }catch(err){
+        console.warn('IndexedDB retrieval failed:', err);
+      }
+      // 5. Book unavailable
+      hideLoader();
+      toast(`Could not open "${b.title}" — file may have been moved.`);
+    });
+    listEl.appendChild(card);
+  });
+}
+
+/* ---------------- bookmarks ---------------- */
+function getBookmarks(){
+  try{ return JSON.parse(localStorage.getItem('folio-bookmarks')||'[]'); }catch(e){ return []; }
+}
+function currentBookKey(){
+  return getActiveTitle();
+}
+function getBookmarksForCurrentBook(){
+  const k = currentBookKey();
+  return getBookmarks().filter(b => b.bookTitle === k);
+}
+function saveBookmarks(allList){
+  try{ localStorage.setItem('folio-bookmarks', JSON.stringify(allList)); }catch(e){}
+  syncBookmarkBadge();
+  renderBookmarks();
+}
+function syncBookmarkBadge(){
+  const badge = el('bmCountBadge');
+  if(!badge) return;
+  const list = getBookmarksForCurrentBook();
+  badge.textContent = list.length;
+  badge.classList.toggle('has-items', list.length > 0);
+}
+function isPageBookmarked(cfi){
+  if(!cfi) return false;
+  const list = getBookmarksForCurrentBook();
+  return list.some(b => b.cfi === cfi || (b.cfi && b.cfi.split('!')[0] === cfi.split('!')[0] && b.cfi.split(',')[0] === cfi.split(',')[0]));
+}
+function updateRibbonState(cfi){
+  const ribbon = el('bookmarkRibbon');
+  if(!ribbon) return;
+  const bm = isPageBookmarked(cfi);
+  ribbon.classList.toggle('bookmarked', bm);
+  ribbon.setAttribute('title', bm ? 'Bookmarked (click to remove)' : 'Bookmark this page (B)');
+}
+async function toggleBookmark(){
+  if(!state.rendition) return;
+  const loc = state.rendition.currentLocation();
+  if(!loc || !loc.start) return;
+  const cfi = loc.start.cfi;
+  const bookTitle = currentBookKey();
+  let all = getBookmarks();
+  const existingIdx = all.findIndex(b => b.bookTitle === bookTitle && (b.cfi === cfi || (b.cfi && b.cfi.split('!')[0] === cfi.split('!')[0] && b.cfi.split(',')[0] === cfi.split(',')[0])));
+
+  if(existingIdx >= 0){
+    all.splice(existingIdx, 1);
+    saveBookmarks(all);
+    updateRibbonState(cfi);
+    toast('Bookmark removed');
+  } else {
+    let snippet = '';
+    const pt = await pageText();
+    if(pt && pt.txt){
+      snippet = pt.txt.slice(0, 140) + (pt.txt.length > 140 ? '…' : '');
+    }
+    const ch = chapterFor(loc.start.href) || 'Chapter';
+    const pct = el('pct') ? el('pct').textContent : '';
+    all.unshift({
+      id: 'bm_' + Date.now(),
+      bookTitle,
+      cfi,
+      chapter: ch,
+      snippet: snippet || ch,
+      pct,
+      date: new Date().toLocaleDateString(undefined, { month:'short', day:'numeric' })
+    });
+    saveBookmarks(all);
+    updateRibbonState(cfi);
+    toast('Page bookmarked (saved to Bookmarks tab)');
+  }
+}
+function deleteBookmark(id, e){
+  if(e) e.stopPropagation();
+  let all = getBookmarks().filter(b => b.id !== id);
+  saveBookmarks(all);
+  const loc = state.rendition && state.rendition.currentLocation();
+  if(loc && loc.start) updateRibbonState(loc.start.cfi);
+  toast('Bookmark deleted');
+}
+function renderBookmarks(){
+  const bmListEl = el('bmList');
+  if(!bmListEl) return;
+  const list = getBookmarksForCurrentBook();
+  syncBookmarkBadge();
+  if(!list.length){
+    bmListEl.innerHTML = '<li class="empty">No bookmarks yet.<br><small style="opacity:0.7">Click ribbon on top right or press B to bookmark.</small></li>';
+    return;
+  }
+  bmListEl.innerHTML = '';
+  list.forEach(b => {
+    const li = document.createElement('li');
+    li.className = 'bm-item';
+    li.innerHTML = `
+      <div class="bm-item-head">
+        <span>${b.chapter} ${b.pct ? '· ' + b.pct : ''}</span>
+        <button class="bm-del-btn" title="Delete bookmark">✕</button>
+      </div>
+      <div class="bm-item-text">“${b.snippet}”</div>
+    `;
+    li.querySelector('.bm-del-btn').addEventListener('click', (e) => deleteBookmark(b.id, e));
+    li.addEventListener('click', () => {
+      closePanels();
+      state.rendition.display(b.cfi);
+    });
+    bmListEl.appendChild(li);
+  });
+}
+
+/* ---------------- in-book quick search ---------------- */
+let searchToken = 0;
+function openSearch(){
+  closePanels();
+  body.classList.add('search-open');
+  syncScrim();
+  const inp = el('searchInput');
+  if(inp){ setTimeout(()=>{ inp.focus(); inp.select(); }, 120); }
+  poke();
+}
+function closeSearch(){
+  body.classList.remove('search-open');
+  syncScrim();
+  poke();
+}
+function toggleSearch(){
+  if(body.classList.contains('search-open')) closeSearch();
+  else openSearch();
+}
+async function doSearch(query){
+  const q = (query || '').trim();
+  const resultsEl = el('searchResults');
+  const metaEl = el('searchMeta');
+  const clearBtn = el('searchClear');
+  if(clearBtn) clearBtn.classList.toggle('visible', q.length > 0);
+  if(!q || q.length < 2){
+    resultsEl.innerHTML = '';
+    metaEl.textContent = 'Type at least 2 characters to search across book';
+    return;
+  }
+  metaEl.textContent = `Searching for "${q}"…`;
+  resultsEl.innerHTML = '<li style="padding:16px 8px;color:var(--muted);font-size:13px">Searching chapters…</li>';
+
+  const spine = state.book && state.book.spine;
+  if(!spine){ metaEl.textContent = 'No book loaded'; return; }
+
+  const myToken = ++searchToken;
+  const matches = [];
+  const maxMatches = 120;
+
+  for(let i = 0; i < spine.length; i++){
+    if(searchToken !== myToken) return;
+    const item = spine.get(i);
+    if(!item) continue;
+    try {
+      await item.load(state.book.load.bind(state.book));
+      let sectionMatches = [];
+      if(typeof item.find === 'function'){
+        try { sectionMatches = await item.find(q); } catch(e){}
+      }
+      if(!sectionMatches || !sectionMatches.length){
+        const doc = item.document;
+        if(doc && doc.body){
+          const bodyText = doc.body.innerText || doc.body.textContent || '';
+          const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          let m;
+          while((m = re.exec(bodyText)) !== null && sectionMatches.length < 15){
+            const start = Math.max(0, m.index - 35);
+            const end = Math.min(bodyText.length, m.index + q.length + 45);
+            const snip = bodyText.substring(start, end).replace(/\s+/g, ' ');
+            const cfi = item.cfiFromElement ? item.cfiFromElement(item.document.body) : item.href;
+            sectionMatches.push({ cfi, excerpt: snip });
+          }
+        }
+      }
+
+      const ch = chapterFor(item.href) || `Chapter ${i + 1}`;
+      if(sectionMatches && sectionMatches.length){
+        for(const sm of sectionMatches){
+          matches.push({
+            cfi: sm.cfi,
+            href: item.href,
+            chapter: ch,
+            excerpt: sm.excerpt || sm.text || ''
+          });
+          if(matches.length >= maxMatches) break;
+        }
+      }
+      if(matches.length >= maxMatches) break;
+    } catch(e){
+    } finally {
+      if(item.unload) item.unload();
+    }
+  }
+
+  if(searchToken !== myToken) return;
+  renderSearchResults(matches, q);
+}
+
+function renderSearchResults(matches, q){
+  const resultsEl = el('searchResults');
+  const metaEl = el('searchMeta');
+  if(!matches.length){
+    metaEl.textContent = `No matches found for "${q}"`;
+    resultsEl.innerHTML = '<li style="padding:20px;text-align:center;color:var(--muted);font:italic 13px var(--serif)">No occurrences found in this book.</li>';
+    return;
+  }
+  metaEl.textContent = `${matches.length} result${matches.length>1?'s':''} for "${q}"`;
+  resultsEl.innerHTML = '';
+  const escRegex = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  matches.forEach(m => {
+    const li = document.createElement('li');
+    li.className = 'search-res-item';
+    const highlighted = (m.excerpt || '').replace(escRegex, '<mark>$1</mark>');
+    li.innerHTML = `
+      <div class="search-res-ch">${m.chapter}</div>
+      <div class="search-res-snip">…${highlighted}…</div>
+    `;
+    li.addEventListener('click', () => {
+      closeSearch();
+      state.rendition.display(m.cfi || m.href);
+      poke();
+    });
+    resultsEl.appendChild(li);
+  });
 }
 
 /* =====================================================================
@@ -1042,15 +2055,24 @@ class PageCacheManager {
     this.totalPagesInSpine = 1;
     this.currentCfi = '';
     this.chapterTexts = new Map(); // spineIndex -> string
+    this.chapterHtmls = new Map(); // spineIndex -> string (HTML)
     this.preloadingSpines = new Set();
     this.cachedChapterHtml = '';
   }
 
-  setChapterHtml(html) {
+  setChapterHtml(html, spineIndex) {
     this.cachedChapterHtml = html;
+    if(spineIndex !== undefined && spineIndex !== null){
+      this.chapterHtmls.set(spineIndex, html);
+    } else {
+      this.chapterHtmls.set(this.currentSpine, html);
+    }
   }
 
-  getChapterHtml() {
+  getChapterHtml(spineIndex) {
+    if(spineIndex !== undefined && spineIndex !== null && this.chapterHtmls.has(spineIndex)){
+      return this.chapterHtmls.get(spineIndex);
+    }
     return this.cachedChapterHtml;
   }
 
@@ -1109,12 +2131,15 @@ class PageCacheManager {
       }
     }
 
-    // Trigger background preloads for adjacent chapters if approaching boundary
+    // Background preloads keep the ± surface pool warm so a drag never
+    // waits on EPUB.js layout (spec §5, §29: 10 fwd / 5 back window).
+    this.preloadSpine(this.currentSpine + 1);
+    this.preloadSpine(this.currentSpine - 1);
     if (this.currentPage >= this.totalPagesInSpine - 5) {
-      this.preloadSpine(this.currentSpine + 1);
+      this.preloadSpine(this.currentSpine + 2);
     }
     if (this.currentPage <= 4 && this.currentSpine > 0) {
-      this.preloadSpine(this.currentSpine - 1);
+      this.preloadSpine(this.currentSpine - 2);
     }
   }
 
@@ -1167,6 +2192,13 @@ class PageCacheManager {
           if (doc && doc.body) {
             const txt = doc.body.innerText || doc.body.textContent || '';
             this.chapterTexts.set(spineIndex, txt);
+            try{
+              let s = doc.getElementById('folio-dyn');
+              if(!s){ s = doc.createElement('style'); s.id = 'folio-dyn'; (doc.head||doc.documentElement).appendChild(s); }
+              s.textContent = buildCSS();
+              const cleanHtml = '<!DOCTYPE html>' + doc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
+              this.chapterHtmls.set(spineIndex, cleanHtml);
+            }catch(err){}
           }
         }
       } catch (e) {
@@ -1258,7 +2290,7 @@ function snapshotPage(){
   };
 }
 
-function createSnapBox(snapInfo, cropLeft, cropWidth){
+function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
   const box = document.createElement('div');
   box.className = 'snap-box';
   box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
@@ -1268,7 +2300,8 @@ function createSnapBox(snapInfo, cropLeft, cropWidth){
   snap.setAttribute('scrolling','no');
   snap.setAttribute('aria-hidden','true');
   snap.setAttribute('tabindex','-1');
-  const innerLeft = snapInfo.relLeft - cropLeft;
+  const baseRelLeft = (customRelLeft !== undefined) ? customRelLeft : snapInfo.relLeft;
+  const innerLeft = baseRelLeft - cropLeft;
   snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${snapInfo.fRect.width}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
   box.appendChild(snap);
 
@@ -1289,7 +2322,7 @@ function populateSnap(snap, html){
 }
 
 async function fxSlide(dir, snapInfo){
-  const dur = 400;
+  const dur = 380;
   const ease = 'cubic-bezier(.35,.1,.25,1)';
   const { vRect } = snapInfo;
 
@@ -1312,131 +2345,682 @@ async function fxSlide(dir, snapInfo){
   finally{ wrap.remove(); }
 }
 
-async function fxFlip(dir, snapInfo){
-  const { vRect, isSpread } = snapInfo;
-  const dur = isSpread ? 680 : 540;
-  const ease = 'cubic-bezier(.4, .08, .25, 1)';
+/* =====================================================================
+   Physical Page-Turn Engine (Conforming to EPUB.js Reader Spec)
+   - Decoupled Physical Layer & Prepared Page Surfaces
+   - 5-Layer Visual Compositor with Moving Fold Line x = W(1 - p)
+   - 3D Curvature C(p) = sin(πp), Mild Perspective, Gaussian Fold Shadow,
+     Ambient Shadow, Edge Specular Highlight & Curled Back Flap
+   - Pointer Events Direct Manipulation (Mouse, Touch, Pen)
+   - Velocity Preservation & Critically Damped Settling (No Bounce)
+   - Zero-Gap Navigation Synchronization with EPUB.js
+   ===================================================================== */
 
-  if(!isSpread){
-    const flipWrap = document.createElement('div');
-    flipWrap.className = 'flip3d';
-    flipWrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;perspective:2400px;pointer-events:none;z-index:63;`;
+const PageTurnConfig = {
+  quality: 'premium',           // 'basic' | 'realistic' | 'premium' (spec §35)
+  activationDistance: 10,       // px moved horizontally before engaging drag
+  verticalToleranceRatio: 1.8,  // |dx| must exceed 1.8 * |dy| to engage
+  edgeZoneWidthRatio: 0.35,     // outer horizontal zone for edge initiation
+  allowFullPageDrag: true,      // allow dragging anywhere across page
+  commitThreshold: 0.38,        // base displacement progress to commit
+  commitVelocity: 1.2,          // flick velocity (progress/sec) that commits on its own
+  velocityWeight: 0.26,         // velocity multiplier for commitScore
+  overscrollResistance: 0.26,   // damping resistance at book boundaries
 
-    const leaf = document.createElement('div');
-    leaf.className = 'leaf';
-    leaf.style.transformOrigin = (dir > 0 ? 'left' : 'right') + ' center';
+  perspective: 2200,            // 3D perspective distance in px
+  maxCurvature: 22,             // px max lift toward reader: lift = Cmax * sin(πp)
+  maxFlapAngle: 32,             // degrees max rotation of curled flap at fold
+  flapWidthRatio: 0.30,         // flap width relative to leaf width (paper curl)
+  flapWidthMax: 150,            // flap width cap in px
 
-    const front = document.createElement('div');
-    front.className = 'face front';
-    front.style.boxShadow = (dir > 0 ? '-10px' : '10px') + ' 0 25px rgba(25,18,8,.2)';
-    const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
-    front.appendChild(box);
+  foldShadowOpacity: 0.36,      // Gaussian fold shadow opacity S(d) = A·exp(-d²/2σ²)
+  foldShadowWidth: 32,          // Gaussian fold shadow spread σ in px
+  ambientShadowOpacity: 0.32,   // ambient shadow opacity A(p) = Amax·sin(πp)
+  ambientShadowWidthRatio: 0.36,// ambient shadow width relative to leaf width
+  edgeHighlightOpacity: 0.18,   // specular highlight opacity along fold crease
 
-    const back = document.createElement('div');
-    back.className = 'face back paper';
+  springDamping: 1.18,          // > 1.0 = strictly critically damped / overdamped (no bounce!)
+  springFrequency: 14,          // stiffness / settling speed
+  maxAnimationDuration: 480,    // ms max settling duration
+  clickTurnDuration: 420        // ms duration for arrow button / key turn
+};
 
-    leaf.appendChild(front);
-    leaf.appendChild(back);
-    flipWrap.appendChild(leaf);
+class PageSurfacePool {
+  static getSnapshotInfo() {
+    return snapshotPage();
+  }
 
-    const cast = document.createElement('div');
-    cast.className = 'cast';
-    cast.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;pointer-events:none;z-index:62;background:${dir > 0 ? 'linear-gradient(to right, rgba(28,21,10,.32), rgba(28,21,10,0) 65%)' : 'linear-gradient(to left, rgba(28,21,10,.32), rgba(28,21,10,0) 65%)'};`;
+  static getAdjacentSurfaceInfo(dir, snapInfo) {
+    if(!snapInfo || !state.rendition) return null;
+    const loc = state.rendition.currentLocation();
+    const d = loc && loc.start ? loc.start.displayed : null;
+    const isSpread = !!state.spreadOn;
+    const stepW = snapInfo.vRect.width;
 
-    document.body.appendChild(cast);
-    document.body.appendChild(flipWrap);
-    populateSnap(snap, snapInfo.docHtml);
+    let inSameChapter = false;
+    if(d && d.total) {
+      if(dir > 0 && d.page < d.total) inSameChapter = true;
+      if(dir < 0 && d.page > 1) inSameChapter = true;
+    } else {
+      const fWidth = snapInfo.fRect.width;
+      if(dir > 0 && Math.abs(snapInfo.relLeft) + stepW + 10 < fWidth) inSameChapter = true;
+      if(dir < 0 && snapInfo.relLeft < -10) inSameChapter = true;
+    }
 
-    const targetRot = dir > 0 ? -178 : 178;
-    const leafAnim = leaf.animate(
-      [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${targetRot}deg)` }],
-      { duration: dur, easing: ease, fill: 'forwards' }
-    );
-    const castAnim = cast.animate(
-      [{ opacity: 0 }, { opacity: 1, offset: 0.45 }, { opacity: 0 }],
-      { duration: dur, easing: 'ease-in-out' }
-    );
-    const fadeAnim = flipWrap.animate(
-      [{ opacity: 1, offset: 0.9 }, { opacity: 0 }],
-      { duration: dur, easing: 'ease-in' }
-    );
+    if(inSameChapter) {
+      const adjacentRelLeft = snapInfo.relLeft - (dir * stepW);
+      return {
+        html: snapInfo.docHtml,
+        relLeft: adjacentRelLeft,
+        isBoundary: false,
+        spineIndex: (loc && loc.start) ? loc.start.index : 0
+      };
+    }
 
-    try{ await Promise.all([leafAnim.finished, castAnim.finished, fadeAnim.finished]); }catch(e){}
-    finally{ flipWrap.remove(); cast.remove(); }
-  } else {
-    // Two-page spread flip
-    const halfW = Math.round(vRect.width / 2);
-    const rightW = vRect.width - halfW;
-    const leafW = dir > 0 ? rightW : halfW;
-    const leafLeft = dir > 0 ? vRect.left + halfW : vRect.left;
-    const leafCropLeft = dir > 0 ? halfW : 0;
-    const origin = dir > 0 ? 'left center' : 'right center';
+    const currentSpine = (loc && loc.start) ? loc.start.index : 0;
+    const targetSpine = currentSpine + dir;
+    if(targetSpine < 0 || (state.book && state.book.spine && targetSpine >= state.book.spine.length)) {
+      return { isBoundary: true, html: null, relLeft: 0, spineIndex: -1 };
+    }
 
-    // Static freeze of the non-flipping page so it stays visible while leaf turns
-    const staticW = dir > 0 ? halfW : rightW;
-    const staticLeft = dir > 0 ? vRect.left : vRect.left + halfW;
-    const staticCropLeft = dir > 0 ? 0 : halfW;
+    let adjacentHtml = (typeof pageCache !== 'undefined') ? pageCache.getChapterHtml(targetSpine) : null;
+    if(!adjacentHtml) {
+      adjacentHtml = snapInfo.docHtml;
+    }
+    const adjacentRelLeft = dir > 0 ? 0 : -(snapInfo.fRect.width - stepW);
+    return {
+      html: adjacentHtml,
+      relLeft: adjacentRelLeft,
+      isBoundary: false,
+      spineIndex: targetSpine
+    };
+  }
+}
 
-    const staticWrap = document.createElement('div');
-    staticWrap.className = 'snap-box';
-    staticWrap.style.cssText = `position:fixed;left:${staticLeft}px;top:${vRect.top}px;width:${staticW}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;`;
-    const { box: staticBox, snap: staticSnap } = createSnapBox(snapInfo, staticCropLeft, staticW);
-    staticWrap.appendChild(staticBox);
-    document.body.appendChild(staticWrap);
-    populateSnap(staticSnap, snapInfo.docHtml);
+class PageTurnCompositor {
+  constructor(dir, snapInfo, adjacentInfo) {
+    this.dir = dir; // +1 = forward, -1 = backward
+    this.snapInfo = snapInfo;
+    this.adjacentInfo = adjacentInfo;
+    this.vRect = snapInfo.vRect;
+    this.isSpread = !!snapInfo.isSpread;
+    this.isBoundary = !!(adjacentInfo && adjacentInfo.isBoundary);
 
-    // 3D flipping leaf
-    const flipWrap = document.createElement('div');
-    flipWrap.className = 'flip3d';
-    flipWrap.style.cssText = `position:fixed;left:${leafLeft}px;top:${vRect.top}px;width:${leafW}px;height:${vRect.height}px;perspective:2400px;pointer-events:none;z-index:63;`;
+    this.root = null;
+    this.stationaryLeaf = null;
+    this.underneathLeaf = null;
+    // Fold-sheet model (spec §8-9): flat shrinking sheet + paper curl flap.
+    // No live content is ever 3D-rotated, so text can never mirror.
+    this.sheet = null;          // flat turning sheet, clipped via clip-path
+    this.flap = null;           // paper curl riding the fold (premium/realistic)
+    this.foldShadow = null;     // Gaussian shadow centred on the fold
+    this.edgeHighlight = null;  // specular line on the fold crease
+    this.ambientShadow = null;
+    this.spineValley = null;
+    this.quality = PageTurnConfig.quality || 'premium';
 
-    const leaf = document.createElement('div');
-    leaf.className = 'leaf';
-    leaf.style.transformOrigin = origin;
+    const VW = this.vRect.width;
+    const VH = this.vRect.height;
+    this.spineX = this.isSpread ? Math.round(VW / 2) : 0;
+    this.leafW = this.isSpread ? (dir > 0 ? (VW - this.spineX) : this.spineX) : VW;
+    this.leafH = VH;
+    // leaf origin inside the compositor root (spread fwd turns the right leaf)
+    this.leafX = this.isSpread ? (dir > 0 ? this.spineX : 0) : 0;
 
-    const front = document.createElement('div');
-    front.className = 'face front';
-    front.style.boxShadow = (dir > 0 ? '-12px' : '12px') + ' 0 30px rgba(25,18,8,.22)';
-    const { box: leafBox, snap: leafSnap } = createSnapBox(snapInfo, leafCropLeft, leafW);
-    front.appendChild(leafBox);
+    this.init();
+  }
 
-    const back = document.createElement('div');
-    back.className = 'face back paper';
+  // Builds the fold-sheet visuals for one turning leaf [bx, bx+bw].
+  // Sheet = flat current-page surface, shrunk per-frame via clip-path.
+  // Flap = plain-paper curl hinged at the moving fold (never live content,
+  // so Chromium can never mirror it). Fold shadow + edge highlight ride x.
+  buildFoldLeaf(root, bx, bw, snap, html, relLeft, underWrap, boundaryLabel, hasAdj) {
+    const VH = this.vRect.height;
+    const dir = this.dir;
 
-    leaf.appendChild(front);
-    leaf.appendChild(back);
-    flipWrap.appendChild(leaf);
+    if(!hasAdj && boundaryLabel && underWrap) {
+      const paper = document.createElement('div');
+      paper.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:14px;background:transparent;`;
+      paper.textContent = boundaryLabel;
+      underWrap.appendChild(paper);
+    }
 
-    const cast = document.createElement('div');
-    cast.className = 'cast';
-    cast.style.cssText = `position:fixed;left:${leafLeft}px;top:${vRect.top}px;width:${leafW}px;height:${vRect.height}px;pointer-events:none;z-index:62;background:${dir > 0 ? 'linear-gradient(to right, rgba(28,21,10,.35), rgba(28,21,10,0) 65%)' : 'linear-gradient(to left, rgba(28,21,10,.35), rgba(28,21,10,0) 65%)'};`;
+    const sheet = document.createElement('div');
+    sheet.className = 'pt-sheet';
+    sheet.style.cssText = `left:${bx}px;top:0;width:${bw}px;height:${VH}px;`;
+    const { box: sBox, snap: sSnap } = createSnapBox(snap, bx, bw, relLeft);
+    sheet.appendChild(sBox);
+    populateSnap(sSnap, html);
+    root.appendChild(sheet);
+    this.sheet = sheet;
 
-    document.body.appendChild(cast);
-    document.body.appendChild(flipWrap);
-    populateSnap(leafSnap, snapInfo.docHtml);
+    if(this.quality !== 'basic') {
+      const fw = Math.max(24, Math.round(Math.min(PageTurnConfig.flapWidthMax, bw * PageTurnConfig.flapWidthRatio)));
+      const flap = document.createElement('div');
+      flap.className = 'pt-flap';
+      flap.style.cssText = `top:0;height:${VH}px;width:${fw}px;opacity:0;` +
+        (dir > 0 ? `transform-origin:right center;` : `transform-origin:left center;`);
+      root.appendChild(flap);
+      this.flap = flap;
+      this.flapW = fw;
 
-    const targetRot = dir > 0 ? -178 : 178;
-    const leafAnim = leaf.animate(
-      [{ transform: 'rotateY(0deg)' }, { transform: `rotateY(${targetRot}deg)` }],
-      { duration: dur, easing: ease, fill: 'forwards' }
-    );
-    const castAnim = cast.animate(
-      [{ opacity: 0 }, { opacity: 1, offset: 0.45 }, { opacity: 0 }],
-      { duration: dur, easing: 'ease-in-out' }
-    );
-    const fadeAnim = flipWrap.animate(
-      [{ opacity: 1, offset: 0.9 }, { opacity: 0 }],
-      { duration: dur, easing: 'ease-in' }
-    );
+      const edge = document.createElement('div');
+      edge.className = 'pt-curl-highlight';
+      edge.style.opacity = '0';
+      root.appendChild(edge);
+      this.edgeHighlight = edge;
+    }
 
-    try{ await Promise.all([leafAnim.finished, castAnim.finished, fadeAnim.finished]); }catch(e){}
-    finally{
-      flipWrap.remove();
-      staticWrap.remove();
-      cast.remove();
+    const sigma = PageTurnConfig.foldShadowWidth;
+    const fold = document.createElement('div');
+    fold.className = 'pt-fold-shadow';
+    fold.style.cssText = `top:0;height:${VH}px;width:${sigma * 2}px;opacity:0;`;
+    root.appendChild(fold);
+    this.foldShadow = fold;
+  }
+
+  init() {
+    const VW = this.vRect.width;
+    const VH = this.vRect.height;
+    const spineX = this.spineX;
+    const dir = this.dir;
+    const isSpread = this.isSpread;
+    const snap = this.snapInfo;
+    const adj = this.adjacentInfo;
+    const hasAdj = adj && !adj.isBoundary && adj.html;
+    const adjHtml = hasAdj ? adj.html : snap.docHtml;
+    const adjRelLeft = hasAdj ? adj.relLeft : snap.relLeft;
+
+    const root = document.createElement('div');
+    root.className = 'pt-compositor';
+    root.style.cssText = `position:fixed;left:${this.vRect.left}px;top:${this.vRect.top}px;width:${VW}px;height:${VH}px;`;
+    root.style.perspective = PageTurnConfig.perspective + 'px';
+    root.style.webkitPerspective = PageTurnConfig.perspective + 'px';
+
+    if(isSpread) {
+      const WL = spineX;          // Left page width
+      const WR = VW - spineX;      // Right page width
+
+      if(dir > 0) {
+        // Forward turn: Right leaf flips over center spine to land on Left page
+        // 1. Stationary Left Page (L0) on left [0, WL]
+        const statWrap = document.createElement('div');
+        statWrap.className = 'pt-stationary-leaf';
+        statWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;`;
+        const { box: statBox, snap: sSnap } = createSnapBox(snap, 0, WL, snap.relLeft);
+        statWrap.appendChild(statBox);
+        populateSnap(sSnap, snap.docHtml);
+        root.appendChild(statWrap);
+        this.stationaryLeaf = statWrap;
+
+        // 2. Underneath Right Page (R+1) revealed on right [WL, VW]
+        const underWrap = document.createElement('div');
+        underWrap.className = 'pt-underneath-leaf';
+        underWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;`;
+        if(hasAdj) {
+          const { box: uBox, snap: uSnap } = createSnapBox(snap, WL, WR, adjRelLeft);
+          underWrap.appendChild(uBox);
+          populateSnap(uSnap, adjHtml);
+        }
+        root.appendChild(underWrap);
+        this.underneathLeaf = underWrap;
+
+        // 3. Center spine valley shadow
+        const valley = document.createElement('div');
+        valley.className = 'pt-spine-valley';
+        valley.style.left = `${spineX}px`;
+        root.appendChild(valley);
+        this.spineValley = valley;
+
+        // 4. Ambient shadow on revealed underneath page
+        const ambShadow = document.createElement('div');
+        ambShadow.className = 'pt-ambient-shadow';
+        ambShadow.style.cssText = `left:${WL}px;top:0;width:${Math.min(260, WR * 0.55)}px;height:${VH}px;background:linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        root.appendChild(ambShadow);
+        this.ambientShadow = ambShadow;
+
+        // 5. Fold sheet for the right leaf: flat current page + paper curl.
+        // Incoming page (adjHtml) is already visible on the underneath layer.
+        this.buildFoldLeaf(root, WL, WR, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
+
+      } else {
+        // Backward turn: Left leaf flips over center spine to land on Right page
+        // 1. Stationary Right Page (R0) on right [WL, VW]
+        const statWrap = document.createElement('div');
+        statWrap.className = 'pt-stationary-leaf';
+        statWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;`;
+        const { box: statBox, snap: sSnap } = createSnapBox(snap, WL, WR, snap.relLeft);
+        statWrap.appendChild(statBox);
+        populateSnap(sSnap, snap.docHtml);
+        root.appendChild(statWrap);
+        this.stationaryLeaf = statWrap;
+
+        // 2. Underneath Left Page (L-1) revealed on left [0, WL]
+        const underWrap = document.createElement('div');
+        underWrap.className = 'pt-underneath-leaf';
+        underWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;`;
+        if(hasAdj) {
+          const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, WL, adjRelLeft);
+          underWrap.appendChild(uBox);
+          populateSnap(uSnap, adjHtml);
+        }
+        root.appendChild(underWrap);
+        this.underneathLeaf = underWrap;
+
+        // 3. Center spine valley shadow
+        const valley = document.createElement('div');
+        valley.className = 'pt-spine-valley';
+        valley.style.left = `${spineX}px`;
+        root.appendChild(valley);
+        this.spineValley = valley;
+
+        // 4. Ambient shadow on revealed underneath page
+        const ambShadow = document.createElement('div');
+        ambShadow.className = 'pt-ambient-shadow';
+        ambShadow.style.cssText = `left:${Math.max(0, WL - Math.min(260, WL * 0.55))}px;top:0;width:${Math.min(260, WL * 0.55)}px;height:${VH}px;background:linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        root.appendChild(ambShadow);
+        this.ambientShadow = ambShadow;
+
+        // 5. Fold sheet for the left leaf.
+        this.buildFoldLeaf(root, 0, WL, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
+      }
+    } else {
+      // Single-Page Mode
+      const W = VW;
+      // 1. Underneath revealed page
+      const underWrap = document.createElement('div');
+      underWrap.className = 'pt-underneath-leaf';
+      underWrap.style.cssText = `left:0;top:0;width:${W}px;height:${VH}px;`;
+      if(hasAdj) {
+        const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, W, adjRelLeft);
+        underWrap.appendChild(uBox);
+        populateSnap(uSnap, adjHtml);
+      }
+      root.appendChild(underWrap);
+      this.underneathLeaf = underWrap;
+
+      // 2. Ambient shadow
+      const ambShadow = document.createElement('div');
+      ambShadow.className = 'pt-ambient-shadow';
+      const ambGrad = dir > 0
+        ? 'linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)'
+        : 'linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)';
+      const ambLeft = dir > 0 ? 0 : Math.max(0, W - Math.min(260, W * 0.45));
+      ambShadow.style.cssText = `left:${ambLeft}px;top:0;width:${Math.min(260, W * 0.45)}px;height:${VH}px;background:${ambGrad};opacity:0;`;
+      root.appendChild(ambShadow);
+      this.ambientShadow = ambShadow;
+
+      // 3. Fold sheet for the single page (anchor side follows direction).
+      this.buildFoldLeaf(root, 0, W, snap, snap.docHtml, snap.relLeft, underWrap, dir > 0 ? 'End of Book' : 'Beginning of Book', hasAdj);
+    }
+
+    document.body.appendChild(root);
+    this.root = root;
+    this.render(0);
+  }
+
+  // Single visual source of truth: TurnState p drives fold, curvature,
+  // perspective, shadows and highlight together (spec §27, §39).
+  // VisualState = F(p, direction): fold x, curvature C, fold shadow,
+  // ambient shadow, edge highlight. No card rotation anywhere.
+  render(p) {
+    p = clamp(p, 0, 1.05);
+    const pc = clamp(p, 0, 1);
+    const dir = this.dir;
+    const bw = this.leafW || 1;
+    const bx = this.leafX || 0;
+    const C = Math.sin(Math.PI * pc);              // curvature C(p), §10
+    const premium = this.quality !== 'basic';
+
+    // Fold position: forward sweeps right edge -> spine, backward mirrors.
+    const fx = dir > 0 ? bw * (1 - pc) : bw * pc;  // fold offset in leaf, §8
+
+    // 1. Flat turning sheet shrinks as the fold advances (§17).
+    // clip-path only: sheet never rotates, text never distorts or mirrors.
+    if(this.sheet) {
+      const cut = Math.round(bw * pc);
+      this.sheet.style.clipPath = dir > 0
+        ? `inset(0 ${cut}px 0 0)`
+        : `inset(0 0 0 ${cut}px)`;
+    }
+
+    // 2. Paper curl flap hinged at the fold, lifting toward the reader (§11).
+    if(this.flap) {
+      const fw = this.flapW || 100;
+      const flapLeft = dir > 0 ? (bx + fx - fw) : (bx + fx);
+      const flapAngle = (dir > 0 ? -1 : 1) * PageTurnConfig.maxFlapAngle * Math.pow(C, 0.8);
+      const liftZ = Math.round(PageTurnConfig.maxCurvature * C);
+      this.flap.style.left = `${Math.round(flapLeft)}px`;
+      this.flap.style.transform =
+        `perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
+      this.flap.style.opacity = C < 0.02 ? '0' : '1';
+      this.flap.style.filter = C > 0.02
+        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(18,12,6,${(0.22 * C).toFixed(3)}))`
+        : 'none';
+    }
+
+    // 3. Gaussian fold shadow S(d), strongest at the fold (§12).
+    if(this.foldShadow) {
+      const sigma = PageTurnConfig.foldShadowWidth;
+      this.foldShadow.style.left = `${Math.round(bx + fx - sigma)}px`;
+      this.foldShadow.style.opacity =
+        (PageTurnConfig.foldShadowOpacity * (0.35 + 0.65 * C)).toFixed(3);
+    }
+
+    // 4. Specular crease highlight, narrow and soft (§14).
+    if(this.edgeHighlight) {
+      this.edgeHighlight.style.left = `${Math.round(bx + fx - 1.5)}px`;
+      this.edgeHighlight.style.opacity =
+        premium ? (PageTurnConfig.edgeHighlightOpacity * C).toFixed(3) : '0';
+    }
+
+    // 5. Ambient shadow on the revealed page: A(p) = Amax·sin(πp) (§13).
+    if(this.ambientShadow) {
+      const aw = Math.round(Math.min(bw * PageTurnConfig.ambientShadowWidthRatio, Math.max(0, dir > 0 ? bw - fx : fx)));
+      if(dir > 0) {
+        this.ambientShadow.style.left = `${Math.round(bx + fx)}px`;
+      } else {
+        this.ambientShadow.style.left = `${Math.round(bx + fx - aw)}px`;
+      }
+      this.ambientShadow.style.width = `${aw}px`;
+      this.ambientShadow.style.opacity =
+        premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
+    }
+  }
+
+  destroy() {
+    if(this.root) {
+      this.root.remove();
+      this.root = null;
     }
   }
 }
+
+class PageTurnPhysics {
+  static animate({
+    fromP,
+    toP,
+    initialVelocity = 0,
+    maxDuration = PageTurnConfig.maxAnimationDuration,
+    onProgress
+  }) {
+    return new Promise(resolve => {
+      const omega = PageTurnConfig.springFrequency;
+      const C1 = fromP - toP;
+      const C2 = initialVelocity + omega * C1;
+      const startTime = performance.now();
+
+      function step(now) {
+        const tSec = (now - startTime) / 1000;
+        const decay = Math.exp(-omega * tSec);
+        const y = (C1 + C2 * tSec) * decay;
+        const currentP = clamp(toP + y, 0, 1.1);
+
+        if(onProgress) onProgress(currentP);
+
+        const velocity = (C2 - omega * (C1 + C2 * tSec)) * decay;
+        const isSettled = (Math.abs(currentP - toP) < 0.003 && Math.abs(velocity) < 0.02) || ((now - startTime) >= maxDuration);
+
+        if(isSettled) {
+          if(onProgress) onProgress(toP);
+          resolve();
+        } else {
+          requestAnimationFrame(step);
+        }
+      }
+
+      requestAnimationFrame(step);
+    });
+  }
+}
+
+class TurnGestureController {
+  constructor() {
+    this.active = false;
+    this.startX = 0;
+    this.startY = 0;
+    this.startTime = 0;
+    this.lastX = 0;
+    this.lastTime = 0;
+    this.recentMoves = [];
+    this.dir = 0;
+    this.compositor = null;
+    this.snapInfo = null;
+    this.adjacentInfo = null;
+    this.captureEl = null;
+    this.pointerId = null;
+    this.currentP = 0;
+    this.boundTargets = new WeakSet();
+    this.downDoc = null;   // document the gesture started in (for epub-swipe guard)
+    this.dragDoc = null;   // document owning the active drag, if any
+  }
+
+  onPointerDown(e) {
+    if(!state.rendition || state.recreating || state.turning) return;
+    if(e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+    const tag = (e.target && e.target.tagName) || '';
+    if(/BUTTON|A|INPUT|SELECT|TEXTAREA/.test(tag)) return;
+    if(e.target && e.target.closest && e.target.closest('button, a, .arrow, header, footer, aside')) return;
+
+    this.startX = e.clientX;
+    this.startY = e.clientY;
+    this.downDoc = (e.target && e.target.ownerDocument) || document;
+    this.startTime = performance.now();
+    this.lastX = e.clientX;
+    this.lastTime = this.startTime;
+    this.recentMoves = [{ x: e.clientX, t: this.startTime }];
+    this.active = false;
+    this.pointerId = e.pointerId;
+    this.dir = 0;
+  }
+
+  onPointerMove(e) {
+    if(this.pointerId !== null && e.pointerId !== this.pointerId) return;
+    if(!this.startTime) return;
+
+    const dx = e.clientX - this.startX;
+    const dy = e.clientY - this.startY;
+    const now = performance.now();
+
+    this.recentMoves.push({ x: e.clientX, t: now });
+    while(this.recentMoves.length > 1 && (now - this.recentMoves[0].t) > 120) {
+      this.recentMoves.shift();
+    }
+
+    if(!this.active) {
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      if(absDx >= PageTurnConfig.activationDistance && absDx >= PageTurnConfig.verticalToleranceRatio * absDy) {
+        const proposedDir = dx < 0 ? 1 : -1;
+        this.startDrag(proposedDir, e);
+      }
+    }
+
+    if(this.active && this.compositor) {
+      const W = this.compositor.leafW || 1;
+      const rawP = (this.dir > 0) ? (-dx / W) : (dx / W);
+      let p;
+      if(this.compositor.isBoundary) {
+        p = clamp(rawP * PageTurnConfig.overscrollResistance, 0, 0.22);
+      } else if(rawP > 1) {
+        p = 1 + (1 - Math.exp(-3 * (rawP - 1))) / 3;
+      } else if(rawP < 0) {
+        p = Math.max(0, rawP * 0.2);
+      } else {
+        p = rawP;
+      }
+      this.currentP = p;
+      this.compositor.render(p);
+    }
+  }
+
+  startDrag(dir, e) {
+    if(pickFx() !== 'paper') return;
+    // Edge initiation zones (spec §25): drags should start near the fore-edge
+    // unless full-page drag is explicitly allowed.
+    if(!PageTurnConfig.allowFullPageDrag && el('viewer')) {
+      try {
+        const vr = el('viewer').getBoundingClientRect();
+        const zx = vr.width * PageTurnConfig.edgeZoneWidthRatio;
+        const inZone = dir > 0
+          ? (this.startX >= vr.right - zx)
+          : (this.startX <= vr.left + zx);
+        if(!inZone) return;
+      } catch(err) {}
+    }
+    if(atEdge(dir)) {
+      const snapInfo = snapshotPage();
+      if(!snapInfo) return;
+      this.active = true;
+      this.dir = dir;
+      this.snapInfo = snapInfo;
+      this.adjacentInfo = { isBoundary: true };
+      this.attachCapture(e);
+      this.dragDoc = this.downDoc;
+      this.compositor = new PageTurnCompositor(dir, snapInfo, this.adjacentInfo);
+      state.turning = true;
+      body.classList.add('turning');
+      return;
+    }
+
+    const snapInfo = snapshotPage();
+    if(!snapInfo) return;
+    const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
+
+    this.active = true;
+    this.dir = dir;
+    this.snapInfo = snapInfo;
+    this.adjacentInfo = adjacentInfo;
+    this.attachCapture(e);
+    this.dragDoc = this.downDoc;
+    this.compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
+    state.turning = true;
+    body.classList.add('turning');
+  }
+
+  attachCapture(e) {
+    if(this.captureEl) return;
+    const cap = document.createElement('div');
+    cap.className = 'pt-drag-capture';
+    document.body.appendChild(cap);
+    this.captureEl = cap;
+    if(e && e.pointerId && cap.setPointerCapture) {
+      try { cap.setPointerCapture(e.pointerId); } catch(err) {}
+    }
+  }
+
+  detachCapture() {
+    if(this.captureEl) {
+      this.captureEl.remove();
+      this.captureEl = null;
+    }
+  }
+
+  async onPointerUp(e) {
+    if(this.pointerId !== null && e.pointerId !== this.pointerId) return;
+    const wasActive = this.active;
+    const startT = this.startTime;
+    const sX = this.startX;
+    const sY = this.startY;
+
+    this.detachCapture();
+    this.pointerId = null;
+    this.startTime = 0;
+
+    if(!wasActive) {
+      const totalDx = Math.abs(e.clientX - sX);
+      const totalDy = Math.abs(e.clientY - sY);
+      const dt = performance.now() - startT;
+      if(totalDx < 8 && totalDy < 8 && dt < 450) {
+        this.handleClick(e);
+      }
+      return;
+    }
+
+    let v0 = 0;
+    if(this.recentMoves.length >= 2) {
+      const first = this.recentMoves[0];
+      const last = this.recentMoves[this.recentMoves.length - 1];
+      const dtSec = (last.t - first.t) / 1000;
+      if(dtSec > 0.01) {
+        const deltaX = (this.dir > 0) ? (first.x - last.x) : (last.x - first.x);
+        const W = (this.compositor && this.compositor.leafW) || 600;
+        v0 = (deltaX / W) / dtSec;
+      }
+    }
+
+    const p = this.currentP;
+    const isBoundary = this.compositor && this.compositor.isBoundary;
+    const commitScore = p + PageTurnConfig.velocityWeight * v0;
+    const shouldCommit = !isBoundary && (commitScore >= PageTurnConfig.commitThreshold || v0 > PageTurnConfig.commitVelocity);
+
+    const targetP = shouldCommit ? 1 : 0;
+    const dir = this.dir;
+    const comp = this.compositor;
+
+    await PageTurnPhysics.animate({
+      fromP: p,
+      toP: targetP,
+      initialVelocity: v0,
+      onProgress: curP => {
+        if(comp) comp.render(curP);
+      }
+    });
+
+    if(shouldCommit) {
+      try {
+        // Logical commit AFTER the physical animation (spec §31): the
+        // underneath surface already shows the destination, so hold the
+        // compositor until EPUB.js has relocated AND painted (no gap, §30).
+        const arrived = nextRelocated(2500);
+        const moveP = (dir > 0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+        await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        await moveP;
+      } catch(err) {
+      } finally {
+        if(comp) comp.destroy();
+        state.turning = false;
+        body.classList.remove('turning');
+        if(state.spreadPending) { state.spreadPending = false; applySpread(); }
+      }
+    } else {
+      if(comp) comp.destroy();
+      state.turning = false;
+      body.classList.remove('turning');
+    }
+
+    this.active = false;
+    this.compositor = null;
+    this.dragDoc = null;
+  }
+
+  handleClick(e) {
+    const sel = window.getSelection ? window.getSelection() : null;
+    if(sel && sel.toString().length) return;
+    const w = innerWidth || 1;
+    const x = e.clientX / w;
+    if(x < 0.25) turn(-1);
+    else if(x > 0.75) turn(1);
+    else if(matchMedia('(hover: none)').matches) toggleChrome();
+  }
+
+  bind(target) {
+    if(!target || this.boundTargets.has(target)) return;
+    this.boundTargets.add(target);
+    target.addEventListener('pointerdown', e => this.onPointerDown(e), { passive: true });
+    target.addEventListener('pointermove', e => this.onPointerMove(e), { passive: false });
+    target.addEventListener('pointerup', e => this.onPointerUp(e), { passive: false });
+    target.addEventListener('pointercancel', e => this.onPointerUp(e), { passive: false });
+  }
+}
+
+turnGesture = new TurnGestureController();
+if(el('stage')) turnGesture.bind(el('stage'));
+if(el('viewer')) turnGesture.bind(el('viewer'));
+window.addEventListener('pointermove', e => turnGesture.onPointerMove(e), { passive: false });
+window.addEventListener('pointerup', e => turnGesture.onPointerUp(e), { passive: false });
+window.addEventListener('pointercancel', e => turnGesture.onPointerUp(e), { passive: false });
 
 let turnQueue = 0;
 async function playTurnFx(dir, fx){
@@ -1447,12 +3031,29 @@ async function playTurnFx(dir, fx){
   }
   state.turning = true; body.classList.add('turning');
   try{
-    const arrived = nextRelocated(600);
-    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-    const animP = (fx === 'slide') ? fxSlide(dir, snapInfo) : fxFlip(dir, snapInfo);
-
-    await animP;
-    await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
+    if(fx === 'slide') {
+      const arrived = nextRelocated(600);
+      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+      await fxSlide(dir, snapInfo);
+      await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
+    } else {
+      // Physical Paper Flip with Moving Fold, Curvature, Perspective & Shadows
+      const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
+      const compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
+      await PageTurnPhysics.animate({
+        fromP: 0,
+        toP: 1,
+        initialVelocity: 1.2,
+        maxDuration: PageTurnConfig.clickTurnDuration,
+        onProgress: curP => compositor.render(curP)
+      });
+      const arrived = nextRelocated(2500);
+      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+      await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await moveP;
+      compositor.destroy();
+    }
   } finally {
     state.turning = false; body.classList.remove('turning');
     if(state.spreadPending){ state.spreadPending=false; applySpread(); }
@@ -1461,8 +3062,8 @@ async function playTurnFx(dir, fx){
 
 async function turn(dir, opts = {}){
   if(!state.rendition || state.recreating) return;
-  poke();
-  if(!opts.fromTTS && tts.active) ttsStop();
+  hideChrome(); // page turns never summon the bars
+  hideSelBar();
   if(atEdge(dir)) return;
   const fx = pickFx();
   if(fx === 'none'){
@@ -1492,28 +3093,7 @@ async function turn(dir, opts = {}){
   }
 }
 
-/* ---------------- read aloud (Web Speech) ---------------- */
-const tts={active:false,paused:false,token:0};
-let markedRange=null;
-function chosenVoice(){
-  if(!('speechSynthesis' in window))return null;
-  const vs=speechSynthesis.getVoices(); if(!vs.length)return null;
-  let v=vs.find(x=>x.voiceURI===settings.voice);
-  if(!v){
-    const lang=(((state.book||{}).packaging||{}).metadata||{}).language||'en';
-    v=vs.find(x=>x.lang&&x.lang.toLowerCase().startsWith(String(lang).slice(0,2).toLowerCase()));
-  }
-  return v||vs[0];
-}
-function speak(text){ return new Promise(res=>{
-  const u=new SpeechSynthesisUtterance(text);
-  const v=chosenVoice(); if(v)u.voice=v;
-  u.rate=settings.rate; u.pitch=1;
-  let done=false; const fin=()=>{ if(!done){done=true;res();} };
-  u.onend=fin; u.onerror=fin;
-  speechSynthesis.speak(u);
-});}
-
+/* ---------------- page text helper (bookmark snippets) ---------------- */
 async function pageText(){
   const loc=state.rendition.currentLocation();
   if(!loc||!loc.start||!loc.end)return null;
@@ -1527,8 +3107,6 @@ async function pageText(){
   if(cached && cached.text) return { txt: cached.text, cr };
   return {err:true};
 }
-function markPage(cr){ unmarkPage(); try{ state.rendition.annotations.add('highlight',cr,{},()=>{}); markedRange=cr; }catch(e){} }
-function unmarkPage(){ if(markedRange&&state.rendition){ try{state.rendition.annotations.remove(markedRange,'highlight');}catch(e){} } markedRange=null; }
 function nextRelocated(timeout){
   return new Promise(res=>{
     const r=state.rendition; if(!r)return res(null);
@@ -1542,45 +3120,6 @@ function isLastPage(loc){
   if(loc.start.index!==state.book.spine.length-1)return false;
   const d=loc.start.displayed; return !d||d.page>=d.total;
 }
-function syncSpeakBtn(){
-  el('btnSpeak').classList.toggle('on',tts.active);
-  el('btnSpeak').classList.toggle('live',tts.active&&!tts.paused);
-}
-async function speakToggle(){
-  if(!state.rendition)return;
-  if(!('speechSynthesis' in window)){ toast('Speech synthesis is not available in this browser'); return; }
-  if(tts.active){
-    if(speechSynthesis.paused){ speechSynthesis.resume(); tts.paused=false; }
-    else if(speechSynthesis.speaking){ speechSynthesis.pause(); tts.paused=true; }
-    syncSpeakBtn(); return;
-  }
-  if(!speechSynthesis.getVoices().length){
-    await new Promise(r=>{ let n=0; const t=setInterval(()=>{ if(speechSynthesis.getVoices().length||++n>20){clearInterval(t);r();} },100); });
-  }
-  tts.active=true; tts.paused=false; syncSpeakBtn();
-  const my=++tts.token;
-  let guard=0;
-  while(tts.token===my && tts.active && guard++<999){
-    const p=await pageText();
-    if(!p||p.err){ toast('Could not read this page aloud'); break; }
-    markPage(p.cr);
-    for(const s of splitSentences(p.txt)){
-      if(tts.token!==my||!tts.active)break;
-      await speak(s);
-    }
-    unmarkPage();
-    if(tts.token!==my||!tts.active)break;
-    const before=state.rendition.currentLocation();
-    if(isLastPage(before)){ toast('The end.'); break; }
-    turn(1,{fromTTS:true});
-    const loc=await nextRelocated();
-    if(!loc||!loc.start||(before&&loc.start.cfi===before.start.cfi))break;
-  }
-  if(tts.token===my){ tts.active=false; tts.paused=false; syncSpeakBtn(); }
-}
-function ttsStop(){ tts.token++; tts.active=false; tts.paused=false;
-  if('speechSynthesis' in window)speechSynthesis.cancel(); unmarkPage(); syncSpeakBtn(); }
-
 /* ---------------- reading guide ---------------- */
 function setGuide(on){
   settings.guide=on; el('swGuide').checked=on; save();
@@ -1591,29 +3130,89 @@ function moveGuide(y){ el('guide').style.top=(y-el('guide').offsetHeight/2)+'px'
 addEventListener('pointermove',e=>{ if(settings.guide)moveGuide(e.clientY); },{passive:true});
 addEventListener('touchmove',e=>{ if(settings.guide&&e.touches[0])moveGuide(e.touches[0].clientY); },{passive:true});
 
-/* ---------------- chrome auto-hide ---------------- */
+/* ---------------- chrome auto-hide ----------------
+   Bars stay hidden while reading (page turns never reveal them).
+   They appear only when the mouse moves near the top/bottom edge;
+   touch devices keep tap-to-toggle. Slim edge shadows hint at them. */
+const CHROME_TOP_ZONE = 64;    // px from viewport top that reveals the topbar
+const CHROME_BOTTOM_ZONE = 76; // px from viewport bottom that reveals the bottombar
 let hideTimer=null;
-function poke(){
+function panelsOpen(){
+  return body.classList.contains('sheet-open') ||
+         body.classList.contains('toc-open') ||
+         body.classList.contains('search-open') ||
+         body.classList.contains('help-open');
+}
+function showChrome(){
   if(!body.classList.contains('state-reading'))return;
   body.classList.remove('chrome-hidden');
-  clearTimeout(hideTimer);
-  hideTimer=setTimeout(()=>{
-    if(body.classList.contains('state-reading')&&!body.classList.contains('sheet-open')&&!body.classList.contains('toc-open'))
-      body.classList.add('chrome-hidden');
-  },3400);
+  clearTimeout(hideTimer); hideTimer=null;
 }
-function toggleChrome(){ body.classList.toggle('chrome-hidden'); clearTimeout(hideTimer); }
-['pointermove','pointerdown'].forEach(ev=>addEventListener(ev,()=>poke(),{passive:true}));
+function hideChrome(){
+  clearTimeout(hideTimer); hideTimer=null;
+  if(!body.classList.contains('state-reading'))return;
+  if(panelsOpen())return;
+  body.classList.add('chrome-hidden');
+}
+function scheduleHide(ms){
+  clearTimeout(hideTimer);
+  hideTimer=setTimeout(hideChrome, (ms==null)?3400:ms);
+}
+function poke(){ showChrome(); scheduleHide(3400); }
+function toggleChrome(){
+  if(body.classList.contains('chrome-hidden')) showChrome();
+  else hideChrome();
+}
+addEventListener('pointermove', e=>{
+  if(e.pointerType && e.pointerType!=='mouse')return; // touch keeps tap-toggle
+  if(!body.classList.contains('state-reading'))return;
+  const nearTop = e.clientY < CHROME_TOP_ZONE;
+  const nearBottom = e.clientY > innerHeight - CHROME_BOTTOM_ZONE;
+  if(nearTop || nearBottom){
+    if(panelsOpen()){ clearTimeout(hideTimer); hideTimer=null; return; }
+    showChrome(); // hovering the edge keeps the bars alive
+  } else if(!body.classList.contains('chrome-hidden') && !panelsOpen() && !hideTimer){
+    scheduleHide(900); // drifted away from the edges: tuck away shortly
+  }
+}, {passive:true});
 
 /* ---------------- panels ---------------- */
 function toggleSheet(){ body.classList.toggle('sheet-open'); syncScrim(); poke(); }
 function toggleToc(){ body.classList.toggle('toc-open'); syncScrim(); poke(); }
-function closePanels(){ body.classList.remove('sheet-open'); body.classList.remove('toc-open'); syncScrim(); }
-function syncScrim(){
-  const s=body.classList.contains('toc-open')||(matchMedia('(max-width:760px)').matches&&body.classList.contains('sheet-open'));
-  el('scrim').classList.toggle('show',s);
+function closePanels(){
+  hideSelBar();
+  body.classList.remove('sheet-open');
+  body.classList.remove('toc-open');
+  body.classList.remove('search-open');
+  body.classList.remove('help-open');
+  syncScrim();
+  if(body.classList.contains('state-reading')) scheduleHide(1200);
 }
-el('scrim').addEventListener('click',closePanels);
+function toggleHelp(){
+  const open = body.classList.toggle('help-open');
+  if(open){ closePanelsExceptHelp(); }
+  syncScrim();
+  if(body.classList.contains('state-reading')){
+    if(open) showChrome(); else scheduleHide(1200);
+  }
+}
+function closePanelsExceptHelp(){
+  body.classList.remove('sheet-open');
+  body.classList.remove('toc-open');
+  body.classList.remove('search-open');
+}
+function syncScrim(){
+  const toc = body.classList.contains('toc-open');
+  const search = body.classList.contains('search-open');
+  const sheet = body.classList.contains('sheet-open');
+  const help = body.classList.contains('help-open');
+  const mobile = matchMedia('(max-width:760px)').matches;
+  el('scrim').classList.toggle('show', toc || search || sheet || help);
+  // desktop settings sheet: invisible catcher (no dimming, so the live
+  // typography preview stays clear) — a click outside still closes it
+  el('scrim').classList.toggle('clear', sheet && !toc && !search && !help && !mobile);
+}
+el('scrim').addEventListener('click', closePanels);
 
 /* ---------------- toast ---------------- */
 let toastT=null;
@@ -1659,10 +3258,22 @@ document.addEventListener('webkitfullscreenchange', syncFullscreenUI);
 
 /* ---------------- keyboard ---------------- */
 function onKey(e){
+  const isCtrl = e.ctrlKey || e.metaKey;
+  if(isCtrl && (e.key==='f' || e.key==='F')){
+    e.preventDefault();
+    if(body.classList.contains('state-reading')) toggleSearch();
+    return;
+  }
+  if(isCtrl && (e.key==='b' || e.key==='B')){
+    e.preventDefault();
+    if(body.classList.contains('state-reading')) toggleBookmark();
+    return;
+  }
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
   const tag=(e.target&&e.target.tagName)||'';
   if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
   if(e.key==='Escape'){ closePanels(); return; }
+  if(e.key==='?'){ toggleHelp(); return; }
   if(e.key==='f'||e.key==='F'){ toggleFullscreen(); return; }
   if(!state.rendition)return;
   switch(e.key){
@@ -1672,8 +3283,7 @@ function onKey(e){
     case 't': toggleToc(); break;
     case 's': toggleSheet(); break;
     case 'g': setGuide(!settings.guide); break;
-    case 'b': setBionic(!settings.bionic); toast(settings.bionic?'Bionic reading on':'Bionic reading off'); break;
-    case 'p': speakToggle(); break;
+    case 'b': toggleBookmark(); break;
     case 'd': {
       const order=['auto','on','off'];
       settings.spread=order[(order.indexOf(settings.spread)+1)%3];
@@ -1755,6 +3365,14 @@ function buildThemeRow(){
 function syncTurnSeg(){
   document.querySelectorAll('#turnSeg button').forEach(b=>
     b.classList.toggle('sel', b.dataset.fx === (settings.turnFx||'slide')));
+  applyTurnQuality();
+}
+const FLIP_Q = ['basic','realistic','premium'];
+function applyTurnQuality(){
+  if(!FLIP_Q.includes(settings.turnQuality)) settings.turnQuality='premium';
+  PageTurnConfig.quality = settings.turnQuality;
+  document.querySelectorAll('#flipQSeg button').forEach(b=>
+    b.classList.toggle('sel', b.dataset.flipq === settings.turnQuality));
 }
 function syncSpreadUI(){
   el('btnSpread').setAttribute('aria-pressed', state.spreadOn ? 'true':'false');
@@ -1784,32 +3402,14 @@ function nudgeWidth(d){
   else settings.widthSingle = nw;
   save(); applyFit(); relayout();
 }
-function buildVoices(){
-  if(!('speechSynthesis' in window))return;
-  const sel=el('voiceSel'); sel.innerHTML='';
-  const auto=document.createElement('option');
-  auto.value=''; auto.textContent='Automatic (match the book)';
-  sel.appendChild(auto);
-  speechSynthesis.getVoices().forEach(v=>{
-    const o=document.createElement('option');
-    o.value=v.voiceURI; o.textContent=`${v.name} (${v.lang})`;
-    sel.appendChild(o);
-  });
-  sel.value=settings.voice||'';
-  if(sel.value!==(settings.voice||''))sel.value='';
-}
 function syncControls(){
   syncFontSel(); applyTheme();
   el('swBionic').checked=settings.bionic;
+  el('swDropCaps').checked=!!settings.dropCaps;
   el('swGuide').checked=settings.guide;
   body.classList.toggle('guide-on',settings.guide);
   el('swJustify').checked=settings.justify;
-  el('lhRange').value=settings.lineHeight; el('lhOut').textContent=(+settings.lineHeight).toFixed(2);
-  el('lsRange').value=settings.letter;     el('lsOut').textContent=(settings.letter/1000).toFixed(3)+'em';
-  el('wsRange').value=settings.word;       el('wsOut').textContent=(settings.word/1000).toFixed(3)+'em';
-  el('rateRange').value=settings.rate;     el('rateOut').textContent='×'+(+settings.rate).toFixed(2);
-  ['lhRange','lsRange','wsRange','rateRange'].forEach(id=>setFill(el(id)));
-  syncSize(); syncWidthSlider(); syncTurnSeg(); syncSpreadUI(); buildVoices();
+  syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI();
 }
 
 /* ---------------- wiring ---------------- */
@@ -1819,10 +3419,41 @@ el('curBookBadge').addEventListener('click',resumeReading);
 el('btnOpen').addEventListener('click',()=>el('file').click());
 el('file').addEventListener('change',e=>{ loadFile(e.target.files[0]); e.target.value=''; });
 el('btnDemo').addEventListener('click',loadDemo);
-el('btnSpeak').addEventListener('click',speakToggle);
-if(!('speechSynthesis' in window))el('btnSpeak').setAttribute('disabled','');
-if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=buildVoices;
 
+el('selDefine').addEventListener('click', async ()=>{
+  const w=(selText.split(' ')[0]||'').replace(/[^A-Za-z'-]/g,'').toLowerCase();
+  const box=el('selDef');
+  if(!w){ box.hidden=false; box.textContent='Select a word first.'; return; }
+  box.hidden=false; box.textContent='Looking up…';
+  try{
+    const r=await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(w));
+    if(!r.ok) throw 0;
+    const j=await r.json();
+    const m=j && j[0] && j[0].meanings && j[0].meanings[0];
+    const def=m && m.definitions && m.definitions[0] && m.definitions[0].definition;
+    box.textContent=def ? ((m.partOfSpeech?('('+m.partOfSpeech+') '):'')+def) : 'No definition found.';
+  }catch(e){ box.textContent='Definitions need an internet connection.'; }
+});
+el('selFind').addEventListener('click',()=>{
+  const q=selText; hideSelBar();
+  if(!q || q.length<2) return;
+  openSearch();
+  const inp=el('searchInput'); if(inp) inp.value=q;
+  doSearch(q);
+});
+el('selCopy').addEventListener('click',async ()=>{
+  const q=selText; hideSelBar();
+  if(!q) return;
+  try{ await navigator.clipboard.writeText(q); toast('Copied to clipboard'); }
+  catch(e){ toast('Copy failed'); }
+});
+addEventListener('pointerdown',e=>{
+  if(e.target && e.target.closest && e.target.closest('#selBar'))return;
+  hideSelBar();
+},true);
+el('btnHelp').addEventListener('click',toggleHelp);
+el('helpClose').addEventListener('click',closePanels);
+el('helpOverlay').addEventListener('click',e=>{ if(e.target===el('helpOverlay')) closePanels(); });
 el('btnSheet').addEventListener('click',toggleSheet);
 el('sheetClose').addEventListener('click',closePanels);
 el('btnToc').addEventListener('click',toggleToc);
@@ -1849,18 +3480,145 @@ el('widthRange').addEventListener('input',e=>{
   else settings.widthSingle = val;
   save(); applyFit(); relayout();
 });
-el('lhRange').addEventListener('input',e=>{ settings.lineHeight=+e.target.value; el('lhOut').textContent=settings.lineHeight.toFixed(2); setFill(e.target); save(); relayout(); });
-el('lsRange').addEventListener('input',e=>{ settings.letter=+e.target.value; el('lsOut').textContent=(settings.letter/1000).toFixed(3)+'em'; setFill(e.target); save(); relayout(); });
-el('wsRange').addEventListener('input',e=>{ settings.word=+e.target.value; el('wsOut').textContent=(settings.word/1000).toFixed(3)+'em'; setFill(e.target); save(); relayout(); });
-el('rateRange').addEventListener('input',e=>{ settings.rate=+e.target.value; el('rateOut').textContent='×'+settings.rate.toFixed(2); setFill(e.target); save(); });
+el('marginMinus').addEventListener('click', () => {
+  settings.marginAuto = false;
+  settings.marginVertical = clamp(effMarginVertical() - 2, 14, 64);
+  save(); applyFit();
+});
+el('marginPlus').addEventListener('click', () => {
+  settings.marginAuto = false;
+  settings.marginVertical = clamp(effMarginVertical() + 2, 14, 64);
+  save(); applyFit();
+});
+el('marginAuto').addEventListener('click', () => {
+  settings.marginAuto = true;
+  save(); applyFit();
+});
+el('marginRange').addEventListener('input', e => {
+  settings.marginAuto = false;
+  settings.marginVertical = +e.target.value;
+  save(); applyFit();
+});
+
+// Line height
+el('lhAuto').addEventListener('click', () => {
+  settings.lhAuto = true;
+  save(); applyFit(); refreshCSS();
+});
+el('lhRange').addEventListener('input', e => {
+  settings.lhAuto = false;
+  settings.lineHeight = +e.target.value;
+  save(); applyFit(); refreshCSS();
+});
+
+// Letter spacing
+el('lsAuto').addEventListener('click', () => {
+  settings.lsAuto = true;
+  save(); applyFit(); refreshCSS();
+});
+el('lsRange').addEventListener('input', e => {
+  settings.lsAuto = false;
+  settings.letter = +e.target.value;
+  save(); applyFit(); refreshCSS();
+});
+
+// Word spacing
+el('wsAuto').addEventListener('click', () => {
+  settings.wsAuto = true;
+  save(); applyFit(); refreshCSS();
+});
+el('wsRange').addEventListener('input', e => {
+  settings.wsAuto = false;
+  settings.word = +e.target.value;
+  save(); applyFit(); refreshCSS();
+});
+
+// Presets
+document.querySelectorAll('#presetSeg button').forEach(b => b.addEventListener('click', () => {
+  const p = b.dataset.preset;
+  if(!p || !PRESETS[p]) return;
+  if(settings.preset === p && settings.lhAuto && settings.lsAuto && settings.wsAuto && settings.marginAuto){
+    toast('Preset already active: ' + PRESETS[p].label);
+    return;
+  }
+  settings.preset = p;
+  settings.lhAuto = true;
+  settings.lsAuto = true;
+  settings.wsAuto = true;
+  settings.marginAuto = true;
+  save();
+  applyFit();
+  refreshCSS();
+  toast('Preset applied: ' + PRESETS[p].label);
+}));
+
+// Master Auto-Tune button: resets the four spacing channels to computed harmony.
+// When everything is already auto the computed values are identical, so say so
+// instead of claiming a retune that changes nothing.
+el('btnResetHarmony').addEventListener('click', () => {
+  const already = settings.lhAuto && settings.lsAuto && settings.wsAuto && settings.marginAuto;
+  settings.lhAuto = true;
+  settings.lsAuto = true;
+  settings.wsAuto = true;
+  settings.marginAuto = true;
+  save();
+  if(already){
+    syncPresetUI();
+    toast('Spacing is already auto-tuned — drag a slider to customize first');
+    return;
+  }
+  applyFit();
+  refreshCSS();
+  toast('Auto-tuned all spacing to mathematical harmony');
+});
+
 el('swBionic').addEventListener('change',e=>setBionic(e.target.checked));
+el('swDropCaps').addEventListener('change', e => {
+  settings.dropCaps = e.target.checked;
+  save(); refreshCSS();
+});
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
-el('voiceSel').addEventListener('change',e=>{ settings.voice=e.target.value||null; save(); });
+
+// Bookmark ribbon & TOC tabs
+el('bookmarkRibbon').addEventListener('click', toggleBookmark);
+el('tabToc').addEventListener('click', () => {
+  el('tabToc').classList.add('active');
+  el('tabBm').classList.remove('active');
+  el('tocList').style.display = 'block';
+  el('bmList').style.display = 'none';
+});
+el('tabBm').addEventListener('click', () => {
+  el('tabBm').classList.add('active');
+  el('tabToc').classList.remove('active');
+  el('tocList').style.display = 'none';
+  el('bmList').style.display = 'block';
+  renderBookmarks();
+});
+
+// In-book search
+el('btnSearch').addEventListener('click', openSearch);
+el('searchClose').addEventListener('click', closeSearch);
+el('searchClear').addEventListener('click', () => {
+  el('searchInput').value = '';
+  doSearch('');
+  el('searchInput').focus();
+});
+el('searchInput').addEventListener('input', e => {
+  doSearch(e.target.value);
+});
+el('searchInput').addEventListener('keydown', e => {
+  if(e.key === 'Escape'){ closeSearch(); e.stopPropagation(); }
+  if(e.key === 'Enter'){ e.preventDefault(); doSearch(e.target.value); }
+});
 
 document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('click',()=>{
   settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
+}));
+document.querySelectorAll('#flipQSeg button').forEach(b=>b.addEventListener('click',()=>{
+  settings.turnQuality=b.dataset.flipq; save(); applyTurnQuality();
+  toast('Flip realism: '+settings.turnQuality);
 }));
 document.querySelectorAll('#spreadSeg button').forEach(b=>b.addEventListener('click', async ()=>{
   settings.spread=b.dataset.spread; save(); await relayout();
@@ -1880,7 +3638,7 @@ el('rail').addEventListener('click',e=>{
   const f=clamp((e.clientX-r.left)/r.width,0,1);
   const total=state.book.spine.length;
   const sec=state.book.spine.get(clamp(Math.floor(f*total),0,total-1));
-  if(sec){ if(tts.active)ttsStop(); state.rendition.display(sec.href).catch(()=>{}); }
+  if(sec){ state.rendition.display(sec.href).catch(()=>{}); }
 });
 
 /* swipe over the chrome edges too */
@@ -2038,37 +3796,5 @@ addEventListener('load', () => {
   }
 });
 </script>
-
-<script>
-// --- Desktop Tauri Integration ---
-async function initTauriDesktop(){
-  if(window.__TAURI_INTERNALS__){
-    try{
-      const { invoke } = window.__TAURI_INTERNALS__;
-      const initialPath = await invoke('get_initial_file');
-      if(initialPath){
-        if(typeof showLoader === 'function') showLoader('Opening book…');
-        const bytes = await invoke('read_file_bytes', { path: initialPath });
-        const buf = new Uint8Array(bytes).buffer;
-        const fileName = initialPath.split(/[\\/]/).pop() || '';
-        const titleHint = fileName.replace(/.epub$/i, '').trim();
-        if(typeof openBuffer === 'function') openBuffer(buf, titleHint);
-      }
-    }catch(e){
-      console.warn('Tauri desktop init:', e);
-    }
-  }
-}
-window.addEventListener('DOMContentLoaded', initTauriDesktop);
-// Support Ctrl+O hotkey to open files
-window.addEventListener('keydown', e => {
-  if((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')){
-    e.preventDefault();
-    const btn = document.getElementById('btnOpen');
-    if(btn) btn.click();
-  }
-});
-</script>
-
 </body>
 </html>
