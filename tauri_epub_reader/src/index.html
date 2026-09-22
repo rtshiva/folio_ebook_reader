@@ -156,6 +156,11 @@ body.spread #wrap{border-radius:8px;
 body.spread #viewer{border-radius:8px}
 body.spread #wrap::after{content:'';position:absolute;inset:0;border-radius:8px;pointer-events:none;z-index:6;
   box-shadow:inset 0 0 0 1px var(--hair),inset 0 0 26px rgba(30,20,8,.06)}
+/* subtle paper grain + vignette over the page (non-interactive) */
+#pageFx{position:absolute;inset:0;pointer-events:none;z-index:4;opacity:.55;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E"),
+    radial-gradient(120% 95% at 50% 42%, transparent 64%, rgba(30,20,8,.10) 100%)}
+body.spread #pageFx{border-radius:8px}
 #gutter{display:none}
 body.spread #gutter{display:block;position:absolute;top:0;bottom:0;left:50%;width:var(--gut,64px);
   transform:translateX(-50%);z-index:5;pointer-events:none;
@@ -245,6 +250,10 @@ body.toc-open #toc{transform:translateX(0)}
 .bm-badge.has-items{display:inline-block;}
 #tocList{list-style:none;margin:0;padding:8px 0;overflow-y:auto;flex:1}
 #tocList button{display:block;width:100%;text-align:left;padding:11px 20px;font:400 14.5px/1.4 var(--serif);color:var(--ink)}
+#tocList.virt{position:relative}
+#tocList.virt>div{position:relative;width:100%}
+#tocList.virt li{height:44px}
+#tocList.virt button{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:0;padding-bottom:0;line-height:44px}
 #tocList button:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 #tocList li.cur button{color:var(--accent);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
 #tocList .empty{padding:22px 20px;font:italic 400 14px var(--serif);color:var(--muted)}
@@ -283,6 +292,7 @@ body.search-open #searchDrawer{transform:translateX(0);}
   border:1px solid var(--hairS);border-radius:14px;padding:12px 16px;cursor:pointer;text-align:left;
   transition:transform .15s,background .15s,border-color .15s;}
 .recent-card:hover{transform:translateY(-2px);background:color-mix(in srgb,var(--ink) 8%,transparent);border-color:var(--ink);}
+.recent-cover-art img{width:100%;height:100%;object-fit:cover;border-radius:4px;display:block}
 .recent-cover-art{width:36px;height:48px;background:var(--ink);border-radius:4px;display:grid;place-items:center;
   color:var(--page);font:700 16px var(--serif);position:relative;box-shadow:2px 2px 8px rgba(0,0,0,.2);flex-shrink:0;}
 .recent-spine-edge{position:absolute;left:0;top:0;bottom:0;width:4px;background:rgba(255,255,255,.2);border-radius:4px 0 0 4px;}
@@ -449,6 +459,7 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       two-page spread on its stand, with bionic reading, dyslexia-tuned typefaces, and a
       guided line to help you keep reading.</p>
     <p class="colophon" id="landingColophon"></p>
+    <p class="colophon" id="readingStats" style="display:none;margin-top:8px"></p>
     <div class="landing-actions">
       <button class="btn btn-primary" id="btnResume" style="display:none" title="Return to currently open book">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
@@ -514,6 +525,7 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       <svg width="22" height="34" viewBox="0 0 24 36" fill="currentColor"><path d="M0 0h24v34l-12-8-12 8z"/></svg>
     </button>
     <div id="viewer"></div>
+    <div id="pageFx"></div>
     <div id="gutter"></div>
     <div id="stand"></div>
   </div>
@@ -636,15 +648,6 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
               <output id="marginOut"></output>
             </div>
           </div>
-          <div class="adv-group">
-            <h4 class="lbl">Flip realism</h4>
-            <div class="seg" id="flipQSeg">
-              <button data-flipq="basic" type="button" title="Fold + shadow only, fastest">Basic</button>
-              <button data-flipq="realistic" type="button" title="Fold + curl + lighting">Realistic</button>
-              <button data-flipq="premium" type="button" title="Full curl, shadows and crease highlight">Premium</button>
-            </div>
-            <p class="fine">Premium is the default and most lifelike; basic is fastest on weak hardware.</p>
-          </div>
         </div>
       </details>
     </section>
@@ -744,12 +747,18 @@ const DEFAULTS = {
   lsAuto:true, letter:0,
   wsAuto:true, word:0,
   measure:34, justify:false,
-  bionic:false, guide:false, turnFx:'paper', turnQuality:'premium', spread:'auto',
+  bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false
 };
 let settings = {...DEFAULTS};
-try{ Object.assign(settings, JSON.parse(localStorage.getItem('folio-settings')||'{}')); }catch(e){}
+try{
+  const raw = localStorage.getItem('folio-settings') || '{}';
+  Object.assign(settings, JSON.parse(raw));
+  // Migration: readers who had explicitly picked a theme keep manual mode;
+  // fresh installs default to following the OS day/night theme.
+  if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
+}catch(e){}
 let saveT=null;
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{localStorage.setItem('folio-settings',JSON.stringify(settings));}catch(e){} },150); }
 
@@ -767,14 +776,21 @@ function rgba(hex,a){
   return m?`rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`:hex;
 }
 
-/* ---------------- reading fonts (page + book iframes) ---------------- */
-const FS=(fam,slug,w,style)=>`@font-face{font-family:'${fam}';font-style:${style||'normal'};font-weight:${w};font-display:swap;`+
-  `src:url('https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${style||'normal'}.woff2') format('woff2');}`;
+/* ---------------- reading fonts (page + book iframes) ----------------
+   Vendored under vendor/fonts for offline-first loading; the CDN copy stays
+   as fallback (browsers try @font-face sources in order). */
+const FS=(fam,slug,w,style)=>{
+  const st=style||'normal';
+  const local=`vendor/fonts/${slug}-${w}-${st}.woff2`;
+  const cdn=`https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${st}.woff2`;
+  return `@font-face{font-family:'${fam}';font-style:${st};font-weight:${w};font-display:swap;`+
+    `src:url('${local}') format('woff2'),url('${cdn}') format('woff2');}`;
+};
 const FONT_FACES =
   FS('Literata','literata',400)+FS('Literata','literata',400,'italic')+FS('Literata','literata',600)+FS('Literata','literata',700)+
   FS('Atkinson Hyperlegible','atkinson-hyperlegible',400)+FS('Atkinson Hyperlegible','atkinson-hyperlegible',700)+
   FS('Lexend','lexend',400)+FS('Lexend','lexend',600)+FS('Lexend','lexend',700)+
-  FS('OpenDyslexic','open-dyslexic',400)+FS('OpenDyslexic','open-dyslexic',700);
+  FS('OpenDyslexic','opendyslexic',400)+FS('OpenDyslexic','opendyslexic',700);
 document.head.insertAdjacentHTML('beforeend','<style>'+FONT_FACES+'</style>');
 
 const FONTS = {
@@ -1031,7 +1047,7 @@ function applyFit(){
 
 /* ---------------- CSS injected into the book iframes ---------------- */
 function buildCSS(){
-  const t = THEMES[settings.theme]||THEMES.paper;
+  const t = THEMES[effectiveThemeKey()]||THEMES.paper;
   const fs = effSize();
   const stack = (FONTS[settings.font]||FONTS.literata).stack;
   const j = settings.justify;
@@ -1100,8 +1116,9 @@ function refreshCSS(){
 /* ---------------- offline book storage (IndexedDB) ---------------- */
 const BookStorage = {
   DB_NAME: 'folio-books-db',
-  DB_VERSION: 1,
+  DB_VERSION: 2,
   STORE_NAME: 'books',
+  SEARCH_STORE: 'search-index',
   _db: null,
 
   async getDB(){
@@ -1117,6 +1134,9 @@ const BookStorage = {
         if(!db.objectStoreNames.contains(this.STORE_NAME)){
           const store = db.createObjectStore(this.STORE_NAME, { keyPath: 'title' });
           store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+        if(!db.objectStoreNames.contains(this.SEARCH_STORE)){
+          db.createObjectStore(this.SEARCH_STORE, { keyPath: 'title' });
         }
       };
       req.onsuccess = e => {
@@ -1191,6 +1211,76 @@ const BookStorage = {
     }
   },
 
+  // Delete every stored buffer except the given titles (history cap).
+  async pruneExcept(keepTitles){
+    try{
+      const keep = new Set(keepTitles || []);
+      const db = await this.getDB();
+      const keys = await new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const req = tx.objectStore(this.STORE_NAME).getAllKeys();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+      const drop = keys.filter(k => !keep.has(k));
+      if(drop.length){
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          const store = tx.objectStore(this.STORE_NAME);
+          drop.forEach(k => { try{ store.delete(k); }catch(e){} });
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        });
+        // drop their search indexes too (store may not exist on old DBs)
+        try{
+          if(db.objectStoreNames.contains(this.SEARCH_STORE)){
+            await new Promise((resolve) => {
+              try{
+                const tx2 = db.transaction(this.SEARCH_STORE, 'readwrite');
+                const s2 = tx2.objectStore(this.SEARCH_STORE);
+                drop.forEach(k => { try{ s2.delete(k); }catch(e){} });
+                tx2.oncomplete = () => resolve(true);
+                tx2.onerror = () => resolve(false);
+              }catch(e){ resolve(false); }
+            });
+          }
+        }catch(e){}
+      }
+      return drop.length;
+    }catch(e){
+      return 0;
+    }
+  },
+
+  // Persisted full-text search index (one entry per book title).
+  async saveSearchIndex(idx){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve) => {
+        try{
+          const tx = db.transaction(this.SEARCH_STORE, 'readwrite');
+          const req = tx.objectStore(this.SEARCH_STORE).put(idx);
+          req.onsuccess = () => resolve(true);
+          req.onerror = () => resolve(false);
+        }catch(e){ resolve(false); }
+      });
+    }catch(e){ return false; }
+  },
+
+  async getSearchIndex(title){
+    try{
+      const db = await this.getDB();
+      return new Promise((resolve) => {
+        try{
+          const tx = db.transaction(this.SEARCH_STORE, 'readonly');
+          const req = tx.objectStore(this.SEARCH_STORE).get(title);
+          req.onsuccess = e => resolve(e.target.result || null);
+          req.onerror = () => resolve(null);
+        }catch(e){ resolve(null); }
+      });
+    }catch(e){ return null; }
+  },
+
   async deleteBook(title){
     try{
       const db = await this.getDB();
@@ -1206,6 +1296,18 @@ const BookStorage = {
     }
   }
 };
+
+/* Buffers above this size are never cached in IndexedDB (reopened from disk
+   path in Tauri, or re-picked on web) so history stays light. */
+const IDB_MAX_BUFFER = 50 * 1024 * 1024;
+function storableBuffer(buf){
+  try{
+    if(!buf) return null;
+    const len = buf.byteLength !== undefined ? buf.byteLength : (buf.length || 0);
+    if(len > IDB_MAX_BUFFER) return null;
+    return buf.slice ? buf.slice(0) : buf;
+  }catch(e){ return null; }
+}
 
 /* ---------------- app state ---------------- */
 const state = { book:null, rendition:null, loading:false, posKey:null,
@@ -1236,6 +1338,7 @@ function showLoader(msg){ el('loaderMsg').textContent=msg||'Typesetting…'; el(
 function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('loader').classList.add('hide'), Math.max(0,450-d)); }
 
 async function closeBook(){
+  lastStatCfi = null;
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -1244,7 +1347,55 @@ async function closeBook(){
   updateLandingUI();
 }
 
+/* ---------------- reading stats (landing) ---------------- */
+let statsCache = null, lastStatCfi = null, statsSaveT = null;
+function dayKey(d){
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function loadStats(){
+  try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, JSON.parse(localStorage.getItem('folio-stats') || '{}')); }
+  catch(e){ statsCache = { min: 0, pages: 0, days: {} }; }
+  if(!statsCache.days) statsCache.days = {};
+}
+function saveStatsSoon(){
+  clearTimeout(statsSaveT);
+  statsSaveT = setTimeout(() => { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }, 2000);
+}
+function statStreak(){
+  let streak = 0;
+  const d = new Date();
+  if(!(statsCache.days[dayKey(d)] > 0)) d.setDate(d.getDate() - 1); // allow today-in-progress
+  while(statsCache.days[dayKey(d)] > 0){ streak++; d.setDate(d.getDate() - 1); }
+  return streak;
+}
+function renderReadingStats(){
+  const e = el('readingStats');
+  if(!e || !statsCache) return;
+  const mins = Math.floor(statsCache.min || 0);
+  const parts = [];
+  if(mins > 0) parts.push(mins + ' min read');
+  if((statsCache.pages || 0) > 0) parts.push(statsCache.pages + ' pages');
+  const st = statStreak();
+  if(st >= 2) parts.push(st + '-day streak');
+  e.textContent = parts.join('  ·  ');
+  e.style.display = parts.length ? 'block' : 'none';
+}
+// Heartbeat: counts reading time only while a book is open and visible.
+setInterval(() => {
+  try{
+    if(!statsCache) loadStats();
+    if(state.book && body.classList.contains('state-reading') && document.visibilityState === 'visible'){
+      statsCache.min = (statsCache.min || 0) + 0.5;
+      const k = dayKey();
+      statsCache.days[k] = (statsCache.days[k] || 0) + 0.5;
+      saveStatsSoon();
+    }
+  }catch(e){}
+}, 30000);
+
 function updateLandingUI(){
+  renderReadingStats();
   const hasBook = !!(state.book && state.rendition);
   const title = getActiveTitle();
   const resumeBtn = el('btnResume');
@@ -1346,13 +1497,12 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     el('bookTitle').setAttribute('title', initialTitle);
     state.posKey = 'folio-pos:'+initialTitle;
 
-    // Cache to IndexedDB asynchronously
+    // Cache to IndexedDB asynchronously (skipped for very large files)
     try{
-      const bufCopy = buf.slice ? buf.slice(0) : buf;
       BookStorage.saveBook({
         title: initialTitle,
         author: state.currentAuthor,
-        buffer: bufCopy,
+        buffer: storableBuffer(buf),
         filePath: state.currentFilePath,
         cfi: targetCfi || null
       });
@@ -1367,12 +1517,13 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
         el('bookTitle').setAttribute('title', realTitle);
         state.posKey = 'folio-pos:'+realTitle;
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
+        fetchCoverThumb(book, realTitle);
+        SearchIndex.prepare(book, realTitle);
         try{
-          const bufCopy2 = buf.slice ? buf.slice(0) : buf;
           BookStorage.saveBook({
             title: realTitle,
             author: state.currentAuthor,
-            buffer: bufCopy2,
+            buffer: storableBuffer(buf),
             filePath: state.currentFilePath,
             cfi: targetCfi || null
           });
@@ -1408,6 +1559,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     }
 
     buildTOC(book);
+    SearchIndex.prepare(book, getActiveTitle());
     if(book.locations && !book.locations.total){
       const genLocs = () => { try{ book.locations.generate(1000).catch(()=>{}); }catch(e){} };
       if('requestIdleCallback' in window) requestIdleCallback(genLocs, { timeout: 3000 });
@@ -1482,6 +1634,13 @@ function onContent(contents){
     if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml);
   }catch(e){}
   if(settings.bionic && d.body.dataset.fioBionic!=='1'){ bionifyDoc(d); d.body.dataset.fioBionic='1'; }
+  // Illustrated chapters paginate faster when off-screen images decode lazily.
+  try{
+    d.querySelectorAll('img').forEach(im=>{
+      im.setAttribute('loading','lazy');
+      im.setAttribute('decoding','async');
+    });
+  }catch(e){}
   wireContents(contents);
 }
 /* ---------------- selection lookup toolbar ---------------- */
@@ -1622,6 +1781,15 @@ function onRelocated(loc){
   el('chapter').textContent=chTitle;
   markTocCurrent(loc.start.href);
   try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
+  // Pages-turned stat: first fix after open sets the baseline, moves count.
+  try{
+    if(!statsCache) loadStats();
+    if(lastStatCfi && loc.start.cfi !== lastStatCfi){
+      statsCache.pages = (statsCache.pages || 0) + 1;
+      saveStatsSoon();
+    }
+    lastStatCfi = loc.start.cfi;
+  }catch(e){}
 
   // Page badge & reading time remaining
   const pageBadge = el('pageBadge');
@@ -1675,7 +1843,43 @@ function chapterFor(href){
   return it?it.label:'';
 }
 
-/* ---------------- table of contents ---------------- */
+/* ---------------- table of contents (virtualized past 80 rows) ---------------- */
+const TOC_ROW_H = 44, TOC_VIRT_AT = 80, TOC_OVERSCAN = 8;
+let tocCurIdx = -1;
+const tocVirt = { on:false, a:0, b:-1 };
+function makeTocRow(it, idx){
+  const li=document.createElement('li');
+  li.dataset.idx=idx;
+  if(idx===tocCurIdx) li.classList.add('cur');
+  const b=document.createElement('button');
+  b.textContent=it.label;
+  b.title=it.label;
+  b.style.paddingLeft=(20+it.depth*14)+'px';
+  b.addEventListener('click',()=>{
+    closePanels();
+    state.rendition&&state.rendition.display(it.href).catch(()=>{});
+  });
+  li.appendChild(b);
+  return li;
+}
+function renderTocWindow(){
+  const list=el('tocList');
+  if(!tocVirt.on || !list) return;
+  const st=list.scrollTop, vh=list.clientHeight||400, n=tocItems.length;
+  const a=Math.max(0,Math.floor(st/TOC_ROW_H)-TOC_OVERSCAN);
+  const b=Math.min(n-1,Math.ceil((st+vh)/TOC_ROW_H)+TOC_OVERSCAN);
+  tocVirt.a=a; tocVirt.b=b;
+  const pad=list.firstChild;
+  pad.style.height=(n*TOC_ROW_H)+'px';
+  pad.innerHTML='';
+  const frag=document.createDocumentFragment();
+  for(let i=a;i<=b;i++){
+    const li=makeTocRow(tocItems[i],i);
+    li.style.cssText+=`;position:absolute;top:${i*TOC_ROW_H}px;left:0;right:0;height:${TOC_ROW_H}px;`;
+    frag.appendChild(li);
+  }
+  pad.appendChild(frag);
+}
 async function buildTOC(book){
   try{
     const nav=await book.loaded.navigation;
@@ -1687,19 +1891,26 @@ async function buildTOC(book){
       });
     })(nav.toc,0);
     tocItems=out;
-    const list=el('tocList'); list.innerHTML='';
+    tocCurIdx=-1;
+    const list=el('tocList'); list.innerHTML=''; list.scrollTop=0;
+    list.onscroll=null;
     if(!out.length){ list.innerHTML='<li class="empty">This book has no table of contents.</li>'; return; }
-    out.forEach((it)=>{
-      const li=document.createElement('li');
-      const b=document.createElement('button');
-      b.textContent=it.label;
-      b.style.paddingLeft=(20+it.depth*14)+'px';
-      b.addEventListener('click',()=>{
-        closePanels();
-        state.rendition&&state.rendition.display(it.href).catch(()=>{});
-      });
-      li.appendChild(b); list.appendChild(li);
-    });
+    if(out.length>TOC_VIRT_AT){
+      // windowing: one spacer + absolutely positioned visible rows only
+      tocVirt.on=true;
+      list.classList.add('virt');
+      const pad=document.createElement('div');
+      pad.style.cssText='position:relative;width:100%;';
+      list.appendChild(pad);
+      list.onscroll=()=>{ if(tocVirt.on) renderTocWindow(); };
+      renderTocWindow();
+    } else {
+      tocVirt.on=false;
+      list.classList.remove('virt');
+      const frag=document.createDocumentFragment();
+      out.forEach((it,idx)=>frag.appendChild(makeTocRow(it,idx)));
+      list.appendChild(frag);
+    }
     const loc=state.rendition&&state.rendition.currentLocation();
     if(loc&&loc.start)markTocCurrent(loc.start.href);
     syncBookmarkBadge();
@@ -1710,12 +1921,61 @@ async function buildTOC(book){
 function markTocCurrent(href){
   const base=x=>String(x||'').split('/').pop().split('#')[0];
   const idx=tocItems.findIndex(i=>base(i.href)===base(href));
-  [...el('tocList').children].forEach((li,i)=>li.classList.toggle('cur',i===idx));
+  tocCurIdx=idx;
+  const list=el('tocList');
+  if(!list) return;
+  if(tocVirt.on){
+    // never yank the user's scroll: just restyle the rendered window
+    list.querySelectorAll('li[data-idx]').forEach(li=>{
+      li.classList.toggle('cur',+li.dataset.idx===idx);
+    });
+  } else {
+    [...list.children].forEach((li,i)=>li.classList.toggle('cur',i===idx));
+  }
 }
 
 /* ---------------- recent books shelf ---------------- */
 function getRecents(){
   try{ return JSON.parse(localStorage.getItem('folio-recents')||'[]'); }catch(e){ return []; }
+}
+function updateRecentThumb(title, thumb){
+  if(!title || !thumb) return;
+  try{
+    const list = getRecents();
+    const it = list.find(x => x.title === title);
+    if(!it || it.thumb === thumb) return;
+    it.thumb = thumb;
+    localStorage.setItem('folio-recents', JSON.stringify(list));
+    renderRecentShelf();
+  }catch(e){}
+}
+// Extract the EPUB cover, downscale to a tiny thumbnail and persist it on
+// the history entry. Runs idle so book-open stays fast; failures are silent.
+function fetchCoverThumb(book, title){
+  if(!book || !title || typeof book.coverUrl !== 'function') return;
+  const run = () => {
+    try{
+      book.coverUrl().then(url => {
+        if(!url) return;
+        const img = new Image();
+        img.onload = () => {
+          try{
+            const TW = 72;
+            const scale = TW / (img.naturalWidth || TW);
+            const TH = Math.max(1, Math.round((img.naturalHeight || TW) * scale));
+            const cv = document.createElement('canvas');
+            cv.width = TW; cv.height = TH;
+            cv.getContext('2d').drawImage(img, 0, 0, TW, TH);
+            updateRecentThumb(title, cv.toDataURL('image/jpeg', 0.72));
+          }catch(e){}
+        };
+        img.onerror = () => {};
+        img.src = url;
+      }).catch(()=>{});
+    }catch(e){}
+  };
+  if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 });
+  else setTimeout(run, 800);
 }
 function saveRecentBook(title, author, pct, cfi, filePath){
   if(!title || title === 'Untitled' || title === 'Folio') return;
@@ -1730,16 +1990,56 @@ function saveRecentBook(title, author, pct, cfi, filePath){
     filePath: filePath || existing.filePath || null,
     timestamp: Date.now()
   });
-  if(list.length > 8) list = list.slice(0, 8);
+  if(list.length > 4) list = list.slice(0, 4);
   try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
+  // Drop cached buffers for books that fell out of history (fire-and-forget).
+  try{ BookStorage.pruneExcept(list.map(x => x.title)); }catch(e){}
   BookStorage.updateProgress(title, pct, cfi);
   renderRecentShelf();
+}
+// Cinematic open: the history card's cover art flies into the reader area
+// before the book loads. Skipped for reduced-motion or missing geometry.
+function flyCoverToReader(fromEl){
+  return new Promise(resolve => {
+    try{
+      if(matchMedia('(prefers-reduced-motion: reduce)').matches){ resolve(); return; }
+      const r = fromEl.getBoundingClientRect();
+      const w = el('wrap');
+      const t = w ? w.getBoundingClientRect() : null;
+      if(!r || r.width < 4 || !t || t.width < 40){ resolve(); return; }
+      const ghost = document.createElement('div');
+      ghost.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;` +
+        `z-index:94;border-radius:6px;overflow:hidden;pointer-events:none;background:var(--page);` +
+        `box-shadow:0 20px 60px -12px rgba(30,20,8,.5);`;
+      const img = fromEl.querySelector('img');
+      if(img){
+        const c = img.cloneNode();
+        c.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+        ghost.appendChild(c);
+      } else {
+        ghost.innerHTML = fromEl.innerHTML;
+      }
+      document.body.appendChild(ghost);
+      const dx = (t.left + t.width / 2) - (r.left + r.width / 2);
+      const dy = (t.top + t.height / 2) - (r.top + r.height / 2);
+      const sx = t.width / r.width, sy = t.height / r.height;
+      const anim = ghost.animate([
+        { transform: 'translate(0,0) scale(1,1)', opacity: 1 },
+        { transform: `translate(${dx * 0.85}px,${dy * 0.85}px) scale(${sx},${sy})`, opacity: 1, offset: 0.8 },
+        { transform: `translate(${dx}px,${dy}px) scale(${sx},${sy})`, opacity: 0 }
+      ], { duration: 520, easing: 'cubic-bezier(.22,.7,.25,1)', fill: 'forwards' });
+      let done = false;
+      const fin = () => { if(!done){ done = true; ghost.remove(); resolve(); } };
+      if(anim && anim.onfinish !== undefined) anim.onfinish = fin;
+      setTimeout(fin, 700);
+    }catch(e){ resolve(); }
+  });
 }
 function renderRecentShelf(){
   const shelf = el('recentShelf');
   const listEl = el('recentList');
   if(!shelf || !listEl) return;
-  const recents = getRecents();
+  const recents = getRecents().slice(0, 4);
   if(!recents.length){
     shelf.style.display = 'none';
     return;
@@ -1750,10 +2050,12 @@ function renderRecentShelf(){
     const card = document.createElement('div');
     card.className = 'recent-card';
     const initial = (b.title || 'F')[0].toUpperCase();
+    const art = b.thumb
+      ? `<img src="${b.thumb}" alt="" loading="lazy">`
+      : `<div class="recent-spine-edge"></div><span>${initial}</span>`;
     card.innerHTML = `
       <div class="recent-cover-art">
-        <div class="recent-spine-edge"></div>
-        <span>${initial}</span>
+        ${art}
       </div>
       <div class="recent-info">
         <div class="recent-book-title" title="${b.title}">${b.title}</div>
@@ -1769,6 +2071,9 @@ function renderRecentShelf(){
         resumeReading();
         return;
       }
+      // Cinematic cover flight (skipped when nothing to fly from)
+      const artEl = card.querySelector('.recent-cover-art');
+      if(artEl) await flyCoverToReader(artEl);
       // 2. Demo book
       if(b.title === 'The Time Machine'){
         await loadDemo();
@@ -1934,6 +2239,52 @@ function toggleSearch(){
   if(body.classList.contains('search-open')) closeSearch();
   else openSearch();
 }
+/* Full-text search index: chapter texts are extracted once (idle after open),
+   persisted in IndexedDB, and reused across sessions. A query then scans the
+   in-memory index and loads ONLY chapters with hits to resolve CFIs — instead
+   of loading every spine item per keystroke. */
+const SearchIndex = {
+  mem: null, // {title, spineLen, chapters:[{href, text}]}
+  async ensure(book, title, onProgress){
+    const spineLen = book && book.spine ? book.spine.length : 0;
+    if(!book || !title || !spineLen) return null;
+    if(this.mem && this.mem.title === title && this.mem.spineLen === spineLen) return this.mem;
+    const cached = await BookStorage.getSearchIndex(title);
+    if(cached && cached.spineLen === spineLen && Array.isArray(cached.chapters)){
+      this.mem = cached;
+      return cached;
+    }
+    const chapters = [];
+    for(let i = 0; i < spineLen; i++){
+      const item = book.spine.get(i);
+      if(!item){ chapters.push({ href:'', text:'' }); continue; }
+      try{
+        await item.load(book.load.bind(book));
+        const doc = item.document;
+        const text = ((doc && doc.body && (doc.body.innerText || doc.body.textContent)) || '')
+          .replace(/\s+/g, ' ').trim().slice(0, 200000);
+        chapters.push({ href: item.href || '', text });
+      }catch(e){
+        chapters.push({ href: (item && item.href) || '', text: '' });
+      }finally{
+        try{ if(item.unload) item.unload(); }catch(e){}
+      }
+      if(onProgress){ try{ onProgress(i + 1, spineLen); }catch(e){} }
+    }
+    this.mem = { title, spineLen, chapters };
+    BookStorage.saveSearchIndex(this.mem);
+    return this.mem;
+  },
+  // Warm the index idle so the first real search is instant.
+  prepare(book, title){
+    if(!book || !title) return;
+    const spineLen = book.spine ? book.spine.length : 0;
+    if(this.mem && this.mem.title === title && this.mem.spineLen === spineLen) return;
+    const run = () => { this.ensure(book, title, null).catch(()=>{}); };
+    if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 8000 });
+    else setTimeout(run, 1500);
+  }
+};
 async function doSearch(query){
   const q = (query || '').trim();
   const resultsEl = el('searchResults');
@@ -1945,22 +2296,53 @@ async function doSearch(query){
     metaEl.textContent = 'Type at least 2 characters to search across book';
     return;
   }
-  metaEl.textContent = `Searching for "${q}"…`;
-  resultsEl.innerHTML = '<li style="padding:16px 8px;color:var(--muted);font-size:13px">Searching chapters…</li>';
-
-  const spine = state.book && state.book.spine;
+  const book = state.book;
+  const spine = book && book.spine;
   if(!spine){ metaEl.textContent = 'No book loaded'; return; }
+  const title = getActiveTitle();
 
   const myToken = ++searchToken;
   const matches = [];
   const maxMatches = 120;
 
-  for(let i = 0; i < spine.length; i++){
+  // 1. Ensure the cached full-text index (builds once, then instant).
+  metaEl.textContent = `Searching for "${q}"…`;
+  resultsEl.innerHTML = '<li style="padding:16px 8px;color:var(--muted);font-size:13px">Searching chapters…</li>';
+  const idx = await SearchIndex.ensure(book, title, (done, total) => {
+    if(searchToken === myToken) metaEl.textContent = `Indexing book… ${done}/${total}`;
+  });
+  if(searchToken !== myToken) return;
+  if(!idx){
+    // Fallback: live single-pass scan (index unavailable).
+    metaEl.textContent = `Searching for "${q}"…`;
+  }
+
+  // 2. Scan cached chapter texts for hit chapters (no spine loading here).
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(esc, 'gi');
+  const chapters = (idx && idx.chapters) || [];
+  const hitIdx = [];
+  for(let i = 0; i < chapters.length && matches.length < maxMatches; i++){
     if(searchToken !== myToken) return;
+    const bodyText = chapters[i].text || '';
+    if(!bodyText) continue;
+    re.lastIndex = 0;
+    let m, count = 0;
+    while((m = re.exec(bodyText)) !== null && count < 15){
+      if(m[0].length === 0){ re.lastIndex++; continue; }
+      count++;
+    }
+    if(count) hitIdx.push(i);
+  }
+
+  // 3. Resolve CFIs by loading ONLY hit chapters.
+  for(const i of hitIdx){
+    if(searchToken !== myToken) return;
+    if(matches.length >= maxMatches) break;
     const item = spine.get(i);
     if(!item) continue;
     try {
-      await item.load(state.book.load.bind(state.book));
+      await item.load(book.load.bind(book));
       let sectionMatches = [];
       if(typeof item.find === 'function'){
         try { sectionMatches = await item.find(q); } catch(e){}
@@ -1969,9 +2351,10 @@ async function doSearch(query){
         const doc = item.document;
         if(doc && doc.body){
           const bodyText = doc.body.innerText || doc.body.textContent || '';
-          const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          const re2 = new RegExp(esc, 'gi');
           let m;
-          while((m = re.exec(bodyText)) !== null && sectionMatches.length < 15){
+          while((m = re2.exec(bodyText)) !== null && sectionMatches.length < 15){
+            if(m[0].length === 0){ re2.lastIndex++; continue; }
             const start = Math.max(0, m.index - 35);
             const end = Math.min(bodyText.length, m.index + q.length + 45);
             const snip = bodyText.substring(start, end).replace(/\s+/g, ' ');
@@ -1993,7 +2376,6 @@ async function doSearch(query){
           if(matches.length >= maxMatches) break;
         }
       }
-      if(matches.length >= maxMatches) break;
     } catch(e){
     } finally {
       if(item.unload) item.unload();
@@ -2290,22 +2672,66 @@ function snapshotPage(){
   };
 }
 
+/* Snapshot iframe pool: creating + srcdoc-loading a fresh iframe per turn is
+   the main flip jank source on big chapters. Pooled boxes live offscreen so
+   their documents stay warm; acquire resets geometry, release re-stashes. */
+const snapPool = [];
+const SNAP_POOL_MAX = 6;
+function snapPoolHost(){
+  let host = document.getElementById('snapPool');
+  if(!host){
+    host = document.createElement('div');
+    host.id = 'snapPool';
+    host.setAttribute('aria-hidden','true');
+    host.style.cssText = 'position:fixed;left:-10000px;top:0;width:10px;height:10px;overflow:hidden;pointer-events:none;';
+    document.body.appendChild(host);
+  }
+  return host;
+}
 function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
-  const box = document.createElement('div');
-  box.className = 'snap-box';
+  let box = null, snap = null;
+  const reused = snapPool.pop();
+  if(reused && reused.box && reused.snap){
+    box = reused.box; snap = reused.snap;
+  } else {
+    box = document.createElement('div');
+    box.className = 'snap-box';
+    snap = document.createElement('iframe');
+    snap.className = 'snap-iframe';
+    snap.setAttribute('scrolling','no');
+    snap.setAttribute('aria-hidden','true');
+    snap.setAttribute('tabindex','-1');
+    box.appendChild(snap);
+  }
   box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
-
-  const snap = document.createElement('iframe');
-  snap.className = 'snap-iframe';
-  snap.setAttribute('scrolling','no');
-  snap.setAttribute('aria-hidden','true');
-  snap.setAttribute('tabindex','-1');
   const baseRelLeft = (customRelLeft !== undefined) ? customRelLeft : snapInfo.relLeft;
   const innerLeft = baseRelLeft - cropLeft;
   snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${snapInfo.fRect.width}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
-  box.appendChild(snap);
 
   return { box, snap };
+}
+function blankSnap(snap){
+  try{ snap.removeAttribute('srcdoc'); }catch(e){}
+  try{
+    const d = snap.contentDocument;
+    if(d){ d.open(); d.write('<!DOCTYPE html><html><head></head><body></body></html>'); d.close(); }
+  }catch(e){}
+}
+function releaseSnaps(root){
+  if(!root || !root.querySelectorAll) return;
+  let host = null;
+  root.querySelectorAll('.snap-box').forEach(box => {
+    const snap = box.querySelector('.snap-iframe');
+    box.remove();
+    if(snap && snapPool.length < SNAP_POOL_MAX){
+      if(!host) host = snapPoolHost();
+      blankSnap(snap);
+      host.appendChild(box);
+      snapPool.push({ box, snap });
+    } else if(snap){
+      blankSnap(snap);
+    }
+  });
 }
 
 function populateSnap(snap, html){
@@ -2342,7 +2768,7 @@ async function fxSlide(dir, snapInfo){
   );
 
   try{ await anim.finished; }catch(e){}
-  finally{ wrap.remove(); }
+  finally{ releaseSnaps(wrap); wrap.remove(); }
 }
 
 /* =====================================================================
@@ -2382,7 +2808,8 @@ const PageTurnConfig = {
   springDamping: 1.18,          // > 1.0 = strictly critically damped / overdamped (no bounce!)
   springFrequency: 14,          // stiffness / settling speed
   maxAnimationDuration: 480,    // ms max settling duration
-  clickTurnDuration: 420        // ms duration for arrow button / key turn
+  clickTurnDuration: 420,       // ms duration for arrow button / key turn
+
 };
 
 class PageSurfacePool {
@@ -2730,6 +3157,7 @@ class PageTurnCompositor {
 
   destroy() {
     if(this.root) {
+      releaseSnaps(this.root);
       this.root.remove();
       this.root = null;
     }
@@ -3318,19 +3746,58 @@ async function relayout(){
     try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
   }
 }
+/* Throttled book refresh for continuous slider drags: cheap chrome/output
+   updates run on the next frame, while the expensive book reflow (iframe CSS
+   rewrite + rendition resize) trails at most every 120ms. Discrete clicks
+   keep using relayout() for instant feedback. */
+let brRaf=0, brTimer=0, brLast=0, brResize=false;
+function scheduleBookRefresh(needResize){
+  if(needResize) brResize=true;
+  if(brRaf) return;
+  brRaf=requestAnimationFrame(()=>{
+    brRaf=0;
+    applyFit();
+    const fire=()=>{
+      brLast=performance.now();
+      refreshCSS();
+      if(brResize){
+        brResize=false;
+        if(state.rendition && !state.recreating && !state.turning){
+          const w=el('wrap');
+          try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
+        }
+      }
+    };
+    const wait=120-(performance.now()-brLast);
+    clearTimeout(brTimer);
+    if(wait<=0) fire(); else brTimer=setTimeout(fire,wait);
+  });
+}
 let rzT=null;
 addEventListener('resize',()=>{ clearTimeout(rzT); rzT=setTimeout(relayout,160); });
 
 /* ---------------- theme ---------------- */
+function osDark(){
+  try{ return matchMedia('(prefers-color-scheme: dark)').matches; }
+  catch(e){ return false; }
+}
+// Manual choice always wins; Auto follows the OS (paper by day, noir by night).
+function effectiveThemeKey(){
+  if(settings.themeAuto) return osDark() ? 'noir' : 'paper';
+  return THEMES[settings.theme] ? settings.theme : 'paper';
+}
 function applyTheme(){
-  const t=THEMES[settings.theme]||THEMES.paper;
+  const t=THEMES[effectiveThemeKey()]||THEMES.paper;
   const rs=document.documentElement.style;
   rs.setProperty('--desk',t.desk); rs.setProperty('--page',t.page);
   rs.setProperty('--ink',t.ink);   rs.setProperty('--muted',t.muted);
   rs.setProperty('--accent',t.accent); rs.setProperty('--hair',t.hair);
   rs.setProperty('--hairS',t.hairS);   rs.setProperty('--dim',t.dim);
   rs.setProperty('--sel',t.sel);
-  document.querySelectorAll('#themeRow .t-btn').forEach(b=>b.classList.toggle('sel',b.dataset.theme===settings.theme));
+  document.querySelectorAll('#themeRow .t-btn').forEach(b=>{
+    const k=b.dataset.theme;
+    b.classList.toggle('sel', k==='auto' ? !!settings.themeAuto : (!settings.themeAuto && k===settings.theme));
+  });
 }
 
 /* ---------------- settings UI ---------------- */
@@ -3354,25 +3821,29 @@ function syncFontSel(){
 }
 function buildThemeRow(){
   const r=el('themeRow'); r.innerHTML='';
+  const auto=document.createElement('button');
+  auto.className='t-btn'; auto.dataset.theme='auto';
+  auto.innerHTML=`<i style="background:linear-gradient(135deg,#f7f1e3 50%,#171410 50%)"></i>Auto`;
+  auto.title='Follow the system day/night theme';
+  auto.addEventListener('click',()=>{ settings.themeAuto=true; save(); applyTheme(); relayout(); });
+  r.appendChild(auto);
   Object.entries(THEMES).forEach(([k,t])=>{
     const b=document.createElement('button');
     b.className='t-btn'; b.dataset.theme=k;
     b.innerHTML=`<i style="background:${t.page};box-shadow:inset 0 0 0 3px ${t.page},inset 0 0 0 20px ${t.ink}"></i>${t.label}`;
-    b.addEventListener('click',()=>{ settings.theme=k; save(); applyTheme(); relayout(); });
+    b.addEventListener('click',()=>{ settings.theme=k; settings.themeAuto=false; save(); applyTheme(); relayout(); });
     r.appendChild(b);
   });
+  try{
+    const mq=matchMedia('(prefers-color-scheme: dark)');
+    const onOsTheme=()=>{ if(settings.themeAuto){ applyTheme(); relayout(); } };
+    if(mq.addEventListener) mq.addEventListener('change', onOsTheme);
+    else if(mq.addListener) mq.addListener(onOsTheme);
+  }catch(e){}
 }
 function syncTurnSeg(){
   document.querySelectorAll('#turnSeg button').forEach(b=>
     b.classList.toggle('sel', b.dataset.fx === (settings.turnFx||'slide')));
-  applyTurnQuality();
-}
-const FLIP_Q = ['basic','realistic','premium'];
-function applyTurnQuality(){
-  if(!FLIP_Q.includes(settings.turnQuality)) settings.turnQuality='premium';
-  PageTurnConfig.quality = settings.turnQuality;
-  document.querySelectorAll('#flipQSeg button').forEach(b=>
-    b.classList.toggle('sel', b.dataset.flipq === settings.turnQuality));
 }
 function syncSpreadUI(){
   el('btnSpread').setAttribute('aria-pressed', state.spreadOn ? 'true':'false');
@@ -3465,7 +3936,7 @@ el('sizeMinus').addEventListener('click',()=>nudgeSize(-0.5));
 el('sizePlus').addEventListener('click',()=>nudgeSize(0.5));
 el('sizeAuto').addEventListener('click',()=>{ settings.auto=true; save(); syncSize(); relayout(); });
 el('sizeRange').addEventListener('input',e=>{
-  settings.auto=false; settings.size=+e.target.value; save(); syncSize(); relayout();
+  settings.auto=false; settings.size=+e.target.value; save(); syncSize(); scheduleBookRefresh(true);
 });
 el('widthMinus').addEventListener('click',()=>nudgeWidth(-30));
 el('widthPlus').addEventListener('click',()=>nudgeWidth(30));
@@ -3478,7 +3949,7 @@ el('widthRange').addEventListener('input',e=>{
   const val = +e.target.value;
   if(state.spreadOn) settings.widthSpread = val;
   else settings.widthSingle = val;
-  save(); applyFit(); relayout();
+  save(); scheduleBookRefresh(true);
 });
 el('marginMinus').addEventListener('click', () => {
   settings.marginAuto = false;
@@ -3497,7 +3968,7 @@ el('marginAuto').addEventListener('click', () => {
 el('marginRange').addEventListener('input', e => {
   settings.marginAuto = false;
   settings.marginVertical = +e.target.value;
-  save(); applyFit();
+  save(); scheduleBookRefresh(false);
 });
 
 // Line height
@@ -3508,7 +3979,7 @@ el('lhAuto').addEventListener('click', () => {
 el('lhRange').addEventListener('input', e => {
   settings.lhAuto = false;
   settings.lineHeight = +e.target.value;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 
 // Letter spacing
@@ -3519,7 +3990,7 @@ el('lsAuto').addEventListener('click', () => {
 el('lsRange').addEventListener('input', e => {
   settings.lsAuto = false;
   settings.letter = +e.target.value;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 
 // Word spacing
@@ -3530,7 +4001,7 @@ el('wsAuto').addEventListener('click', () => {
 el('wsRange').addEventListener('input', e => {
   settings.wsAuto = false;
   settings.word = +e.target.value;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 
 // Presets
@@ -3615,10 +4086,6 @@ el('searchInput').addEventListener('keydown', e => {
 document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('click',()=>{
   settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
-}));
-document.querySelectorAll('#flipQSeg button').forEach(b=>b.addEventListener('click',()=>{
-  settings.turnQuality=b.dataset.flipq; save(); applyTurnQuality();
-  toast('Flip realism: '+settings.turnQuality);
 }));
 document.querySelectorAll('#spreadSeg button').forEach(b=>b.addEventListener('click', async ()=>{
   settings.spread=b.dataset.spread; save(); await relayout();
@@ -3776,6 +4243,7 @@ async function loadDemo(){
 }
 
 /* ---------------- init ---------------- */
+loadStats();
 buildFontGrid();
 buildThemeRow();
 syncControls();
