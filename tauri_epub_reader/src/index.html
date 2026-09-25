@@ -93,7 +93,17 @@ body.state-reading.chrome-hidden #topHint,body.state-reading.chrome-hidden #botH
   background:color-mix(in srgb,var(--page) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--hair)}
 .tb-left{display:flex;align-items:center;gap:12px;min-width:0}
 .tb-sep{width:1px;height:16px;background:var(--hair)}
-#bookTitle{font:400 13px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38vw}
+#bookTitle{font:400 13px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:30vw}
+.pos-pill{display:flex;align-items:center;gap:8px;min-width:0;max-width:min(42vw,460px);
+  font:400 12px var(--sans);color:var(--muted);border:1px solid var(--hair);border-radius:999px;
+  padding:7px 13px;transition:color .2s,border-color .2s;white-space:nowrap}
+.pos-pill:hover{color:var(--ink);border-color:var(--hairS)}
+.pos-pill .pill-ic{flex:0 0 auto}
+.pos-pill .pill-dot{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+#posPillCh{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pos-pill .pill-pct{flex:0 0 auto;font-variant-numeric:tabular-nums}
+body.state-landing #posPill{display:none}
+@media(max-width:760px){#posPillCh{display:none}}
 .tb-right{display:flex;align-items:center;gap:4px}
 .icon-btn{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;transition:background .2s,color .2s;position:relative}
 .icon-btn:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}
@@ -103,6 +113,10 @@ body.state-reading.chrome-hidden #topHint,body.state-reading.chrome-hidden #botH
 #btnFullscreen.is-fs .ic-fs-exit{display:block}
 .aa-btn{width:auto;padding:0 13px;height:38px;font:600 16px var(--serif);border-radius:10px}
 .aa-btn:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}
+#btnSpeak.active{color:var(--accent)}
+#btnSpeak.active .sp-wave{animation:spwave 1.2s ease-in-out infinite}
+#btnSpeak.paused .sp-wave{animation:none;opacity:.35}
+@keyframes spwave{0%,100%{opacity:.35}50%{opacity:1}}
 #stage{position:fixed;inset:0;display:grid;grid-template-columns:1fr minmax(0,var(--mw,640px)) 1fr;
   align-items:stretch;padding:calc(var(--pad-y, 28px) + 38px + env(safe-area-inset-top)) 16px calc(var(--pad-y, 28px) + 32px + env(safe-area-inset-bottom));
   transition:opacity .35s,visibility .35s}
@@ -177,8 +191,8 @@ body.spread #stand::before{content:'';position:absolute;left:50%;top:-9px;transf
 /* ---------- typography sheet ---------- */
 #sheet{position:fixed;top:0;right:0;bottom:0;width:352px;max-width:92vw;z-index:46;background:var(--page);
   border-left:1px solid var(--hair);box-shadow:0 18px 50px -18px rgba(30,24,14,.35);
-  transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1);display:flex;flex-direction:column}
-body.sheet-open #sheet{transform:translateX(0)}
+  transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1),visibility .4s;visibility:hidden;display:flex;flex-direction:column}
+body.sheet-open #sheet{transform:translateX(0);visibility:visible}
 .sh-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--hair)}
 .sh-title{font:600 16px var(--serif)}
 .sh-body{flex:1;overflow-y:auto;padding:2px 20px 18px;scrollbar-width:thin}
@@ -238,9 +252,9 @@ select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--ha
 
 /* ---------- toc & bookmarks drawer ---------- */
 #toc{position:fixed;top:0;left:0;bottom:0;width:340px;max-width:88vw;z-index:46;background:var(--page);
-  border-right:1px solid var(--hair);transform:translateX(-106%);transition:transform .4s cubic-bezier(.32,.72,.24,1);
-  display:flex;flex-direction:column}
-body.toc-open #toc{transform:translateX(0)}
+  border-right:1px solid var(--hair);transform:translateX(-106%);transition:transform .4s cubic-bezier(.32,.72,.24,1),visibility .4s;
+  visibility:hidden;display:flex;flex-direction:column}
+body.toc-open #toc{transform:translateX(0);visibility:visible}
 .toc-tab-row{display:flex;align-items:center;gap:4px;background:color-mix(in srgb,var(--ink) 6%,transparent);
   padding:3px;border-radius:10px;margin-right:8px;}
 .toc-tab-btn{padding:5px 12px;font:600 12px var(--sans);border-radius:8px;color:var(--muted);cursor:pointer;
@@ -265,12 +279,56 @@ body.toc-open #toc{transform:translateX(0)}
 .bm-item-text{font:italic 400 12.5px/1.45 var(--serif);color:var(--ink);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
 .bm-del-btn{color:var(--muted);opacity:.5;cursor:pointer;padding:2px 6px;font-size:13px;border-radius:4px;}
 .bm-del-btn:hover{opacity:1;color:#d32f2f;background:color-mix(in srgb,#d32f2f 10%,transparent);}
+/* highlight & note tools */
+.sel-hl-pal{display:flex;gap:8px;padding:8px 10px 4px;justify-content:center}
+.hl-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;padding:0}
+.hl-dot:hover,.hl-dot.sel{border-color:var(--page)}
+#hlPop{position:fixed;z-index:70;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
+  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:12px;width:280px}
+#hlPop .hl-pop-dots{display:flex;gap:8px;margin-bottom:10px}
+#hlPop textarea{width:100%;min-height:56px;resize:vertical;border:1px solid var(--hairS);border-radius:8px;
+  background:color-mix(in srgb,var(--ink) 4%,transparent);color:var(--ink);font:400 13px/1.5 var(--serif);
+  padding:8px;outline:none;box-sizing:border-box}
+#hlPop textarea:focus{border-color:var(--hairS)}
+.hl-pop-row{display:flex;gap:6px;margin-top:8px}
+.hl-pop-btn{flex:1;font:600 11.5px var(--sans);padding:7px 8px;border-radius:8px;
+  color:var(--muted);border:1px solid var(--hair)}
+.hl-pop-btn:hover{color:var(--ink);border-color:var(--hairS);background:color-mix(in srgb,var(--ink) 5%,transparent)}
+.hl-pop-btn.danger:hover{color:#d32f2f;border-color:rgba(211,47,47,.4)}
+/* image lightbox */
+#lightbox{position:fixed;inset:0;z-index:96;background:rgba(10,8,5,.88);display:grid;place-items:center;
+  opacity:0;visibility:hidden;transition:opacity .25s,visibility .25s;cursor:zoom-out}
+#lightbox.show{opacity:1;visibility:visible}
+#lightbox img{max-width:92vw;max-height:92vh;border-radius:6px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7)}
+/* footnote popup */
+#fnPop{position:fixed;z-index:70;width:300px;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
+  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:14px;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
+#fnPop.show{opacity:1;visibility:visible}
+#fnPop .fn-close{position:absolute;top:6px;right:8px;color:var(--muted);font-size:13px;padding:2px 6px;border-radius:4px}
+#fnPop .fn-close:hover{color:var(--ink)}
+#fnPop .fn-body{font:400 13.5px/1.55 var(--serif);color:var(--ink);max-height:38vh;overflow-y:auto}
+/* highlights: selection color palette + floating note popup */
+.sel-hl-pal{display:flex;gap:8px;padding:8px 10px 4px;justify-content:center}
+.hl-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent}
+.hl-dot:hover,.hl-dot.sel{border-color:var(--page)}
+#hlPop{position:fixed;z-index:70;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
+  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:12px;width:280px}
+#hlPop .hl-pop-dots{display:flex;gap:8px;justify-content:center;margin-bottom:10px}
+#hlPop .hl-dot:hover,#hlPop .hl-dot.sel{border-color:var(--ink)}
+#hlPop textarea{width:100%;height:60px;resize:none;border:1px solid var(--hair);border-radius:8px;
+  background:transparent;color:var(--ink);font:400 12px/1.5 var(--sans);padding:7px 9px;outline:none}
+#hlPop textarea:focus{border-color:var(--accent)}
+.hl-pop-row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.hl-pop-btn{font:600 12px var(--sans);padding:6px 12px;border-radius:8px;border:1px solid var(--hairS);color:var(--ink);cursor:pointer}
+.hl-pop-btn:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}
+.hl-pop-btn.primary{background:var(--ink);border-color:var(--ink);color:var(--page)}
+.hl-pop-btn.primary:hover{background:var(--accent);border-color:var(--accent);color:#fff}
 
 /* ---------- search drawer ---------- */
 #searchDrawer{position:fixed;top:0;right:0;bottom:0;width:min(380px,92vw);background:var(--page);
   border-left:1px solid var(--hair);box-shadow:-20px 0 45px rgba(25,18,8,.18);z-index:46;
-  display:flex;flex-direction:column;transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1);}
-body.search-open #searchDrawer{transform:translateX(0);}
+  display:flex;flex-direction:column;transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1),visibility .4s;visibility:hidden;}
+body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 .search-input-wrap{display:flex;align-items:center;gap:10px;margin:14px 18px 8px;padding:8px 14px;
   background:color-mix(in srgb,var(--ink) 5%,transparent);border:1px solid var(--hairS);border-radius:12px;}
 .search-input-wrap input{border:none;background:none;font:400 14px var(--sans);color:var(--ink);width:100%;outline:none;}
@@ -364,6 +422,9 @@ body.dropping #drop{display:block}
   border-bottom:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
   box-shadow:0 0 0 9999px var(--dim)}
 body.guide-on #guide{opacity:1}
+/* night warmth: multiply overlay warms whites without touching layout */
+#warm{position:fixed;inset:0;z-index:150;pointer-events:none;opacity:0;
+  background:#ff9a3c;mix-blend-mode:multiply;transition:opacity .3s}
 #guide::after{content:'';position:absolute;left:0;right:0;top:50%;height:1px;margin-top:-1px;
   background:color-mix(in srgb,var(--accent) 42%,transparent)}
 
@@ -418,20 +479,20 @@ body.guide-on #guide{opacity:1}
     var(--page) 78%,color-mix(in srgb,var(--page) 78%,#6b5b3e));
   box-shadow:inset 0 0 26px rgba(45,35,18,.12);
   transform-style:preserve-3d;-webkit-transform-style:preserve-3d;
-  will-change:transform,opacity,left;
+  will-change:transform,opacity;
   backface-visibility:hidden;-webkit-backface-visibility:hidden;
 }
 /* Gaussian fold shadow S(d) = A·exp(-d²/2σ²), centred on the fold */
 .pt-fold-shadow{
   position:absolute;top:0;bottom:0;pointer-events:none;z-index:12;
   background:radial-gradient(closest-side, rgba(15,10,5,.38), rgba(15,10,5,0) 72%);
-  opacity:0;will-change:opacity,left;
+  opacity:0;will-change:transform,opacity;transform:translateZ(0);
 }
 /* narrow specular highlight riding the fold crease */
 .pt-curl-highlight{
   position:absolute;top:0;bottom:0;width:3px;pointer-events:none;z-index:13;
   background:linear-gradient(to right, rgba(255,255,255,0), rgba(255,252,244,.85), rgba(255,255,255,0));
-  opacity:0;will-change:opacity,left;
+  opacity:0;will-change:transform,opacity;transform:translateZ(0);
 }
 .pt-drag-capture{
   position:fixed;inset:0;z-index:9999;
@@ -440,6 +501,9 @@ body.guide-on #guide{opacity:1}
   background:transparent;
 }
 body.turning .arrow{opacity:0!important;pointer-events:none}
+body.autoscroll, body.autcroll *{cursor:ns-resize!important}
+body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;height:14px;margin:-7px;
+  border:2px solid var(--ink);border-radius:50%;z-index:130;pointer-events:none;opacity:.7}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 </style>
@@ -491,6 +555,12 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       <span class="wm">Folio<span class="dot">.</span></span>
       <svg class="home-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     </button>
+    <button id="posPill" class="pos-pill" title="Contents & position (T)">
+      <svg class="pill-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg>
+      <i class="pill-dot"></i>
+      <span id="posPillCh">—</span>
+      <span id="posPillPct" class="pill-pct"></span>
+    </button>
     <span class="tb-sep"></span>
     <span id="bookTitle"></span>
   </div>
@@ -501,12 +571,12 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <button class="icon-btn" id="btnSpread" title="Two pages (D)" aria-label="Toggle two-page spread" aria-pressed="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8.5 4.5 6 4.5c-1 0-2 .1-3 .4V18c1-.3 2-.4 3-.4 2.5 0 4.5.5 6 1.9 1.5-1.4 3.5-1.9 6-1.9 1 0 2 .1 3 .4V4.9c-1-.3-2-.4-3-.4-2.5 0-4.5.5-6 2z"/><path d="M12 6.5v13"/></svg>
     </button>
-    <button class="icon-btn" id="btnToc" title="Contents & Bookmarks (T)" aria-label="Contents and bookmarks">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg>
-    </button>
     <button class="icon-btn" id="btnFullscreen" title="Full screen (F)" aria-label="Toggle full screen">
       <svg class="ic-fs-enter" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
       <svg class="ic-fs-exit" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+    </button>
+    <button class="icon-btn" id="btnSpeak" title="Read aloud (R)" aria-label="Read aloud" aria-pressed="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3l5 4V5Z"/><path class="sp-wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12"/></svg>
     </button>
     <button class="aa-btn" id="btnSheet" title="Typography (S)" aria-label="Typography settings">Aa</button>
   </div>
@@ -541,7 +611,7 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <span id="pageBadge" class="bb-pages"></span>
     <span id="timeLeft" class="bb-time"></span>
   </div>
-  <div id="rail" title="Jump (chapter granularity)"><div id="railFill"></div><div id="railKnob"></div></div>
+  <div id="rail" title="Jump — drag or click (page granularity once pages are counted)"><div id="railFill"></div><div id="railKnob"></div></div>
   <span id="pct"></span>
 </footer>
 
@@ -603,11 +673,19 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
         <span class="tx"><b>Bionic reading</b><small>The first letters of words are bolded to anchor the eye.</small></span></label>
       <label class="sw"><input type="checkbox" id="swGuide"><span class="tr"></span>
         <span class="tx"><b>Reading guide</b><small>A soft band that tracks your pointer keeps your place on the line.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swSound"><span class="tr"></span>
+        <span class="tx"><b>Page-turn sound</b><small>A soft paper swish as pages turn.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
     </section>
 
     <section><h4 class="lbl">Paper</h4><div class="theme-row" id="themeRow"></div></section>
+
+    <section>
+      <div class="row-head"><h4 class="lbl">Night warmth</h4><button class="chip" id="warmOff">Off</button></div>
+      <div class="slider-row"><input type="range" id="warmRange" min="0" max="100" step="5" aria-label="Night warmth"><output id="warmOut"></output></div>
+      <label class="sw" style="margin-top:10px"><input type="checkbox" id="swPerBook"><span class="tr"></span>Remember typography per book</label>
+    </section>
 
     <section><h4 class="lbl">Help</h4>
       <button class="btn btn-ghost" id="btnHelp" type="button" style="width:100%;justify-content:center">Keyboard shortcuts <kbd>?</kbd></button>
@@ -661,6 +739,7 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <div class="toc-tab-row">
       <button class="toc-tab-btn active" id="tabToc">Contents</button>
       <button class="toc-tab-btn" id="tabBm">Bookmarks <span id="bmCountBadge" class="bm-badge">0</span></button>
+      <button class="toc-tab-btn" id="tabHl">Highlights <span id="hlCountBadge" class="bm-badge">0</span></button>
     </div>
     <button class="icon-btn" id="tocClose" aria-label="Close">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -668,6 +747,7 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
   </div>
   <ol id="tocList"></ol>
   <ul id="bmList" class="bm-list" style="display:none"></ul>
+  <ul id="hlList" class="bm-list" style="display:none"></ul>
 </aside>
 
 <!-- ============ search drawer ============ -->
@@ -707,6 +787,11 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
       <div><dt><kbd>V</kbd></dt><dd>Page-turn effect</dd></div>
       <div><dt><kbd>F</kbd></dt><dd>Full screen</dd></div>
       <div><dt><kbd>H</kbd></dt><dd>Home / continue reading</dd></div>
+      <div><dt><kbd>R</kbd> / <kbd>Shift</kbd>+<kbd>R</kbd></dt><dd>Read aloud: pause / stop</dd></div>
+      <div><dt><kbd>-</kbd> <kbd>=</kbd></dt><dd>Read aloud speed</dd></div>
+      <div><dt><kbd>Ctrl</kbd>+<kbd>O</kbd></dt><dd>Open an EPUB file</dd></div>
+      <div><dt>Mouse wheel · <kbd>Ctrl</kbd>+wheel</dt><dd>Turn pages · type size</dd></div>
+      <div><dt>Middle-click</dt><dd>Auto-scroll</dd></div>
       <div><dt><kbd>?</kbd> <kbd>Esc</kbd></dt><dd>Open / close this panel</dd></div>
     </dl>
   </div>
@@ -718,14 +803,23 @@ body.turning .arrow{opacity:0!important;pointer-events:none}
     <div class="loader-rule"></div><p class="kicker" id="loaderMsg">Typesetting…</p></div>
 </div>
 <div id="guide"></div>
+<div id="warm" aria-hidden="true"></div>
 <div id="selBar" role="toolbar" aria-label="Selection tools">
   <div class="sel-row">
+    <button class="sel-btn" id="selHl">Highlight</button>
     <button class="sel-btn" id="selDefine">Define</button>
     <button class="sel-btn" id="selFind">Find in book</button>
     <button class="sel-btn" id="selCopy">Copy</button>
   </div>
+  <div id="selHlPal" hidden class="sel-hl-pal">
+    <button class="hl-dot" data-hl="yellow" style="background:#f7d64a" title="Yellow"></button>
+    <button class="hl-dot" data-hl="green" style="background:#7fe08a" title="Green"></button>
+    <button class="hl-dot" data-hl="blue" style="background:#7db8f8" title="Blue"></button>
+    <button class="hl-dot" data-hl="pink" style="background:#f2a0c0" title="Pink"></button>
+  </div>
   <div id="selDef" hidden></div>
 </div>
+<div id="hlPop" hidden></div>
 <div id="toast"></div>
 <input id="file" type="file" accept=".epub,application/epub+zip" hidden>
 
@@ -749,7 +843,8 @@ const DEFAULTS = {
   measure:34, justify:false,
   bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
-  marginAuto:true, marginVertical:28, dropCaps:false
+  marginAuto:true, marginVertical:28, dropCaps:false,
+  warmth:0, perBookType:false, pageSound:false
 };
 let settings = {...DEFAULTS};
 try{
@@ -760,7 +855,39 @@ try{
   if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
 }catch(e){}
 let saveT=null;
-function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{localStorage.setItem('folio-settings',JSON.stringify(settings));}catch(e){} },150); }
+const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','bionic'];
+function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
+  localStorage.setItem('folio-settings',JSON.stringify(settings));
+  // Per-book typography memory: mirror the type channels under the book key.
+  if(settings.perBookType && state.currentTitle && state.currentTitle!=='Untitled'){
+    const o={}; TYPO_KEYS.forEach(k=>o[k]=settings[k]);
+    localStorage.setItem('folio-typo:'+state.currentTitle,JSON.stringify(o));
+  }
+}catch(e){} },150); }
+/* Swap in this book's saved typography (when the feature is on) and reflow. */
+function loadPerBookType(title){
+  if(!settings.perBookType || !title || title==='Untitled') return;
+  try{
+    const raw=localStorage.getItem('folio-typo:'+title);
+    if(!raw) return;
+    Object.assign(settings, JSON.parse(raw));
+    if(state.rendition){ syncControls(); relayout(); }
+    else { syncControls(); applyFit(); }
+  }catch(e){}
+}
+function applyWarmth(){
+  const w=el('warm');
+  if(w) w.style.opacity=(clamp(settings.warmth||0,0,100)/100*0.55).toFixed(3);
+}
+function syncWarm(){
+  const r=el('warmRange');
+  if(!r) return;
+  r.value=settings.warmth||0;
+  el('warmOut').textContent=settings.warmth ? (settings.warmth+'%') : 'Off';
+  if(el('warmOff')) el('warmOff').classList.toggle('on', !settings.warmth);
+  setFill(r);
+  applyWarmth();
+}
 
 /* ---------------- themes ---------------- */
 const THEMES = {
@@ -920,8 +1047,8 @@ function spreadMetrics(){
   return { feasible, fs, pageW, gutter, mw: pageW*2 + gutter };
 }
 function effSize(){
-  if(state.spreadOn) return spreadMetrics().fs;
-  return settings.auto ? fitInfo().fs : settings.size;
+  if(settings.auto) return state.spreadOn ? spreadMetrics().fs : fitInfo().fs;
+  return clamp(settings.size, 15, 28);
 }
 function effWidth(){
   const padX = clamp(innerWidth*0.05, 16, 48);
@@ -1094,8 +1221,10 @@ a{color:${t.accent} !important;text-underline-offset:.16em;}
 img,svg,video,canvas{max-width:100% !important;height:auto !important;}
 ::selection{background:${t.sel};color:${t.ink};}
 b.fio-b{font-weight:700;}
+::highlight(tts-hl){background:${rgba(t.accent,.28)};color:inherit;}
 .epubjs-hl{background:${rgba(t.accent,.16)} !important;box-shadow:none !important;border-radius:2px;
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.fio-hl{border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;cursor:pointer;}
 ${dropCapCss}
 `;
 }
@@ -1339,6 +1468,7 @@ function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('load
 
 async function closeBook(){
   lastStatCfi = null;
+  LocEngine.data = null;
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -1468,6 +1598,7 @@ function createRendition(opts={}){
   r.hooks.content.register(onContent);
   r.on('relocated', onRelocated);
   r.on('displayError', ()=>toast('That section could not be displayed'));
+  try{ r.on('selected', cfiRange => { Highlights.lastCfi = cfiRange; }); }catch(e){}
   if(opts.first){
     let hidden=false;
     const onceHide=async()=>{ if(hidden)return; hidden=true;
@@ -1496,6 +1627,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     el('bookTitle').textContent = initialTitle;
     el('bookTitle').setAttribute('title', initialTitle);
     state.posKey = 'folio-pos:'+initialTitle;
+    loadPerBookType(initialTitle);
 
     // Cache to IndexedDB asynchronously (skipped for very large files)
     try{
@@ -1516,9 +1648,14 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
         state.posKey = 'folio-pos:'+realTitle;
+        // Real title known: retry per-book typography under the right key.
+        if(settings.perBookType && realTitle !== initialTitle) loadPerBookType(realTitle);
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
         fetchCoverThumb(book, realTitle);
         SearchIndex.prepare(book, realTitle);
+        // Real title known now — retry global pagination under the right key.
+        LocEngine.attach(realTitle);
+        LocEngine.ensure(realTitle);
         try{
           BookStorage.saveBook({
             title: realTitle,
@@ -1534,6 +1671,8 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
 
     el('railFill').style.width='0%'; el('railKnob').style.left='0%';
     el('pct').textContent=''; el('chapter').textContent='';
+    if(el('posPillCh')) el('posPillCh').textContent='—';
+    if(el('posPillPct')) el('posPillPct').textContent='';
     el('tocList').innerHTML='<li class="empty">Loading contents…</li>';
 
     let target = targetCfi || 0;
@@ -1560,11 +1699,12 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
 
     buildTOC(book);
     SearchIndex.prepare(book, getActiveTitle());
-    if(book.locations && !book.locations.total){
-      const genLocs = () => { try{ book.locations.generate(1000).catch(()=>{}); }catch(e){} };
-      if('requestIdleCallback' in window) requestIdleCallback(genLocs, { timeout: 3000 });
-      else setTimeout(genLocs, 400);
-    }
+    // Re-apply saved highlights onto the fresh rendition.
+    Highlights.applyToRendition();
+    // Global pagination: restore a cached location list instantly, else
+    // generate one in the background and persist it for next time.
+    LocEngine.attach(getActiveTitle());
+    LocEngine.ensure(getActiveTitle());
     if(!seenHint){ seenHint=true; toast('Swipe or tap the page edges to turn · D toggles two pages'); }
     updateLandingUI();
     poke();
@@ -1590,6 +1730,7 @@ async function recreateRendition(){
   applyFit();
   createRendition({});
   await state.rendition.display(cfi || 0).catch(async()=>{ await state.rendition.display(0); });
+  Highlights.applyToRendition();
   refreshCSS();
 }
 async function applySpread(){
@@ -1650,6 +1791,8 @@ function hideSelBar(){
   if(b) b.classList.remove('show');
   const def=el('selDef');
   if(def){ def.hidden=true; def.textContent=''; }
+  const pal=el('selHlPal');
+  if(pal) pal.hidden=true;
   selText='';
 }
 function showSelBar(cx, y, h, text){
@@ -1708,6 +1851,30 @@ function wireContents(contents){
   d.addEventListener('touchend', guard, { capture:true, passive:false });
   d.addEventListener('touchcancel', guard, { capture:true, passive:false });
   d.addEventListener('keydown', onKey);
+  // Wheel navigation & middle-click autoscroll work over the page too
+  // (these events target the iframe document, never the shell window).
+  d.addEventListener('wheel', onWheel, { passive:false });
+  d.addEventListener('pointerdown', onDocPointerDown);
+  d.addEventListener('pointermove', e => AutoScroll.move(e), { passive:true });
+  // Image lightbox + same-document footnote popups (EPUB3 noterefs).
+  d.addEventListener('click', e => {
+    try{
+      const a = e.target.closest && e.target.closest('a');
+      if(a){
+        const href = a.getAttribute('href') || '';
+        if(href.startsWith('#')){
+          const t = d.getElementById(href.slice(1)) || d.querySelector(href);
+          if(t && t.textContent.trim()){
+            e.preventDefault(); e.stopPropagation();
+            Footnotes.show(t, e.clientX || Highlights.lastPtr.x, e.clientY || Highlights.lastPtr.y);
+            return;
+          }
+        }
+      }
+      const im = e.target.closest && e.target.closest('img');
+      if(im && (im.currentSrc || im.src)) Lightbox.open(im.currentSrc || im.src);
+    }catch(err){}
+  });
 }
 
 /* ---------------- bionic reading ---------------- */
@@ -1767,18 +1934,145 @@ function setBionic(on){
   });
 }
 
+/* ---------------- global locations engine ----------------
+   One CFI location per ~1000 chars, persisted per book in localStorage so
+   re-opens skip the multi-second locations.generate() pass entirely. Powers
+   book-wide page numbers ("Page 142 of 890") and page-granularity rail
+   scrubbing. Restores instantly when cached; otherwise generates idle. */
+const LocEngine = {
+  KEY_PREFIX: 'folio-locs:',
+  CHUNK: 1000,
+  data: null,        // {title, spineLen, total, locations:[cfi strings]}
+  genBusy: false,
+
+  key(title){ return this.KEY_PREFIX + title; },
+
+  load(title){
+    try{
+      const raw = localStorage.getItem(this.key(title));
+      if(!raw) return null;
+      const d = JSON.parse(raw);
+      if(!d || !Array.isArray(d.locations) || !d.locations.length) return null;
+      return d;
+    }catch(e){ return null; }
+  },
+
+  store(d){
+    try{
+      const json = JSON.stringify(d);
+      // A location list is roughly 60 chars per entry — books >2000 pages may
+      // not fit; failure is harmless, we just regenerate next time.
+      localStorage.setItem(this.key(d.title), json);
+    }catch(e){}
+  },
+
+  /* Restore a persisted list; returns true when global paging is live. */
+  attach(title){
+    this.data = null;
+    if(!state.book || !state.book.locations) return false;
+    const d = this.load(title);
+    if(d && d.spineLen === state.book.spine.length){
+      try{
+        state.book.locations._locations = d.locations.slice();
+        state.book.locations.total = d.locations.length;
+        this.data = d;
+        return true;
+      }catch(e){}
+    }
+    return false;
+  },
+
+  ready(){ return !!(this.data && this.data.total); },
+
+  /* Global 1-based page + total for a CFI (nulls when not ready). */
+  forCfi(cfi){
+    if(!this.ready() || !state.book || !state.book.locations) return null;
+    try{
+      const idx = state.book.locations.locationFromCfi(cfi);
+      if(idx < 0) return null;
+      // locationFromCfi can return == total for the tail chunk; clamp to range
+      return { page: Math.min(idx + 1, this.data.total), total: this.data.total };
+    }catch(e){ return null; }
+  },
+
+  pctForCfi(cfi){
+    const g = this.forCfi(cfi);
+    return g ? g.page / g.total : null;
+  },
+
+  /* CFI at book-fraction 0..1 (page-granularity scrubbing). p=1 uses the last
+     stored location directly — epub.js cfiFromPercentage(1) builds an
+     out-of-range CFI that silently fails to display. */
+  cfiAtPct(p){
+    if(!this.ready() || !state.book || !state.book.locations) return null;
+    try{
+      p = clamp(p, 0, 1);
+      if(p >= 1){
+        const locs = state.book.locations._locations;
+        if(locs && locs.length) return locs[locs.length - 1];
+      }
+      return state.book.locations.cfiFromPercentage(p);
+    }catch(e){ return null; }
+  },
+
+  /* Generate in the background if no usable cache; persists when done. */
+  ensure(title){
+    if(this.ready() || this.genBusy) return;
+    const book = state.book;
+    if(!book || !book.locations || !book.spine || !book.spine.length) return;
+    this.genBusy = true;
+    const run = () => {
+      try{
+        book.locations.generate(this.CHUNK).then(() => {
+          this.genBusy = false;
+          if(state.book !== book) return; // another book was opened meanwhile
+          try{
+            const locs = book.locations._locations;
+            if(Array.isArray(locs) && locs.length){
+              this.data = { title, spineLen: book.spine.length, total: locs.length, locations: locs.slice() };
+              this.store(this.data);
+              this.refreshUI();
+            }
+          }catch(e){}
+        }).catch(() => { this.genBusy = false; });
+      }catch(e){ this.genBusy = false; }
+    };
+    if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
+    else setTimeout(run, 400);
+  },
+
+  /* Re-render progress chrome once global paging becomes available. */
+  refreshUI(){
+    try{
+      const loc = state.rendition && state.rendition.currentLocation();
+      if(loc && loc.start) onRelocated(loc);
+    }catch(e){}
+  }
+};
+
 /* ---------------- relocation: progress, chapter, resume ---------------- */
 function onRelocated(loc){
   if(!loc||!loc.start)return;
   const total=state.book.spine.length;
   const d=loc.start.displayed;
-  const frac=clamp((loc.start.index+((d&&d.total)?(d.page-1)/d.total:0))/total,0,1);
+  const gPage = LocEngine.forCfi(loc.start.cfi);
+  const gPct = gPage ? gPage.page / gPage.total : null;
+  const frac = gPct != null ? gPct
+    : clamp((loc.start.index+((d&&d.total)?(d.page-1)/d.total:0))/total,0,1);
   el('railFill').style.width=(frac*100)+'%';
   el('railKnob').style.left=(frac*100)+'%';
   el('pct').textContent=Math.round(frac*100)+'%';
 
   const chTitle = chapterFor(loc.start.href);
   el('chapter').textContent=chTitle;
+  const pillCh = el('posPillCh');
+  if(pillCh){
+    const short = chTitle.length > 28 ? chTitle.slice(0, 28).trimEnd() + '…' : chTitle;
+    pillCh.textContent = short || '—';
+    pillCh.setAttribute('title', chTitle);
+  }
+  const pillPct = el('posPillPct');
+  if(pillPct) pillPct.textContent = el('pct').textContent;
   markTocCurrent(loc.start.href);
   try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
   // Pages-turned stat: first fix after open sets the baseline, moves count.
@@ -1794,7 +2088,10 @@ function onRelocated(loc){
   // Page badge & reading time remaining
   const pageBadge = el('pageBadge');
   const timeLeft = el('timeLeft');
-  if(d && d.total){
+  if(pageBadge && gPage){
+    // Book-wide pagination is live (locations generated): show global pages.
+    pageBadge.textContent = `Page ${gPage.page} of ${gPage.total}`;
+  } else if(d && d.total){
     const curP = d.page;
     const totP = d.total;
     if(pageBadge){
@@ -1835,6 +2132,9 @@ function onRelocated(loc){
     const pTotal = (d && d.total) ? Math.max(1, d.total) : 1;
     pageCache.update(loc.start.index, pIdx, pTotal, loc.start.cfi);
   }
+
+  // Read-aloud follows manual navigation: resync to the new page.
+  TTS.onRelocated();
 }
 function chapterFor(href){
   if(!href)return'';
@@ -1914,6 +2214,7 @@ async function buildTOC(book){
     const loc=state.rendition&&state.rendition.currentLocation();
     if(loc&&loc.start)markTocCurrent(loc.start.href);
     syncBookmarkBadge();
+    Highlights.syncBadge();
   }catch(e){
     el('tocList').innerHTML='<li class="empty">This book has no table of contents.</li>';
   }
@@ -2220,6 +2521,164 @@ function renderBookmarks(){
   });
 }
 
+/* ---------------- highlights & notes ---------------- */
+const Highlights = {
+  COLOR_FILL: { yellow:'#f7d64a', green:'#7fe08a', blue:'#7db8f8', pink:'#f2a0c0' },
+  lastCfi: null,
+  lastPtr: { x: innerWidth/2, y: 120 },
+
+  all(){
+    try{ return JSON.parse(localStorage.getItem('folio-highlights')||'[]'); }catch(e){ return []; }
+  },
+  forBook(){
+    const k = currentBookKey();
+    return this.all().filter(h => h.bookTitle === k);
+  },
+  persist(list){
+    try{ localStorage.setItem('folio-highlights', JSON.stringify(list)); }catch(e){}
+    this.syncBadge();
+    this.renderList();
+  },
+  add(cfi, color, snippet){
+    if(!cfi) return;
+    const list = this.all();
+    let ch = 'Chapter';
+    try{ ch = chapterFor(state.rendition.currentLocation().start.href) || ch; }catch(e){}
+    list.unshift({
+      id: 'hl_' + Date.now(),
+      bookTitle: currentBookKey(),
+      cfi, color: color || 'yellow',
+      note: '',
+      chapter: ch,
+      snippet: (snippet || '').slice(0, 160),
+      date: new Date().toLocaleDateString(undefined, { month:'short', day:'numeric' })
+    });
+    this.persist(list);
+    this.applyToRendition();
+  },
+  remove(id){
+    const h = this.all().find(x => x.id === id);
+    this.persist(this.all().filter(x => x.id !== id));
+    if(h && state.rendition && state.rendition.annotations){
+      try{ state.rendition.annotations.remove(h.cfi, 'highlight'); }catch(e){}
+    }
+  },
+  setColor(id, color){
+    const list = this.all();
+    const h = list.find(x => x.id === id);
+    if(!h) return;
+    h.color = color;
+    this.persist(list);
+    if(state.rendition && state.rendition.annotations){
+      try{ state.rendition.annotations.remove(h.cfi, 'highlight'); }catch(e){}
+      this.applyToRendition();
+    }
+  },
+  setNote(id, note){
+    const list = this.all();
+    const h = list.find(x => x.id === id);
+    if(!h) return;
+    h.note = note;
+    this.persist(list);
+  },
+  syncBadge(){
+    const badge = el('hlCountBadge');
+    if(!badge) return;
+    const n = this.forBook().length;
+    badge.textContent = n;
+    badge.classList.toggle('has-items', n > 0);
+  },
+  renderList(){
+    const listEl = el('hlList');
+    if(!listEl) return;
+    const list = this.forBook();
+    this.syncBadge();
+    if(!list.length){
+      listEl.innerHTML = '<li class="empty">No highlights yet.<br><small style="opacity:0.7">Select text in the book and press Highlight.</small></li>';
+      return;
+    }
+    listEl.innerHTML = '';
+    list.forEach(h => {
+      const li = document.createElement('li');
+      li.className = 'bm-item';
+      li.innerHTML = `
+        <div class="bm-item-head">
+          <span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${this.COLOR_FILL[h.color]||this.COLOR_FILL.yellow};margin-right:6px"></i>${h.chapter} ${h.date ? '· ' + h.date : ''}</span>
+          <button class="bm-del-btn" title="Delete highlight">✕</button>
+        </div>
+        <div class="bm-item-text">${h.note ? '<b>' + h.note + '</b> — ' : ''}${h.snippet || ''}</div>
+      `;
+      li.querySelector('.bm-del-btn').addEventListener('click', (e) => { e.stopPropagation(); this.remove(h.id); });
+      li.addEventListener('click', () => {
+        closePanels();
+        state.rendition.display(h.cfi);
+      });
+      listEl.appendChild(li);
+    });
+  },
+  applyToRendition(){
+    const r = state.rendition;
+    if(!r || !r.annotations) return;
+    this.forBook().forEach(h => {
+      try{
+        r.annotations.add('highlight', h.cfi, { fioId: h.id },
+          (e) => this.openPop(h.id, e),
+          'fio-hl', { fill: this.COLOR_FILL[h.color] || this.COLOR_FILL.yellow, 'mix-blend-mode': 'multiply' });
+      }catch(e){}
+    });
+  },
+  hidePop(){
+    const p = el('hlPop');
+    if(p){ p.hidden = true; p.innerHTML = ''; }
+  },
+  openPop(id, e){
+    const h = this.all().find(x => x.id === id);
+    const p = el('hlPop');
+    if(!h || !p) return;
+    const x = (e && e.clientX) || this.lastPtr.x;
+    const y = (e && e.clientY) || this.lastPtr.y;
+    p.innerHTML = `
+      <div class="hl-pop-dots">
+        ${Object.entries(this.COLOR_FILL).map(([k, c]) =>
+          `<button class="hl-dot${k===h.color?' sel':''}" data-hl="${k}" style="background:${c}" title="${k}"></button>`).join('')}
+      </div>
+      <textarea placeholder="Add a note…">${h.note || ''}</textarea>
+      <div class="hl-pop-row">
+        <button class="hl-pop-btn" data-act="save">Save note</button>
+        <button class="hl-pop-btn danger" data-act="del">Delete</button>
+      </div>
+    `;
+    p.querySelectorAll('.hl-dot').forEach(d => d.addEventListener('click', ev => {
+      ev.stopPropagation();
+      this.setColor(id, d.dataset.hl);
+      this.openPop(id, { clientX: x, clientY: y });
+    }));
+    const ta = p.querySelector('textarea');
+    p.querySelector('[data-act="save"]').addEventListener('click', ev => {
+      ev.stopPropagation();
+      this.setNote(id, ta.value.trim());
+      this.hidePop();
+      toast('Note saved');
+    });
+    p.querySelector('[data-act="del"]').addEventListener('click', ev => {
+      ev.stopPropagation();
+      this.remove(id);
+      this.hidePop();
+      toast('Highlight deleted');
+    });
+    p.hidden = false;
+    p.style.left = clamp(x - 140, 10, innerWidth - 292) + 'px';
+    p.style.top = clamp(y + 8, 60, innerHeight - 220) + 'px';
+    const close = ev => {
+      if(ev.target.closest && ev.target.closest('#hlPop')) return;
+      this.hidePop();
+      document.removeEventListener('pointerdown', close, true);
+    };
+    setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+  }
+};
+addEventListener('pointerdown', e => { Highlights.lastPtr.x = e.clientX; Highlights.lastPtr.y = e.clientY; }, { passive:true });
+
 /* ---------------- in-book quick search ---------------- */
 let searchToken = 0;
 function openSearch(){
@@ -2463,7 +2922,35 @@ class PageCacheManager {
     this.currentPage = pageIndex;
     this.totalPagesInSpine = Math.max(1, totalPages);
     if(cfi) this.currentCfi = cfi;
+    this.pruneCaches();
     this.refreshWindow();
+  }
+
+  /* Chapter text/HTML caches grow one entry per visited spine; drop the ones
+     far from the reading position so a long session stays flat. */
+  pruneCaches(){
+    const lo = this.currentSpine - 6, hi = this.currentSpine + 8;
+    const drop = [];
+    for(const k of this.chapterTexts.keys()) if(k < lo || k > hi) drop.push(k);
+    for(const k of this.chapterHtmls.keys()) if(k < lo || k > hi) drop.push(k);
+    for(const k of drop){ this.chapterTexts.delete(k); this.chapterHtmls.delete(k); }
+  }
+
+  /* Harvest the current chapter's text exactly once per spine. The old path
+     called iframe.innerText for every new window entry (a forced layout flush
+     per page); now one flush per chapter fills the cache and the rest are
+     plain string slices. */
+  harvestCurrentText(){
+    if(this.chapterTexts.has(this.currentSpine)){
+      return this.chapterTexts.get(this.currentSpine) || '';
+    }
+    try{
+      const frame = el('viewer').querySelector('iframe');
+      if(!frame || !frame.contentDocument || !frame.contentDocument.body) return '';
+      const bodyText = frame.contentDocument.body.innerText || frame.contentDocument.body.textContent || '';
+      if(bodyText) this.chapterTexts.set(this.currentSpine, bodyText);
+      return bodyText;
+    }catch(e){ return ''; }
   }
 
   refreshWindow() {
@@ -2543,16 +3030,10 @@ class PageCacheManager {
 
   extractTextForPage(spineIndex, pageIndex) {
     if (spineIndex === this.currentSpine) {
-      try {
-        const frame = el('viewer').querySelector('iframe');
-        if (!frame || !frame.contentDocument || !frame.contentDocument.body) return '';
-        const bodyText = frame.contentDocument.body.innerText || frame.contentDocument.body.textContent || '';
-        if (!bodyText) return '';
-        const charsPerPage = Math.max(200, Math.round(bodyText.length / this.totalPagesInSpine));
-        return bodyText.slice(pageIndex * charsPerPage, (pageIndex + 1) * charsPerPage).trim();
-      } catch (e) {
-        return '';
-      }
+      const bodyText = this.harvestCurrentText();
+      if (!bodyText) return '';
+      const charsPerPage = Math.max(200, Math.round(bodyText.length / this.totalPagesInSpine));
+      return bodyText.slice(pageIndex * charsPerPage, (pageIndex + 1) * charsPerPage).trim();
     } else if (this.chapterTexts.has(spineIndex)) {
       const full = this.chapterTexts.get(spineIndex) || '';
       return full.slice(pageIndex * 600, (pageIndex + 1) * 600).trim();
@@ -3002,7 +3483,7 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:${WL}px;top:0;width:${Math.min(260, WR * 0.55)}px;height:${VH}px;background:linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
@@ -3044,7 +3525,7 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:${Math.max(0, WL - Math.min(260, WL * 0.55))}px;top:0;width:${Math.min(260, WL * 0.55)}px;height:${VH}px;background:linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
@@ -3072,8 +3553,7 @@ class PageTurnCompositor {
       const ambGrad = dir > 0
         ? 'linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)'
         : 'linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)';
-      const ambLeft = dir > 0 ? 0 : Math.max(0, W - Math.min(260, W * 0.45));
-      ambShadow.style.cssText = `left:${ambLeft}px;top:0;width:${Math.min(260, W * 0.45)}px;height:${VH}px;background:${ambGrad};opacity:0;`;
+      ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:${ambGrad};opacity:0;`;
       root.appendChild(ambShadow);
       this.ambientShadow = ambShadow;
 
@@ -3112,14 +3592,14 @@ class PageTurnCompositor {
     }
 
     // 2. Paper curl flap hinged at the fold, lifting toward the reader (§11).
+    // Position rides transform:translateX (GPU-composited), not left.
     if(this.flap) {
       const fw = this.flapW || 100;
       const flapLeft = dir > 0 ? (bx + fx - fw) : (bx + fx);
       const flapAngle = (dir > 0 ? -1 : 1) * PageTurnConfig.maxFlapAngle * Math.pow(C, 0.8);
       const liftZ = Math.round(PageTurnConfig.maxCurvature * C);
-      this.flap.style.left = `${Math.round(flapLeft)}px`;
       this.flap.style.transform =
-        `perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
+        `translateX(${Math.round(flapLeft)}px) perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
       this.flap.style.opacity = C < 0.02 ? '0' : '1';
       this.flap.style.filter = C > 0.02
         ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(18,12,6,${(0.22 * C).toFixed(3)}))`
@@ -3129,14 +3609,14 @@ class PageTurnCompositor {
     // 3. Gaussian fold shadow S(d), strongest at the fold (§12).
     if(this.foldShadow) {
       const sigma = PageTurnConfig.foldShadowWidth;
-      this.foldShadow.style.left = `${Math.round(bx + fx - sigma)}px`;
+      this.foldShadow.style.transform = `translateX(${Math.round(bx + fx - sigma)}px)`;
       this.foldShadow.style.opacity =
         (PageTurnConfig.foldShadowOpacity * (0.35 + 0.65 * C)).toFixed(3);
     }
 
     // 4. Specular crease highlight, narrow and soft (§14).
     if(this.edgeHighlight) {
-      this.edgeHighlight.style.left = `${Math.round(bx + fx - 1.5)}px`;
+      this.edgeHighlight.style.transform = `translateX(${Math.round(bx + fx - 1.5)}px)`;
       this.edgeHighlight.style.opacity =
         premium ? (PageTurnConfig.edgeHighlightOpacity * C).toFixed(3) : '0';
     }
@@ -3144,12 +3624,8 @@ class PageTurnCompositor {
     // 5. Ambient shadow on the revealed page: A(p) = Amax·sin(πp) (§13).
     if(this.ambientShadow) {
       const aw = Math.round(Math.min(bw * PageTurnConfig.ambientShadowWidthRatio, Math.max(0, dir > 0 ? bw - fx : fx)));
-      if(dir > 0) {
-        this.ambientShadow.style.left = `${Math.round(bx + fx)}px`;
-      } else {
-        this.ambientShadow.style.left = `${Math.round(bx + fx - aw)}px`;
-      }
-      this.ambientShadow.style.width = `${aw}px`;
+      const ambX = dir > 0 ? Math.round(bx + fx) : Math.round(bx + fx - aw);
+      this.ambientShadow.style.transform = `translateX(${ambX}px) scaleX(${Math.max(0.02, aw / 260)})`;
       this.ambientShadow.style.opacity =
         premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
     }
@@ -3426,6 +3902,8 @@ class TurnGestureController {
   handleClick(e) {
     const sel = window.getSelection ? window.getSelection() : null;
     if(sel && sel.toString().length) return;
+    // clicks on images / footnote refs have their own handlers
+    if(e.target && e.target.closest && e.target.closest('img, a[href^="#"]')) return;
     const w = innerWidth || 1;
     const x = e.clientX / w;
     if(x < 0.25) turn(-1);
@@ -3458,6 +3936,7 @@ async function playTurnFx(dir, fx){
     return;
   }
   state.turning = true; body.classList.add('turning');
+  PageSound.play();
   try{
     if(fx === 'slide') {
       const arrived = nextRelocated(600);
@@ -3558,6 +4037,288 @@ function moveGuide(y){ el('guide').style.top=(y-el('guide').offsetHeight/2)+'px'
 addEventListener('pointermove',e=>{ if(settings.guide)moveGuide(e.clientY); },{passive:true});
 addEventListener('touchmove',e=>{ if(settings.guide&&e.touches[0])moveGuide(e.touches[0].clientY); },{passive:true});
 
+/* ---------------- read aloud (TTS) ----------------
+   Speaks the visible page sentence by sentence. Sentences come from the
+   epub.js DOM Range of the current page (precise, not char-sliced), highlight
+   rides the CSS Custom Highlight API (no DOM mutation, safe across nodes),
+   and page ends auto-advance through the normal turn engine. */
+const TTS = {
+  active: false, paused: false, stopped: true,
+  sents: [], si: 0,
+  doc: null, hl: null, hlDoc: null,
+  utt: null, rate: 1, relocT: null,
+
+  supported(){ return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window; },
+
+  /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
+  toggle(){
+    if(!this.supported()){ toast('Read aloud is not supported here'); return; }
+    if(!this.active){ this.start(); return; }
+    if(this.paused) this.resume(); else this.pause();
+  },
+  start(){
+    if(!state.rendition){ toast('Open a book to start read aloud'); return; }
+    this.active = true; this.paused = false; this.stopped = false;
+    body.classList.add('tts-on');
+    this.syncUI();
+    toast('Read aloud on — R pauses · Shift+R stops · - / = speed');
+    this.loadPageAndSpeak();
+  },
+  pause(){
+    if(!this.active || this.paused) return;
+    this.paused = true;
+    try{ speechSynthesis.pause(); }catch(e){}
+    this.syncUI();
+  },
+  resume(){
+    if(!this.active || !this.paused) return;
+    this.paused = false;
+    try{ speechSynthesis.resume(); }catch(e){}
+    this.syncUI();
+    // Chrome can drop a paused queue: nudge the cursor if nothing is speaking.
+    setTimeout(() => {
+      if(this.active && !this.paused && !this.stopped && !speechSynthesis.speaking && !speechSynthesis.pending){
+        this.speakNext();
+      }
+    }, 200);
+  },
+  stop(silent){
+    this.stopped = true; this.active = false; this.paused = false;
+    try{ speechSynthesis.cancel(); }catch(e){}
+    this.clearHighlight();
+    body.classList.remove('tts-on');
+    this.syncUI();
+    if(!silent) toast('Read aloud stopped');
+  },
+  syncUI(){
+    const b = el('btnSpeak');
+    if(!b) return;
+    b.classList.toggle('active', this.active && !this.paused);
+    b.classList.toggle('paused', this.active && this.paused);
+    b.setAttribute('aria-pressed', this.active ? 'true' : 'false');
+    b.setAttribute('title', this.active ? (this.paused ? 'Resume read aloud (R)' : 'Pause read aloud (R)') : 'Read aloud (R)');
+  },
+  nudgeRate(d){
+    this.rate = clamp(Math.round((this.rate + d) * 10) / 10, 0.5, 3);
+    toast('Read aloud speed: ' + this.rate.toFixed(1) + '×');
+    if(this.active && !this.paused){
+      try{ speechSynthesis.cancel(); }catch(e){}
+      this.speakNext();
+    }
+  },
+
+  /* One entry per sentence: text + DOM segments (node,start,end) for the
+     highlight. Falls back to cache-only text when the range is unavailable. */
+  async collectSentences(){
+    if(!state.book || !state.rendition) return [];
+    const loc = state.rendition.currentLocation();
+    if(!loc || !loc.start || !loc.end) return [];
+    const cr = loc.start.cfi + ',' + loc.end.cfi;
+    let range = null;
+    try{ range = await state.book.getRange(cr); }catch(e){}
+    if(!range || !range.startContainer) return this.cachedSentences();
+
+    const doc = range.startContainer.ownerDocument || document;
+    this.doc = doc;
+    const nodes = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+    for(let n = walker.nextNode(); n; n = walker.nextNode()){
+      if(!range.intersectsNode || range.intersectsNode(n)){
+        if(n.nodeValue && n.nodeValue.trim()) nodes.push(n);
+      }
+    }
+    if(!nodes.length) return this.cachedSentences();
+
+    // Build one flat char buffer with (node, offset) mapping.
+    const map = [];
+    let buf = '';
+    for(const n of nodes){
+      const s = (n === range.startContainer) ? range.startOffset : 0;
+      const e = (n === range.endContainer) ? range.endOffset : n.nodeValue.length;
+      for(let i = s; i < e; i++){
+        const ch = n.nodeValue[i];
+        buf += (ch === '\n' ? ' ' : ch);
+        map[buf.length - 1] = { node: n, off: i };
+      }
+    }
+    if(!buf.trim()) return this.cachedSentences();
+
+    // Split into sentences on punctuation; keep whitespace collapsed but
+    // remember each sentence's char window for the segment ranges.
+    const out = [];
+    const re = /[^.!?…]*[.!?…]+["')\]]*\s*|[^.!?…]+$/g;
+    let m;
+    while((m = re.exec(buf)) !== null){
+      const raw = m[0];
+      if(!raw.trim()) continue;
+      const s = m.index, e = m.index + raw.length;
+      // Collapse to display text, tracking the first/last real char positions.
+      let text = '', first = -1, last = -1;
+      for(let i = s; i < e; i++){
+        const ch = buf[i];
+        if(ch === ' ' && (!text || text.endsWith(' '))) continue;
+        text += ch;
+        if(ch !== ' '){ if(first < 0) first = i; last = i; }
+      }
+      if(!text.trim() || first < 0) continue;
+      const segs = [];
+      let cur = null;
+      for(let i = first; i <= last; i++){
+        const mp = map[i];
+        if(!mp) continue;
+        if(cur && cur.node === mp.node && cur.end === mp.off){ cur.end = mp.off + 1; }
+        else { cur = { node: mp.node, start: mp.off, end: mp.off + 1 }; segs.push(cur); }
+      }
+      out.push({ text: text.trim(), segs });
+      if(m.index === re.lastIndex) re.lastIndex++;
+    }
+    return out;
+  },
+  cachedSentences(){
+    this.doc = null;
+    try{
+      const p = (typeof pageCache !== 'undefined') ? pageCache.getPage(0) : null;
+      if(p && p.sentences && p.sentences.length) return p.sentences.map(t => ({ text: t, segs: [] }));
+      if(p && p.text) return splitSentences(p.text).map(t => ({ text: t, segs: [] }));
+    }catch(e){}
+    return [];
+  },
+
+  applyHighlight(sent){
+    this.clearHighlight();
+    try{
+      const doc = this.doc;
+      if(!doc || !sent.segs.length || !('highlights' in doc) || typeof Highlight === 'undefined') return;
+      const segs = sent.segs;
+      const r = doc.createRange();
+      r.setStart(segs[0].node, segs[0].start);
+      r.setEnd(segs[segs.length - 1].node, segs[segs.length - 1].end);
+      const hl = new Highlight(r);
+      doc.highlights.set('tts-hl', hl);
+      this.hl = hl; this.hlDoc = doc;
+    }catch(e){}
+  },
+  clearHighlight(){
+    try{ if(this.hlDoc) this.hlDoc.highlights.delete('tts-hl'); }catch(e){}
+    this.hl = null; this.hlDoc = null;
+  },
+
+  async loadPageAndSpeak(){
+    if(this.stopped || !this.active) return;
+    this.sents = await this.collectSentences();
+    this.si = 0;
+    if(!this.sents.length){ setTimeout(() => this.autoAdvance(), 500); return; }
+    this.speakNext();
+  },
+  speakNext(){
+    if(this.stopped || !this.active || this.paused) return;
+    if(this.si >= this.sents.length){ this.autoAdvance(); return; }
+    const sent = this.sents[this.si];
+    this.applyHighlight(sent);
+    const u = new SpeechSynthesisUtterance(sent.text);
+    u.rate = this.rate;
+    u.onend = () => {
+      if(this.stopped || !this.active) return;
+      this.si++;
+      setTimeout(() => this.speakNext(), 140);
+    };
+    u.onerror = () => {
+      if(this.stopped || !this.active) return;
+      this.si++;
+      setTimeout(() => this.speakNext(), 60);
+    };
+    this.utt = u;
+    try{ speechSynthesis.speak(u); }catch(e){ this.stop(true); }
+  },
+  async autoAdvance(){
+    if(this.stopped || !this.active) return;
+    try{
+      const loc = state.rendition.currentLocation();
+      if(isLastPage(loc)){ this.stop(true); toast('The end — read aloud finished'); return; }
+      await turn(1);
+    }catch(e){ this.stop(true); }
+  },
+  onRelocated(){
+    if(!this.active || this.paused || this.stopped) return;
+    clearTimeout(this.relocT);
+    this.relocT = setTimeout(() => this.loadPageAndSpeak(), 260);
+  }
+};
+// Auto-pause when the window is hidden so background reading stays in sync.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden' && TTS.active && !TTS.paused) TTS.pause();
+});
+
+/* ---------------- page-turn sound (synthesized paper swish) ---------------- */
+const PageSound = {
+  ctx: null,
+  play(){
+    if(!settings.pageSound) return;
+    try{
+      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this.ctx, dur = 0.22;
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i = 0; i < d.length; i++){
+        const t = i / d.length;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * (t < 0.15 ? t / 0.15 : 1);
+      }
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 0.6;
+      const g = ctx.createGain(); g.gain.value = 0.1;
+      src.connect(f); f.connect(g); g.connect(ctx.destination);
+      src.start();
+    }catch(e){}
+  }
+};
+
+/* ---------------- image lightbox ---------------- */
+const Lightbox = {
+  el(){ return document.getElementById('lightbox'); },
+  open(src){
+    let lb = this.el();
+    if(!lb){ lb = document.createElement('div'); lb.id = 'lightbox'; lb.innerHTML = '<img alt="">'; document.body.appendChild(lb); }
+    lb.querySelector('img').src = src;
+    lb.classList.add('show');
+  },
+  close(){ const lb = this.el(); if(lb) lb.classList.remove('show'); }
+};
+
+/* ---------------- footnote popup ---------------- */
+const Footnotes = {
+  el(){ return document.getElementById('fnPop'); },
+  close(){ const p = this.el(); if(p) p.classList.remove('show'); },
+  show(node, cx, cy){
+    let p = this.el();
+    if(!p){
+      p = document.createElement('div'); p.id = 'fnPop';
+      p.innerHTML = '<button class="fn-close" title="Close">✕</button><div class="fn-body"></div>';
+      document.body.appendChild(p);
+      p.querySelector('.fn-close').addEventListener('click', () => this.close());
+    }
+    const bodyEl = p.querySelector('.fn-body');
+    bodyEl.innerHTML = '';
+    // importNode (not innerHTML): book content moves in as real nodes.
+    Array.from(node.childNodes).forEach(n => { try{ bodyEl.appendChild(document.importNode(n, true)); }catch(e){} });
+    if(!bodyEl.textContent.trim()){ bodyEl.innerHTML = '<i>(empty note)</i>'; }
+    p.classList.add('show');
+    p.style.left = clamp(cx - 140, 10, innerWidth - 300) + 'px';
+    p.style.top = clamp(cy + 14, 60, innerHeight - 200) + 'px';
+    const closer = ev => {
+      if(ev.target.closest && ev.target.closest('#fnPop')) return;
+      this.close();
+      document.removeEventListener('pointerdown', closer, true);
+    };
+    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+  }
+};
+
+/* ---------------- offline dictionary cache ---------------- */
+const DictCache = {
+  get(w){ try{ return localStorage.getItem('folio-dict:' + w); }catch(e){ return null; } },
+  set(w, def){ try{ localStorage.setItem('folio-dict:' + w, def); }catch(e){} }
+};
+
 /* ---------------- chrome auto-hide ----------------
    Bars stay hidden while reading (page turns never reveal them).
    They appear only when the mouse moves near the top/bottom edge;
@@ -3609,6 +4370,7 @@ function toggleSheet(){ body.classList.toggle('sheet-open'); syncScrim(); poke()
 function toggleToc(){ body.classList.toggle('toc-open'); syncScrim(); poke(); }
 function closePanels(){
   hideSelBar();
+  Highlights.hidePop();
   body.classList.remove('sheet-open');
   body.classList.remove('toc-open');
   body.classList.remove('search-open');
@@ -3687,6 +4449,11 @@ document.addEventListener('webkitfullscreenchange', syncFullscreenUI);
 /* ---------------- keyboard ---------------- */
 function onKey(e){
   const isCtrl = e.ctrlKey || e.metaKey;
+  if(isCtrl && (e.key==='o' || e.key==='O')){
+    e.preventDefault();
+    el('file').click();
+    return;
+  }
   if(isCtrl && (e.key==='f' || e.key==='F')){
     e.preventDefault();
     if(body.classList.contains('state-reading')) toggleSearch();
@@ -3700,9 +4467,16 @@ function onKey(e){
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
   const tag=(e.target&&e.target.tagName)||'';
   if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
-  if(e.key==='Escape'){ closePanels(); return; }
+  if(e.key==='Escape'){ AutoScroll.stop(); Lightbox.close(); Footnotes.close(); closePanels(); return; }
   if(e.key==='?'){ toggleHelp(); return; }
   if(e.key==='f'||e.key==='F'){ toggleFullscreen(); return; }
+  if(e.key==='r'||e.key==='R'){
+    if(e.shiftKey){ TTS.stop(); }
+    else if(body.classList.contains('state-reading')) TTS.toggle();
+    return;
+  }
+  if(e.key==='-'||e.key==='_'){ if(TTS.active) TTS.nudgeRate(-0.1); return; }
+  if(e.key==='='||e.key==='+'){ if(TTS.active) TTS.nudgeRate(0.1); return; }
   if(!state.rendition)return;
   switch(e.key){
     case 'ArrowRight': case 'PageDown': turn(1); e.preventDefault(); break;
@@ -3856,8 +4630,9 @@ function syncSize(){
   applyFit();
 }
 function nudgeSize(d){
-  if(settings.auto)settings.auto=false;
-  settings.size=clamp(Math.round(((settings.auto?fitInfo().fs:settings.size)+d)*10)/10,15,28);
+  const base=effSize();
+  settings.auto=false;
+  settings.size=clamp(Math.round((base+d)*10)/10,15,28);
   save(); syncSize(); relayout();
 }
 function nudgeWidth(d){
@@ -3880,7 +4655,9 @@ function syncControls(){
   el('swGuide').checked=settings.guide;
   body.classList.toggle('guide-on',settings.guide);
   el('swJustify').checked=settings.justify;
-  syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI();
+  el('swSound').checked=!!settings.pageSound;
+  syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm();
+  el('swPerBook').checked=!!settings.perBookType;
 }
 
 /* ---------------- wiring ---------------- */
@@ -3895,14 +4672,19 @@ el('selDefine').addEventListener('click', async ()=>{
   const w=(selText.split(' ')[0]||'').replace(/[^A-Za-z'-]/g,'').toLowerCase();
   const box=el('selDef');
   if(!w){ box.hidden=false; box.textContent='Select a word first.'; return; }
-  box.hidden=false; box.textContent='Looking up…';
+  box.hidden=false;
+  const hit=DictCache.get(w);
+  if(hit){ box.textContent=hit; return; }
+  box.textContent='Looking up…';
   try{
     const r=await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(w));
     if(!r.ok) throw 0;
     const j=await r.json();
     const m=j && j[0] && j[0].meanings && j[0].meanings[0];
     const def=m && m.definitions && m.definitions[0] && m.definitions[0].definition;
-    box.textContent=def ? ((m.partOfSpeech?('('+m.partOfSpeech+') '):'')+def) : 'No definition found.';
+    const txt=def ? ((m.partOfSpeech?('('+m.partOfSpeech+') '):'')+def) : 'No definition found.';
+    if(def) DictCache.set(w, txt);
+    box.textContent=txt;
   }catch(e){ box.textContent='Definitions need an internet connection.'; }
 });
 el('selFind').addEventListener('click',()=>{
@@ -3919,7 +4701,7 @@ el('selCopy').addEventListener('click',async ()=>{
   catch(e){ toast('Copy failed'); }
 });
 addEventListener('pointerdown',e=>{
-  if(e.target && e.target.closest && e.target.closest('#selBar'))return;
+  if(e.target && e.target.closest && e.target.closest('#selBar,#hlPop'))return;
   hideSelBar();
 },true);
 el('btnHelp').addEventListener('click',toggleHelp);
@@ -3927,9 +4709,10 @@ el('helpClose').addEventListener('click',closePanels);
 el('helpOverlay').addEventListener('click',e=>{ if(e.target===el('helpOverlay')) closePanels(); });
 el('btnSheet').addEventListener('click',toggleSheet);
 el('sheetClose').addEventListener('click',closePanels);
-el('btnToc').addEventListener('click',toggleToc);
+el('posPill').addEventListener('click',toggleToc);
 el('tocClose').addEventListener('click',closePanels);
 el('btnFullscreen').addEventListener('click',toggleFullscreen);
+el('btnSpeak').addEventListener('click',()=>TTS.toggle());
 el('btnPrev').addEventListener('click',()=>turn(-1));
 el('btnNext').addEventListener('click',()=>turn(1));
 el('sizeMinus').addEventListener('click',()=>nudgeSize(-0.5));
@@ -4048,24 +4831,57 @@ el('swDropCaps').addEventListener('change', e => {
   settings.dropCaps = e.target.checked;
   save(); refreshCSS();
 });
+// Page-turn sound
+el('swSound').addEventListener('change',e=>{ settings.pageSound=e.target.checked; save(); });
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
 
+// Night warmth
+el('warmRange').addEventListener('input',e=>{
+  settings.warmth=+e.target.value; save(); syncWarm();
+});
+el('warmOff').addEventListener('click',()=>{
+  settings.warmth=0; save(); syncWarm();
+});
+
+// Per-book typography memory
+el('swPerBook').addEventListener('change',e=>{
+  settings.perBookType=e.target.checked; save();
+  if(e.target.checked) loadPerBookType(getActiveTitle());
+});
+
 // Bookmark ribbon & TOC tabs
 el('bookmarkRibbon').addEventListener('click', toggleBookmark);
-el('tabToc').addEventListener('click', () => {
-  el('tabToc').classList.add('active');
-  el('tabBm').classList.remove('active');
-  el('tocList').style.display = 'block';
-  el('bmList').style.display = 'none';
+// TOC drawer tabs: contents / bookmarks / highlights
+function setTocTab(which){
+  const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl' };
+  const lists = { toc:'tocList', bm:'bmList', hl:'hlList' };
+  Object.entries(tabs).forEach(([k, id]) => {
+    const b = el(id); if(b) b.classList.toggle('active', k === which);
+  });
+  Object.entries(lists).forEach(([k, id]) => {
+    const l = el(id); if(l) l.style.display = (k === which) ? 'block' : 'none';
+  });
+  if(which === 'bm') renderBookmarks();
+  if(which === 'hl') Highlights.renderList();
+}
+el('tabToc').addEventListener('click', () => setTocTab('toc'));
+el('tabBm').addEventListener('click', () => setTocTab('bm'));
+el('tabHl').addEventListener('click', () => setTocTab('hl'));
+
+// Highlight button + color palette in the selection toolbar
+el('selHl').addEventListener('click', () => {
+  if(!Highlights.lastCfi){ toast('Select text in the book first'); return; }
+  const pal = el('selHlPal');
+  if(pal) pal.hidden = !pal.hidden;
 });
-el('tabBm').addEventListener('click', () => {
-  el('tabBm').classList.add('active');
-  el('tabToc').classList.remove('active');
-  el('tocList').style.display = 'none';
-  el('bmList').style.display = 'block';
-  renderBookmarks();
-});
+document.querySelectorAll('#selHlPal .hl-dot').forEach(dot => dot.addEventListener('click', () => {
+  if(!Highlights.lastCfi) return;
+  Highlights.add(Highlights.lastCfi, dot.dataset.hl, selText);
+  const pal = el('selHlPal'); if(pal) pal.hidden = true;
+  hideSelBar();
+  toast('Highlight added — click it to add a note');
+}));
 
 // In-book search
 el('btnSearch').addEventListener('click', openSearch);
@@ -4099,14 +4915,53 @@ el('btnSpread').addEventListener('click', async ()=>{
   toast(settings.spread==='on' ? (on?'Two pages':'Screen too narrow — keeping one page') : 'One page');
 });
 
-el('rail').addEventListener('click',e=>{
-  if(!state.rendition)return;
-  const r=el('rail').getBoundingClientRect();
-  const f=clamp((e.clientX-r.left)/r.width,0,1);
-  const total=state.book.spine.length;
-  const sec=state.book.spine.get(clamp(Math.floor(f*total),0,total-1));
+/* Progress rail: click or drag to jump. Page-granular (book-wide CFIs from
+   LocEngine) when global pagination is ready, chapter-granular otherwise.
+   Dragging previews positions with a light debounce; release commits. */
+const rail = el('rail');
+let railDragging = false, railLastGo = 0;
+function railFraction(e){
+  const r = rail.getBoundingClientRect();
+  return clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
+}
+function railSeek(f){
+  if(!state.rendition || !state.book) return;
+  if(LocEngine.ready()){
+    const cfi = LocEngine.cfiAtPct(f);
+    if(cfi){
+      const now = performance.now();
+      if(!railDragging || now - railLastGo > 220){
+        railLastGo = now;
+        state.rendition.display(cfi).catch(()=>{});
+      }
+      return;
+    }
+  }
+  const total = state.book.spine.length;
+  const sec = state.book.spine.get(clamp(Math.floor(f * total), 0, total - 1));
   if(sec){ state.rendition.display(sec.href).catch(()=>{}); }
+}
+rail.addEventListener('pointerdown', e => {
+  if(!state.rendition) return;
+  e.preventDefault();
+  railDragging = true;
+  try{ rail.setPointerCapture(e.pointerId); }catch(err){}
+  railSeek(railFraction(e));
 });
+rail.addEventListener('pointermove', e => {
+  if(!railDragging) return;
+  const f = railFraction(e);
+  el('railFill').style.width = (f * 100) + '%';
+  el('railKnob').style.left = (f * 100) + '%';
+  railSeek(f);
+});
+const railRelease = e => {
+  if(!railDragging) return;
+  railDragging = false;
+  railSeek(railFraction(e));
+};
+rail.addEventListener('pointerup', railRelease);
+rail.addEventListener('pointercancel', () => { railDragging = false; });
 
 /* swipe over the chrome edges too */
 let psw=null;
@@ -4120,6 +4975,70 @@ addEventListener('touchend',e=>{
   const dx=t.clientX-psw.x, dy=t.clientY-psw.y, dt=Date.now()-psw.t; psw=null;
   if(dt<800 && Math.abs(dx)>56 && Math.abs(dx)>2.2*Math.abs(dy)) turn(dx<0?1:-1);
 },{passive:true});
+
+/* ---------------- wheel navigation, zoom & autoscroll ---------------- */
+/* Plain wheel turns pages (momentum-tolerant accumulator). Ctrl+wheel steps
+   type size, Alt+wheel steps page width — the standard reader trio. Bound to
+   the shell window AND every chapter iframe (wheel targets the iframe doc). */
+function onWheel(e){
+  if(!state.rendition || state.loading) return;
+  if(!body.classList.contains('state-reading') || panelsOpen()) return;
+  if(e.ctrlKey){ e.preventDefault(); nudgeSize(e.deltaY < 0 ? 0.5 : -0.5); return; }
+  if(e.altKey){ e.preventDefault(); nudgeWidth(e.deltaY < 0 ? 30 : -30); return; }
+  const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+  if(!d) return;
+  wheelAcc += d;
+  if(Math.abs(wheelAcc) >= 90){
+    const dir = wheelAcc > 0 ? 1 : -1;
+    wheelAcc = 0;
+    turn(dir);
+  } else {
+    clearTimeout(wheelT);
+    wheelT = setTimeout(() => { wheelAcc = 0; }, 180);
+  }
+}
+let wheelAcc = 0, wheelT = 0;
+addEventListener('wheel', onWheel, { passive:false });
+
+/* Middle-click autoscroll: pointer distance below/above the anchor steps
+   pages (instant, no fold anim) at a capped rate; any click or Esc stops. */
+const AutoScroll = {
+  active:false, y:0, acc:0, last:0,
+  start(e){
+    if(!state.rendition || state.turning) return;
+    this.active = true; this.y = e.clientY; this.acc = 0; this.last = 0;
+    body.classList.add('autoscroll');
+    toast('Auto-scroll: move the mouse · click to stop');
+  },
+  move(e){
+    if(!this.active) return;
+    const dy = e.clientY - this.y;
+    this.y = e.clientY;
+    this.acc += dy;
+    const now = performance.now();
+    if(Math.abs(this.acc) >= 110 && now - this.last > 240 && !state.turning){
+      const dir = this.acc > 0 ? 1 : -1;
+      this.acc = 0; this.last = now;
+      try{
+        const p = state.rendition.currentLocation();
+        if(dir > 0 ? !isLastPage(p) : !(p.start.index === 0 && (!p.start.displayed || p.start.displayed.page <= 1))){
+          (dir > 0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+        } else this.stop();
+      }catch(err){}
+    }
+  },
+  stop(){
+    if(!this.active) return;
+    this.active = false;
+    body.classList.remove('autoscroll');
+  }
+};
+function onDocPointerDown(e){
+  if(e.button === 1){ e.preventDefault(); AutoScroll.active ? AutoScroll.stop() : AutoScroll.start(e); }
+  else if(AutoScroll.active && e.button === 0) AutoScroll.stop();
+}
+addEventListener('pointerdown', onDocPointerDown);
+addEventListener('pointermove', e => AutoScroll.move(e), { passive:true });
 
 /* ---------------- drag & drop ---------------- */
 let depth=0;
@@ -4250,6 +5169,53 @@ syncControls();
 applyFit();
 updateLandingUI();
 poke();
+checkStartupFile();
+
+/* ---------------- Tauri: Open-With file association ----------------
+   Windows launches the exe with the .epub path as argv (cold start), or
+   forwards it to the running window via single-instance (already open).
+   Neither path works unless the frontend asks for / listens for it. */
+function tauriInvoke(){
+  try{
+    if(window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke)
+      return window.__TAURI_INTERNALS__.invoke;
+  }catch(e){}
+  return null;
+}
+async function openEpubPath(path){
+  if(!path || state.loading) return;
+  const invoke = tauriInvoke();
+  if(!invoke) return;
+  try{
+    const bytes = await invoke('read_file_bytes', { path });
+    if(!bytes || !bytes.length){ toast('Could not open that file'); return; }
+    const buf = new Uint8Array(bytes).buffer;
+    const title = String(path.split(/[\\/]/).pop() || '').replace(/\.epub$/i, '').trim() || 'Untitled';
+    closePanels();
+    await openBuffer(buf, title, path);
+  }catch(err){
+    console.warn('openEpubPath failed:', err);
+    toast('Could not open that file');
+  }
+}
+async function checkStartupFile(){
+  const invoke = tauriInvoke();
+  if(!invoke) return; // not running inside Tauri (plain browser)
+  try{
+    // 1. Cold start: was the app launched with a file?
+    const initial = await invoke('get_initial_file');
+    if(initial) await openEpubPath(initial);
+  }catch(e){}
+  // 2. Already running: files forwarded by single-instance get an event.
+  try{
+    const api = window.__TAURI__;
+    if(api && api.event && typeof api.event.listen === 'function'){
+      await api.event.listen('open-epub-file', (e) => {
+        if(e && e.payload) openEpubPath(e.payload);
+      });
+    }
+  }catch(e){}
+}
 
 /* CDN watchdog — say something real if a library failed to load */
 addEventListener('load', () => {
@@ -4263,6 +5229,30 @@ addEventListener('load', () => {
     el('btnDemo').setAttribute('disabled','');
   }
 });
+
+/* ---------------- Tauri desktop integration ----------------
+   Open the .epub passed on the command line (file association / Open-With),
+   and expose a hook the backend calls when a second launch forwards a file. */
+async function tauriOpenPath(path){
+  try{
+    if(!path || typeof ePub === 'undefined') return;
+    const { invoke } = window.__TAURI_INTERNALS__;
+    const bytes = await invoke('read_file_bytes', { path });
+    if(!bytes || !bytes.length) return;
+    const buf = (bytes instanceof ArrayBuffer) ? bytes : new Uint8Array(bytes).buffer;
+    const name = String(path).split(/[\\/]/).pop().replace(/\.epub$/i,'');
+    await openBuffer(buf, name, path);
+  }catch(e){
+    hideLoader();
+    toast('Could not open that file');
+  }
+}
+window.__folioOpenPath = tauriOpenPath;
+if(window.__TAURI_INTERNALS__){
+  try{
+    window.__TAURI_INTERNALS__.invoke('get_initial_file').then(p => { if(p) tauriOpenPath(p); }).catch(()=>{});
+  }catch(e){}
+}
 </script>
 </body>
 </html>
