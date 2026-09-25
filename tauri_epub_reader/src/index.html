@@ -86,6 +86,16 @@ body.chrome-hidden #bottombar{transform:translateY(101%)}
   opacity:0;transition:opacity .45s ease}
 #topHint{top:0;background:linear-gradient(to bottom,rgba(38,33,26,.30),transparent)}
 #botHint{bottom:0;background:linear-gradient(to top,rgba(38,33,26,.30),transparent)}
+/* chapter progress ribbon: hairline structural map, always visible */
+#chRibbon{position:fixed;top:0;left:0;right:0;height:3px;z-index:40;display:flex;
+  cursor:pointer;opacity:1;transition:opacity .3s}
+body.chrome-hidden #chRibbon{opacity:.45}
+#chRibbon:hover{opacity:1}
+body.state-landing #chRibbon{display:none}
+.ch-seg{height:100%;min-width:0;border-right:1px solid color-mix(in srgb,var(--ink) 12%,transparent)}
+.ch-seg:last-child{border-right:none}
+.ch-seg:hover{background:color-mix(in srgb,var(--ink) 12%,transparent)}
+#chPlay{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);transition:left .2s}
 body.state-reading.chrome-hidden #topHint,body.state-reading.chrome-hidden #botHint{opacity:1}
 
 #topbar{top:0;display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -569,6 +579,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 </div>
 
 <!-- ============ reading chrome ============ -->
+<div id="chRibbon" style="display:none"></div>
 <header id="topbar">
   <div class="tb-left">
     <button class="wm-btn" id="btnHome" title="Home — choose or open books (H)" aria-label="Go to home">
@@ -1493,6 +1504,7 @@ function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('load
 async function closeBook(){
   lastStatCfi = null;
   LocEngine.data = null;
+  Ribbon.clear();
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -2149,6 +2161,7 @@ const LocEngine = {
       const loc = state.rendition && state.rendition.currentLocation();
       if(loc && loc.start) onRelocated(loc);
     }catch(e){}
+    Ribbon.rebuild();
   }
 };
 
@@ -2164,6 +2177,7 @@ function onRelocated(loc){
   el('railFill').style.width=(frac*100)+'%';
   el('railKnob').style.left=(frac*100)+'%';
   el('pct').textContent=Math.round(frac*100)+'%';
+  Ribbon.move(frac);
 
   const chTitle = chapterFor(loc.start.href);
   el('chapter').textContent=chTitle;
@@ -2317,8 +2331,10 @@ async function buildTOC(book){
     if(loc&&loc.start)markTocCurrent(loc.start.href);
     syncBookmarkBadge();
     Highlights.syncBadge();
+    Ribbon.build();
   }catch(e){
     el('tocList').innerHTML='<li class="empty">This book has no table of contents.</li>';
+    Ribbon.clear();
   }
 }
 function markTocCurrent(href){
@@ -2336,6 +2352,112 @@ function markTocCurrent(href){
     [...list.children].forEach((li,i)=>li.classList.toggle('cur',i===idx));
   }
 }
+
+/* ---------------- chapter progress ribbon (A-B) ----------------
+   Hairline structural map: one segment per chapter weighted by location
+   counts when global paging is ready (equal weights before that). The
+   accent playhead tracks progress; click a segment to jump. Rebuilt into a
+   detached fragment and swapped in atomically — no half-drawn states. */
+const Ribbon = {
+  MAX_SEG: 240,
+  spineIndexForHref(href){
+    try{
+      if(!href || !state.book || !state.book.spine) return -1;
+      const base = String(href).split('/').pop().split('#')[0];
+      const n = state.book.spine.length;
+      for(let i = 0; i < n; i++){
+        let h = '';
+        try{ h = state.book.spine.get(i).href || ''; }catch(e){}
+        if(String(h).split('/').pop().split('#')[0] === base) return i;
+      }
+    }catch(e){}
+    return -1;
+  },
+  // Location counts per spine index, or null when paging isn't ready.
+  locCounts(){
+    try{
+      const d = (typeof LocEngine !== 'undefined') ? LocEngine.data : null;
+      if(!d || !Array.isArray(d.locations)) return null;
+      const counts = {};
+      d.locations.forEach((cfi) => {
+        const m = /\/6\/(\d+)/.exec(String(cfi));
+        if(!m) return;
+        const si = parseInt(m[1], 10) / 2 - 1;
+        if(si >= 0) counts[si] = (counts[si] || 0) + 1;
+      });
+      return counts;
+    }catch(e){ return null; }
+  },
+  build(){
+    const root = el('chRibbon');
+    if(!root) return;
+    const items = (typeof tocItems !== 'undefined') ? tocItems : [];
+    root.innerHTML = '';
+    const play = document.createElement('div');
+    play.id = 'chPlay';
+    if(!items.length || !state.book){ root.style.display = 'none'; return; }
+    root.style.display = '';
+    let shown = items, tail = null;
+    if(items.length > this.MAX_SEG){
+      shown = items.slice(0, this.MAX_SEG - 1);
+      tail = items.slice(this.MAX_SEG - 1);
+    }
+    const counts = this.locCounts();
+    const wOf = (it) => {
+      if(!counts) return 1;
+      return Math.max(1, counts[this.spineIndexForHref(it.href)] || 0);
+    };
+    let total = 0;
+    shown.forEach((it) => { total += wOf(it); });
+    let tailW = 0;
+    if(tail) tail.forEach((it) => { tailW += wOf(it); });
+    total += tailW;
+    let acc = 0;
+    const frag = document.createDocumentFragment();
+    const mkSeg = (label, href, w, tip) => {
+      const s = document.createElement('div');
+      s.className = 'ch-seg';
+      s.style.flexGrow = w;
+      s.title = tip;
+      s.addEventListener('click', () => {
+        if(state.rendition && href) state.rendition.display(href).catch(()=>{});
+      });
+      frag.appendChild(s);
+      return s;
+    };
+    shown.forEach((it) => {
+      const w = wOf(it);
+      const p0 = total ? Math.round(acc / total * 100) : 0;
+      acc += w;
+      const p1 = total ? Math.round(acc / total * 100) : 0;
+      mkSeg(it.label, it.href, w, `${it.label} — ${p0}%–${p1}%`);
+    });
+    if(tail){
+      const p0 = total ? Math.round(acc / total * 100) : 0;
+      mkSeg(`+${tail.length} chapters`, tail[0].href, Math.max(1, tailW),
+        `${tail.length} more chapters — ${p0}%–100%`);
+    }
+    root.appendChild(frag);
+    root.appendChild(play);
+    try{
+      const loc = state.rendition && state.rendition.currentLocation();
+      if(loc && loc.start) this.move(Ribbon._lastFrac || 0);
+    }catch(e){}
+  },
+  rebuild(){ this.build(); },
+  move(frac){
+    this._lastFrac = clamp(frac || 0, 0, 1);
+    const p = el('chPlay');
+    if(p) p.style.left = (this._lastFrac * 100) + '%';
+  },
+  clear(){
+    const root = el('chRibbon');
+    if(!root) return;
+    root.innerHTML = '';
+    root.style.display = 'none';
+  },
+  _lastFrac: 0,
+};
 
 /* ---------------- recent books shelf ---------------- */
 function getRecents(){

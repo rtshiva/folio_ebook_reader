@@ -63,6 +63,7 @@
 | Top-left contents pill with live position | ✅ | `#posPill`: current chapter + percent, updates in `onRelocated`, click opens contents; closed drawers use `visibility:hidden` so no stray chrome paints |
 | Bookmarks per book | ✅ | Ribbon toggle (`B`), bookmark tab, delete, badge count; keyed by title+author |
 | Progress rail (chapter granularity) | ✅ | Draggable knob + fill, percent display; also seeks by page granularity via persisted LocEngine locations (`railSeek`) |
+| Chapter progress ribbon | ✅ | 3 px top-edge strip, one segment per chapter weighted by location counts (`Ribbon`, capped at 240, click-to-jump with tooltips); accent playhead tracks progress, dims with hidden chrome |
 | Page badge (page x / y within chapter) | ✅ | Plus book-wide "Page N of M" badge from persisted CFI locations (`LocEngine`) |
 | Time-left-in-chapter estimate | ✅ | |
 | Resume reading (CFI restore) | ✅ | "Continue reading" on landing + badge |

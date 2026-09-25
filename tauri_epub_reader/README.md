@@ -24,7 +24,7 @@ A high-performance, lightweight desktop EPUB reader built with Tauri 2.0 and nat
   - Bionic reading, reading ruler/guide, custom font sizes, line heights, letter and word spacing.
   - Optional per-book typography memory and night warmth (blue-light) slider.
   - Text-to-speech read aloud: play/pause (`R`), stop (`Shift + R`), speed (`-` / `=`), sentence highlighting, and auto page advance.
-- **Navigation & Progress**: Book-wide page numbers ("page N of M") with per-book persistence, plus a draggable progress rail with page-granularity scrubbing. A top-left contents pill always shows the current chapter and percent — one click opens the contents.
+- **Navigation & Progress**: Book-wide page numbers ("page N of M") with per-book persistence, plus a draggable progress rail with page-granularity scrubbing. A top-left contents pill always shows the current chapter and percent — one click opens the contents. A hairline chapter ribbon across the very top maps the book structurally with a live position marker (click any segment to jump).
 - **Paper-grade page turns**: shared-grain paper texture (toggleable), warm fold lighting, crease sheen, page-edge hints, and a full-spread flip whose back sweeps over the opposite page.
 - **Highlights & Notes**: Highlight selections in four colors, add notes, and manage them from the contents drawer — stored per book.
 - **Mouse & Wheel Input**: Wheel turns pages (also inside book pages), `Ctrl + Wheel` changes font size, `Alt + Wheel` changes page width, middle-click toggles auto-scroll.

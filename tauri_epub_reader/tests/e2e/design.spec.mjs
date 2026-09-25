@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { fresh, openDemoReady, badge, badgeWait, buildStressBook, generateStressBuffer, openStressBuffer, searchIndexRecord, slowDrag, fastFling, synUp, spreadInfo, curCfi } from './helpers.mjs';
+import { fresh, openDemo, openDemoReady, badge, badgeWait, buildStressBook, generateStressBuffer, openStressBuffer, searchIndexRecord, slowDrag, fastFling, synUp, spreadInfo, curCfi } from './helpers.mjs';
 
 test.beforeEach(async ({ page }) => { await fresh(page); });
 
@@ -405,6 +405,94 @@ test.describe('D9 single-page mode', () => {
       await page.waitForFunction(() => !document.querySelector('.pt-compositor'), null, { timeout: 9000 });
     }
   });
+});
+
+test('D3 chapter ribbon segments, playhead, jump, dim', async ({ page }) => {
+  await openDemoReady(page);
+  const info = await page.evaluate(() => ({
+    segs: document.querySelectorAll('#chRibbon .ch-seg').length,
+    toc: (typeof tocItems !== 'undefined') ? tocItems.length : -1,
+  }));
+  expect(info.segs).toBeGreaterThanOrEqual(3);
+  expect(info.segs).toBe(Math.min(info.toc, 240));
+  const pos = await page.evaluate(() => {
+    const pctTxt = document.getElementById('pct').textContent;
+    const rib = document.getElementById('chRibbon').getBoundingClientRect();
+    const play = document.getElementById('chPlay').getBoundingClientRect();
+    return { pctTxt, ribW: rib.width, playX: play.left - rib.left };
+  });
+  const pctNum = parseFloat(pos.pctTxt) / 100;
+  expect(Math.abs(pos.playX - pctNum * pos.ribW)).toBeLessThan(2.5);
+  await page.evaluate(() => {
+    window.__dspCalls = [];
+    const r = state.rendition, o = r.display.bind(r);
+    r.display = (...a) => { window.__dspCalls.push(a[0]); return o(...a); };
+  });
+  await page.locator('#chRibbon .ch-seg').nth(2).click();
+  await page.waitForFunction(() => (window.__dspCalls || []).length >= 1, null, { timeout: 9000 });
+  expect(await page.evaluate(() => window.__dspCalls[0])).toBe(
+    await page.evaluate(() => tocItems[2].href));
+  await page.evaluate(() => hideChrome());
+  await page.waitForTimeout(500);
+  expect(parseFloat(await page.evaluate(
+    () => getComputedStyle(document.getElementById('chRibbon')).opacity))).toBeLessThan(1);
+  const hoverRule = await page.evaluate(() => {
+    for (const sh of document.styleSheets) {
+      let rules = [];
+      try { rules = [...sh.cssRules]; } catch (e) { continue; }
+      for (const r of rules) {
+        if (r.selectorText && r.selectorText.includes('#chRibbon:hover') &&
+            (r.style.opacity === '1' || r.style.opacity === '1.0')) return true;
+      }
+    }
+    return false;
+  });
+  expect(hoverRule).toBe(true);
+});
+
+test('D4 ribbon re-proportions when locations arrive', async ({ page }) => {
+  await openDemo(page);
+  await page.waitForFunction(
+    () => typeof tocItems !== 'undefined' && tocItems.length > 0, null, { timeout: 12000 });
+  // Equal weights while global paging is unavailable (data stashed + restored
+  // synchronously, so no relocation can interleave).
+  const pre = await page.evaluate(() => {
+    const keep = LocEngine.data;
+    LocEngine.data = null;
+    Ribbon.rebuild();
+    const grows = [...document.querySelectorAll('#chRibbon .ch-seg')].map((s) => s.style.flexGrow);
+    LocEngine.data = keep;
+    Ribbon.rebuild();
+    return grows;
+  });
+  expect(pre.length).toBeGreaterThan(0);
+  expect(new Set(pre).size).toBe(1);
+  await page.waitForFunction(() => typeof LocEngine !== 'undefined' && LocEngine.ready(), null, { timeout: 12000 });
+  const wBefore = await page.evaluate(() => document.getElementById('chRibbon').getBoundingClientRect().width);
+  const check = await page.evaluate(() => {
+    Ribbon.rebuild();
+    const segs = [...document.querySelectorAll('#chRibbon .ch-seg')];
+    const counts = {};
+    LocEngine.data.locations.forEach((cfi) => {
+      const m = /\/6\/(\d+)/.exec(String(cfi));
+      if (!m) return;
+      const si = parseInt(m[1], 10) / 2 - 1;
+      if (si >= 0) counts[si] = (counts[si] || 0) + 1;
+    });
+    const rows = segs.map((s, i) => {
+      const si = Ribbon.spineIndexForHref(tocItems[i].href);
+      return { got: s.style.flexGrow, want: String(Math.max(1, counts[si] || 0)) };
+    });
+    return {
+      rows,
+      count: segs.length,
+      width: document.getElementById('chRibbon').getBoundingClientRect().width,
+    };
+  });
+  expect(check.rows.every((r) => r.got === r.want)).toBe(true);
+  expect(check.count).toBe(Math.min(
+    await page.evaluate(() => tocItems.length), 240));
+  expect(check.width).toBe(wBefore);
 });
 
 test('D2 drawers never leak hit-testable chrome when closed', async ({ page }) => {
