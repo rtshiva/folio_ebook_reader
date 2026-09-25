@@ -222,6 +222,96 @@ export async function searchIndexRecord(page, title) {
   }, title);
 }
 
+// Current rendition CFI, tolerating transient null starts mid-relocation.
+export async function curCfi(page) {
+  return page.waitForFunction(() => {
+    try {
+      const l = state.rendition.currentLocation();
+      return l && l.start ? String(l.start.cfi) : null;
+    } catch (e) { return null; }
+  }, null, { timeout: 9000 }).then((h) => h.jsonValue());
+}
+
+// Spread geometry + drag helpers for page-turn specs. Drags run with the
+// pointer held down so assertions can read the live compositor mid-turn;
+// callers release with page.mouse.up() when done.
+export async function spreadInfo(page) {
+  return page.evaluate(() => {
+    const v = document.getElementById('viewer').getBoundingClientRect();
+    return { spreadW: v.width, left: v.left, isSpread: document.body.classList.contains('spread') };
+  });
+}
+
+// Synthetic pointer drags, dispatched INSIDE the chapter iframe document —
+// the exact production path (viewer-level dispatch hits the tag guard's bare
+// `A` alternative on 'IFRAME' and bails; real drags bind at doc level).
+// Rationale: Playwright's CDP input pipeline stalls indefinitely on
+// button-held mouse moves over the open book (main thread stays responsive —
+// verified), while in-doc PointerEvents drive the identical
+// TurnGestureController handler chain deterministically. Mouse stays up.
+//
+// slowDrag: paced moves + settle bleed, so release velocity ~0 (a hold at
+// ~frac either cancels (<0.38) or commits (>0.38) on displacement alone).
+// fastFling: spaced moves build real velocity so release commits from ~0.12.
+function dragGeom(info, dirn, frac) {
+  const W = info.spreadW;
+  const y = 430;
+  const x0 = dirn > 0 ? info.left + W - 100 : info.left + 100;
+  return { W, y, x0, dx: dirn > 0 ? -frac * W : frac * W };
+}
+export async function slowDrag(page, dirn, frac) {
+  const info = await spreadInfo(page);
+  const { y, x0, dx } = dragGeom(info, dirn, frac);
+  const frame = await viewerFrame(page);
+  await frame.evaluate(({ x0, y, dx }) => {
+    const n = 6;
+    const mk = (type, x, buttons) => new PointerEvent(type, {
+      bubbles: true, cancelable: true, clientX: x, clientY: y,
+      button: 0, buttons, pointerId: 7, pointerType: 'mouse', isPrimary: true,
+    });
+    const tgt = (x) => document.elementFromPoint(x, y) || document.body;
+    tgt(x0).dispatchEvent(mk('pointerdown', x0, 1));
+    for (let i = 1; i <= n; i++) tgt(x0 + (dx * i) / n).dispatchEvent(mk('pointermove', x0 + (dx * i) / n, 1));
+  }, { x0, y, dx });
+  await page.waitForTimeout(200);
+  return { ...info, endX: x0 + dx, endY: y };
+}
+
+export async function fastFling(page, dirn, frac) {
+  const info = await spreadInfo(page);
+  const { y, x0, dx } = dragGeom(info, dirn, frac);
+  const frame = await viewerFrame(page);
+  const step = async (x, buttons, type) => frame.evaluate(({ x, y, buttons, type }) => {
+    const tgt = document.elementFromPoint(x, y) || document.body;
+    tgt.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, clientX: x, clientY: y,
+      button: 0, buttons, pointerId: 7, pointerType: 'mouse', isPrimary: true,
+    }));
+  }, { x, y, buttons, type });
+  await step(x0, 1, 'pointerdown');
+  await page.waitForTimeout(25);
+  await step(x0 + dx / 2, 1, 'pointermove');
+  await page.waitForTimeout(25);
+  await step(x0 + dx, 1, 'pointermove');
+  return { ...info, endX: x0 + dx, endY: y };
+}
+
+export async function synUp(page, end) {
+  const pt = end || { x: 680, y: 430 };
+  const up = (p) => {
+    const tgt = document.elementFromPoint(p.x, p.y) || document.body;
+    tgt.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, clientX: p.x, clientY: p.y,
+      button: 0, buttons: 0, pointerId: 7, pointerType: 'mouse', isPrimary: true,
+    }));
+  };
+  try {
+    const frame = await viewerFrame(page);
+    await frame.evaluate(up, pt);
+  } catch (e) { /* chapter frame gone (turn completed) — window path below */ }
+  await page.evaluate(up, pt);
+}
+
 // addInitScript payload faking the Tauri backend for boot-open tests:
 // get_initial_file -> fixed path, read_file_bytes -> the given epub bytes.
 export function tauriBootScript(epubBytes) {

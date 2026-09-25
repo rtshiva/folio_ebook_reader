@@ -44,6 +44,8 @@
 | Capability | Status | Notes |
 |---|---|---|
 | Fold-sheet "paper flip" FX | ✅ | `PageTurnCompositor`: clipped flat sheet + paper-curl flap, fold shadow, edge highlight, ambient shadow, spine valley; DOM compositor animating `transform`/`translateX` + opacity only (GPU-composited, no per-frame clip-path repaint) |
+| Full-spread two-phase fold | ✅ | Fold travels the whole spread (`PageTurnConfig.fullSpreadFold`, default on); phase-2 paper back-sheet overlaps the opposite page; legacy half-leaf path kept behind the flag / `quality:'basic'` |
+| Paper texture + warmer fold light | ✅ | Shared 256px grain tile (one `toDataURL`, `multiply` wash) gated by a texture chip (default on, off for basic); warmer fold/ambient gradients; dual-band soft-light crease sheen; page-edge stack hints; mid-turn settle sound |
 | Damped-spring physics | ✅ | `PageTurnPhysics` (settle on p < 0.003, v < 0.02) |
 | Drag-to-turn gesture with fling | ✅ | `TurnGestureController`: 120 ms velocity window, edge/boundary detection, cross-iframe pointer capture |
 | Slide FX | ✅ | Snapshot pool (6 warm iframes) slides |

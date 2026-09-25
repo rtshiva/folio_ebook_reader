@@ -485,15 +485,35 @@ body.guide-on #guide{opacity:1}
 /* Gaussian fold shadow S(d) = A·exp(-d²/2σ²), centred on the fold */
 .pt-fold-shadow{
   position:absolute;top:0;bottom:0;pointer-events:none;z-index:12;
-  background:radial-gradient(closest-side, rgba(15,10,5,.38), rgba(15,10,5,0) 72%);
+  background:radial-gradient(closest-side, rgba(38,24,10,.42), rgba(38,24,10,0) 72%);
   opacity:0;will-change:transform,opacity;transform:translateZ(0);
 }
-/* narrow specular highlight riding the fold crease */
+/* specular sheen riding the fold crease: main highlight plus a faint second
+   band offset across it (paper crease catches two highlights) */
 .pt-curl-highlight{
-  position:absolute;top:0;bottom:0;width:3px;pointer-events:none;z-index:13;
-  background:linear-gradient(to right, rgba(255,255,255,0), rgba(255,252,244,.85), rgba(255,255,255,0));
-  opacity:0;will-change:transform,opacity;transform:translateZ(0);
+  position:absolute;top:0;bottom:0;width:6px;pointer-events:none;z-index:13;
+  background:linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,252,244,.55) 32%,
+    rgba(255,255,255,0) 52%, rgba(255,252,244,.28) 66%, rgba(255,255,255,0) 100%);
+  opacity:0;will-change:transform,opacity;transform:translateZ(0);mix-blend-mode:soft-light;
 }
+/* paper grain wash over compositor leaves: shared tile, multiply blend */
+.pt-grain{position:absolute;inset:0;pointer-events:none;background-image:var(--grain);
+  opacity:.05;mix-blend-mode:multiply}
+/* A-S phase-2 back sheet: plain paper overlapping the opposite page.
+   Never live text, so mirroring is impossible by construction. */
+.pt-back-sheet{position:absolute;top:0;bottom:0;overflow:hidden;z-index:9;pointer-events:auto;
+  background:linear-gradient(105deg,
+    color-mix(in srgb,var(--page) 88%,#6b5b3e),var(--page) 14%,
+    var(--page) 86%,color-mix(in srgb,var(--page) 80%,#6b5b3e));
+  box-shadow:inset 0 0 42px rgba(45,35,18,.10);will-change:clip-path,opacity}
+/* page-edge stack hints: hairlines at the book's outer edges (pure CSS) */
+.edge-stack{position:absolute;top:2px;bottom:2px;width:3px;pointer-events:none;z-index:4;opacity:.4;
+  background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px)}
+.edge-stack.left{left:-5px;display:none}
+.edge-stack.right{right:-5px}
+body.spread .edge-stack.left{display:block}
+body.fx-none .edge-stack,body.turning .edge-stack{display:none}
+@media (prefers-reduced-motion:reduce){.edge-stack{display:none}}
 .pt-drag-capture{
   position:fixed;inset:0;z-index:9999;
   cursor:grabbing;cursor:-webkit-grabbing;
@@ -596,6 +616,8 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
     </button>
     <div id="viewer"></div>
     <div id="pageFx"></div>
+    <div class="edge-stack left"></div>
+    <div class="edge-stack right"></div>
     <div id="gutter"></div>
     <div id="stand"></div>
   </div>
@@ -675,6 +697,8 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
         <span class="tx"><b>Reading guide</b><small>A soft band that tracks your pointer keeps your place on the line.</small></span></label>
       <label class="sw"><input type="checkbox" id="swSound"><span class="tr"></span>
         <span class="tx"><b>Page-turn sound</b><small>A soft paper swish as pages turn.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swGrain" checked><span class="tr"></span>
+        <span class="tx"><b>Paper texture</b><small>A faint grain over pages and page turns.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
     </section>
@@ -844,7 +868,7 @@ const DEFAULTS = {
   bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false,
-  warmth:0, perBookType:false, pageSound:false
+  warmth:0, perBookType:false, pageSound:false, grain:true
 };
 let settings = {...DEFAULTS};
 try{
@@ -3401,6 +3425,7 @@ async function fxSlide(dir, snapInfo){
 
 const PageTurnConfig = {
   quality: 'premium',           // 'basic' | 'realistic' | 'premium' (spec §35)
+  fullSpreadFold: true,         // A-S: turning page sweeps the whole spread (false = legacy half-leaf)
   activationDistance: 10,       // px moved horizontally before engaging drag
   verticalToleranceRatio: 1.8,  // |dx| must exceed 1.8 * |dy| to engage
   edgeZoneWidthRatio: 0.35,     // outer horizontal zone for edge initiation
@@ -3417,7 +3442,7 @@ const PageTurnConfig = {
   flapWidthMax: 150,            // flap width cap in px
 
   foldShadowOpacity: 0.36,      // Gaussian fold shadow opacity S(d) = A·exp(-d²/2σ²)
-  foldShadowWidth: 32,          // Gaussian fold shadow spread σ in px
+  foldShadowWidth: 40,          // Gaussian fold shadow spread σ in px
   ambientShadowOpacity: 0.32,   // ambient shadow opacity A(p) = Amax·sin(πp)
   ambientShadowWidthRatio: 0.36,// ambient shadow width relative to leaf width
   edgeHighlightOpacity: 0.18,   // specular highlight opacity along fold crease
@@ -3502,6 +3527,10 @@ class PageTurnCompositor {
     this.ambientShadow = null;
     this.spineValley = null;
     this.quality = PageTurnConfig.quality || 'premium';
+    this.playedMid = false;
+    this.backSheet = null;      // A-S phase-2 paper back overlapping the opposite page
+    // Full-spread two-phase fold: spread mode + flag on + above basic quality.
+    this.fullFold = !!(this.isSpread && PageTurnConfig.fullSpreadFold !== false && this.quality !== 'basic');
 
     const VW = this.vRect.width;
     const VH = this.vRect.height;
@@ -3535,6 +3564,7 @@ class PageTurnCompositor {
     const { box: sBox, snap: sSnap } = createSnapBox(snap, bx, bw, relLeft);
     sheet.appendChild(sBox);
     populateSnap(sSnap, html);
+    if(this.quality !== 'basic') addGrain(sheet);
     root.appendChild(sheet);
     this.sheet = sheet;
 
@@ -3594,6 +3624,7 @@ class PageTurnCompositor {
         const { box: statBox, snap: sSnap } = createSnapBox(snap, 0, WL, snap.relLeft);
         statWrap.appendChild(statBox);
         populateSnap(sSnap, snap.docHtml);
+        if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
 
@@ -3606,6 +3637,7 @@ class PageTurnCompositor {
           underWrap.appendChild(uBox);
           populateSnap(uSnap, adjHtml);
         }
+        if(this.quality !== 'basic') addGrain(underWrap);
         root.appendChild(underWrap);
         this.underneathLeaf = underWrap;
 
@@ -3619,13 +3651,25 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to right, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
-        // 5. Fold sheet for the right leaf: flat current page + paper curl.
-        // Incoming page (adjHtml) is already visible on the underneath layer.
-        this.buildFoldLeaf(root, WL, WR, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
+        // 5. Turning sheet: full-spread sheet in full-fold mode (phase 1 shows
+        // the un-turned remainder), else the right leaf only. Incoming page
+        // (adjHtml) is already visible on the underneath layer.
+        if(this.fullFold) this.buildFoldLeaf(root, 0, VW, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
+        else this.buildFoldLeaf(root, WL, WR, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
+        // 6. Back sheet: plain paper overlapping the opposite (left) page in
+        // phase 2. Skipped at book boundaries (no ghost sheet).
+        if(this.fullFold && !this.isBoundary){
+          const back = document.createElement('div');
+          back.className = 'pt-back-sheet';
+          back.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
+          addGrain(back);
+          root.appendChild(back);
+          this.backSheet = back;
+        }
 
       } else {
         // Backward turn: Left leaf flips over center spine to land on Right page
@@ -3636,6 +3680,7 @@ class PageTurnCompositor {
         const { box: statBox, snap: sSnap } = createSnapBox(snap, WL, WR, snap.relLeft);
         statWrap.appendChild(statBox);
         populateSnap(sSnap, snap.docHtml);
+        if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
 
@@ -3648,6 +3693,7 @@ class PageTurnCompositor {
           underWrap.appendChild(uBox);
           populateSnap(uSnap, adjHtml);
         }
+        if(this.quality !== 'basic') addGrain(underWrap);
         root.appendChild(underWrap);
         this.underneathLeaf = underWrap;
 
@@ -3661,12 +3707,23 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to left, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
-        // 5. Fold sheet for the left leaf.
-        this.buildFoldLeaf(root, 0, WL, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
+        // 5. Turning sheet: full-spread sheet in full-fold mode, else left leaf.
+        if(this.fullFold) this.buildFoldLeaf(root, 0, VW, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
+        else this.buildFoldLeaf(root, 0, WL, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
+        // 6. Back sheet over the opposite (right) page in phase 2 (no ghosts
+        // at book boundaries).
+        if(this.fullFold && !this.isBoundary){
+          const back = document.createElement('div');
+          back.className = 'pt-back-sheet';
+          back.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
+          addGrain(back);
+          root.appendChild(back);
+          this.backSheet = back;
+        }
       }
     } else {
       // Single-Page Mode
@@ -3680,6 +3737,7 @@ class PageTurnCompositor {
         underWrap.appendChild(uBox);
         populateSnap(uSnap, adjHtml);
       }
+      if(this.quality !== 'basic') addGrain(underWrap);
       root.appendChild(underWrap);
       this.underneathLeaf = underWrap;
 
@@ -3687,8 +3745,8 @@ class PageTurnCompositor {
       const ambShadow = document.createElement('div');
       ambShadow.className = 'pt-ambient-shadow';
       const ambGrad = dir > 0
-        ? 'linear-gradient(to right, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)'
-        : 'linear-gradient(to left, rgba(15,10,5,0.45) 0%, rgba(15,10,5,0) 100%)';
+        ? 'linear-gradient(to right, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%)'
+        : 'linear-gradient(to left, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%)';
       ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:${ambGrad};opacity:0;`;
       root.appendChild(ambShadow);
       this.ambientShadow = ambShadow;
@@ -3700,6 +3758,81 @@ class PageTurnCompositor {
     document.body.appendChild(root);
     this.root = root;
     this.render(0);
+  }
+
+  // Full-spread two-phase fold (A-S): the fold travels the whole spread width
+  // (foldX), crossing the spine at p=0.5. Phase 1 shows the un-turned
+  // remainder of the front; phase 2 lays the paper back over the opposite
+  // page. Writes stay clip-path/transform/opacity only.
+  renderFull(p, pc, C){
+    const dir = this.dir, VW = this.vRect.width, spineX = this.spineX;
+    const premium = this.quality !== 'basic';
+    const foldX = dir > 0 ? VW * (1 - pc) : VW * pc;
+    const sigma = PageTurnConfig.foldShadowWidth;
+    // 1. Front sheet: the flat, un-turned remainder. Phase 1 matches the
+    // legacy look extended full-spread; past the crossover the front is
+    // face-down, so the sheet hides.
+    if(this.sheet){
+      if(pc < 0.5){
+        this.sheet.style.opacity = '1';
+        this.sheet.style.visibility = 'visible';
+        this.sheet.style.clipPath = dir > 0
+          ? `inset(0 ${Math.round(VW - foldX)}px 0 0)`
+          : `inset(0 0 0 ${Math.round(foldX)}px)`;
+      } else {
+        this.sheet.style.opacity = '0';
+        this.sheet.style.visibility = 'hidden';
+      }
+    }
+    // 2. Back sheet: paper over the opposite page in phase 2 (destroy swaps
+    // to the live spread, as in the legacy path — no live text ever mirrors).
+    if(this.backSheet){
+      if(pc < 0.5 || this.isBoundary){
+        this.backSheet.style.opacity = '0';
+        this.backSheet.style.visibility = 'hidden';
+      } else {
+        if(dir > 0) this.backSheet.style.clipPath = `inset(0 0 0 ${Math.round(foldX)}px)`;
+        else this.backSheet.style.clipPath = `inset(0 ${Math.round(VW - foldX)}px 0 0)`;
+        this.backSheet.style.opacity = '1';
+        this.backSheet.style.visibility = 'visible';
+      }
+    }
+    // 3. Flap rides the fold across the whole spread.
+    if(this.flap){
+      const fw = this.flapW || 100;
+      const flapLeft = dir > 0 ? (foldX - fw) : foldX;
+      const flapAngle = (dir > 0 ? -1 : 1) * PageTurnConfig.maxFlapAngle * Math.pow(C, 0.8);
+      const liftZ = Math.round(PageTurnConfig.maxCurvature * C);
+      this.flap.style.transform =
+        `translateX(${Math.round(flapLeft)}px) perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
+      this.flap.style.opacity = C < 0.02 ? '0' : '1';
+      this.flap.style.filter = C > 0.02
+        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(18,12,6,${(0.22 * C).toFixed(3)}))`
+        : 'none';
+    }
+    // 4. Fold shadow + edge highlight track the fold.
+    if(this.foldShadow){
+      this.foldShadow.style.transform = `translateX(${Math.round(foldX - sigma)}px)`;
+      this.foldShadow.style.opacity =
+        (PageTurnConfig.foldShadowOpacity * (0.28 + 0.72 * C)).toFixed(3);
+    }
+    if(this.edgeHighlight){
+      this.edgeHighlight.style.transform = `translateX(${Math.round(foldX - 3)}px)`;
+      this.edgeHighlight.style.opacity =
+        premium ? (PageTurnConfig.edgeHighlightOpacity * C).toFixed(3) : '0';
+    }
+    // 5. Ambient wash around the fold on the revealed side.
+    if(this.ambientShadow){
+      const aw = Math.min(260, dir > 0 ? VW - foldX : foldX);
+      const ambX = dir > 0 ? foldX : foldX - aw;
+      this.ambientShadow.style.transform = `translateX(${Math.round(ambX)}px) scaleX(${Math.max(0.02, aw / 260)})`;
+      this.ambientShadow.style.opacity =
+        premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
+    }
+    // 6. Spine valley fades while the book is mid-air (phase 2).
+    if(this.spineValley){
+      this.spineValley.style.opacity = pc < 0.5 ? '1' : Math.max(0, 1 - (pc - 0.5) * 4).toFixed(3);
+    }
   }
 
   // Single visual source of truth: TurnState p drives fold, curvature,
@@ -3714,6 +3847,8 @@ class PageTurnCompositor {
     const bx = this.leafX || 0;
     const C = Math.sin(Math.PI * pc);              // curvature C(p), §10
     const premium = this.quality !== 'basic';
+    if(C > 0.5 && !this.playedMid){ this.playedMid = true; PageSound.mid(); }
+    if(this.fullFold){ this.renderFull(p, pc, C); return; }
 
     // Fold position: forward sweeps right edge -> spine, backward mirrors.
     const fx = dir > 0 ? bw * (1 - pc) : bw * pc;  // fold offset in leaf, §8
@@ -3747,12 +3882,12 @@ class PageTurnCompositor {
       const sigma = PageTurnConfig.foldShadowWidth;
       this.foldShadow.style.transform = `translateX(${Math.round(bx + fx - sigma)}px)`;
       this.foldShadow.style.opacity =
-        (PageTurnConfig.foldShadowOpacity * (0.35 + 0.65 * C)).toFixed(3);
+        (PageTurnConfig.foldShadowOpacity * (0.28 + 0.72 * C)).toFixed(3);
     }
 
     // 4. Specular crease highlight, narrow and soft (§14).
     if(this.edgeHighlight) {
-      this.edgeHighlight.style.transform = `translateX(${Math.round(bx + fx - 1.5)}px)`;
+      this.edgeHighlight.style.transform = `translateX(${Math.round(bx + fx - 3)}px)`;
       this.edgeHighlight.style.opacity =
         premium ? (PageTurnConfig.edgeHighlightOpacity * C).toFixed(3) : '0';
     }
@@ -3877,7 +4012,8 @@ class TurnGestureController {
     }
 
     if(this.active && this.compositor) {
-      const W = this.compositor.leafW || 1;
+      // Full-spread fold maps the drag across both halves 1:1 (A-S).
+      const W = (this.compositor.fullFold ? this.compositor.vRect.width : this.compositor.leafW) || 1;
       const rawP = (this.dir > 0) ? (-dx / W) : (dx / W);
       let p;
       if(this.compositor.isBoundary) {
@@ -3984,7 +4120,7 @@ class TurnGestureController {
       const dtSec = (last.t - first.t) / 1000;
       if(dtSec > 0.01) {
         const deltaX = (this.dir > 0) ? (first.x - last.x) : (last.x - first.x);
-        const W = (this.compositor && this.compositor.leafW) || 600;
+        const W = (this.compositor && (this.compositor.fullFold ? this.compositor.vRect.width : this.compositor.leafW)) || 600;
         v0 = (deltaX / W) / dtSec;
       }
     }
@@ -4405,8 +4541,55 @@ const PageSound = {
       src.connect(f); f.connect(g); g.connect(ctx.destination);
       src.start();
     }catch(e){}
+  },
+  // Softer second burst as the fold passes midpoint — two-stage paper settle.
+  mid(){
+    if(!settings.pageSound) return;
+    try{
+      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this.ctx, dur = 0.12;
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i = 0; i < d.length; i++){
+        const t = i / d.length;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3) * (t < 0.2 ? t / 0.2 : 1);
+      }
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3400; f.Q.value = 0.8;
+      const g = ctx.createGain(); g.gain.value = 0.05;
+      src.connect(f); f.connect(g); g.connect(ctx.destination);
+      src.start();
+    }catch(e){}
   }
 };
+
+/* Paper grain tile (A-C): one 256×256 noise canvas rasterized once at startup,
+   shared by every turn through the --grain var — zero per-turn cost, and a
+   single toDataURL call for the whole session. */
+const GrainTile = (() => {
+  try{
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const x = c.getContext('2d');
+    const d = x.createImageData(256, 256);
+    for(let i = 0; i < d.data.length; i += 4){
+      const v = 118 + ((Math.random() * 20) | 0);
+      d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255;
+    }
+    x.putImageData(d, 0, 0);
+    const url = c.toDataURL();
+    document.documentElement.style.setProperty('--grain', `url("${url}")`);
+    return url;
+  }catch(e){ return null; }
+})();
+// Paper-texture overlay for compositor leaves. Gated by the texture chip
+// (settings.grain, default on) and skipped for quality:'basic'.
+function addGrain(parent){
+  if(!parent || !GrainTile || settings.grain === false) return null;
+  const g = document.createElement('div');
+  g.className = 'pt-grain';
+  parent.appendChild(g);
+  return g;
+}
 
 /* ---------------- image lightbox ---------------- */
 const Lightbox = {
@@ -4752,8 +4935,10 @@ function buildThemeRow(){
   }catch(e){}
 }
 function syncTurnSeg(){
+  const fx = settings.turnFx || 'slide';
   document.querySelectorAll('#turnSeg button').forEach(b=>
-    b.classList.toggle('sel', b.dataset.fx === (settings.turnFx||'slide')));
+    b.classList.toggle('sel', b.dataset.fx === fx));
+  body.classList.toggle('fx-none', fx === 'none');
 }
 function syncSpreadUI(){
   el('btnSpread').setAttribute('aria-pressed', state.spreadOn ? 'true':'false');
@@ -4792,6 +4977,7 @@ function syncControls(){
   body.classList.toggle('guide-on',settings.guide);
   el('swJustify').checked=settings.justify;
   el('swSound').checked=!!settings.pageSound;
+  el('swGrain').checked=settings.grain !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm();
   el('swPerBook').checked=!!settings.perBookType;
 }
@@ -4969,6 +5155,7 @@ el('swDropCaps').addEventListener('change', e => {
 });
 // Page-turn sound
 el('swSound').addEventListener('change',e=>{ settings.pageSound=e.target.checked; save(); });
+el('swGrain').addEventListener('change',e=>{ settings.grain=e.target.checked; save(); });
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
 
