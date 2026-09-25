@@ -65,7 +65,7 @@
 | Time-left-in-chapter estimate | ✅ | |
 | Resume reading (CFI restore) | ✅ | "Continue reading" on landing + badge |
 | Recent shelf with cover thumbnails | ✅ | Persisted title/author/pct/cfi/filePath, cover extracted on open |
-| Global (book-wide) page numbers | ✅ | `LocEngine` persists CFI locations per book → "page N of M" badge, not just per-chapter |
+| Global (book-wide) page numbers | ✅ | `LocEngine` persists CFI locations per book → "page N of M" badge, not just per-chapter; generation starts only in ≥2 ms idle windows, pauses while hidden, serialized after indexing via `BgJobs` |
 | Mouse-wheel page turning | ✅ | Wheel down/up turns pages in the shell and inside chapter iframes; `Ctrl+Wheel` = type size, `Alt+Wheel` = page width |
 | Click-to-turn edge zones | ✅ | Edge zones + drag-to-turn gesture cover click-to-turn |
 | Auto-scroll mode | ✅ | Middle-click toggles auto-scroll (`AutoScroll`) |
@@ -74,7 +74,7 @@
 
 | Capability | Status | Notes |
 |---|---|---|
-| Full-book search (`Ctrl+F`) | ✅ | Chapter text cache + index, excerpt highlighting, jump-to-match |
+| Full-book search (`Ctrl+F`) | ✅ | Chapter text cache + index, excerpt highlighting, jump-to-match; index builds chunked across idle callbacks (≤6 spines/tick), persists partial progress, resumes after reload, pauses while hidden |
 | Find from selection | ✅ | Selection toolbar "Find in book" |
 | Word definition lookup | ⚠️ | Online `api.dictionaryapi.dev` plus offline `DictCache` of previously fetched definitions; full bundled dictionary still absent |
 | Copy selection | ✅ | |

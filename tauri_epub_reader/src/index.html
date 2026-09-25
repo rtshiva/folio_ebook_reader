@@ -1653,9 +1653,9 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
         fetchCoverThumb(book, realTitle);
         SearchIndex.prepare(book, realTitle);
-        // Real title known now — retry global pagination under the right key.
+        // Real title known now — retry global pagination under the right key
+        // (generate itself is chained after the index settles, inside prepare).
         LocEngine.attach(realTitle);
-        LocEngine.ensure(realTitle);
         try{
           BookStorage.saveBook({
             title: realTitle,
@@ -1701,10 +1701,9 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     SearchIndex.prepare(book, getActiveTitle());
     // Re-apply saved highlights onto the fresh rendition.
     Highlights.applyToRendition();
-    // Global pagination: restore a cached location list instantly, else
-    // generate one in the background and persist it for next time.
+    // Global pagination: restore a cached location list instantly; generation
+    // (if needed) is chained after the search-index prepare settles.
     LocEngine.attach(getActiveTitle());
-    LocEngine.ensure(getActiveTitle());
     if(!seenHint){ seenHint=true; toast('Swipe or tap the page edges to turn · D toggles two pages'); }
     updateLandingUI();
     poke();
@@ -1934,6 +1933,77 @@ function setBionic(on){
   });
 }
 
+/* ---------------- idle background jobs (P-B) ----------------
+   Heavy work (search indexing, locations generation) runs sliced across
+   idle callbacks — never in bursts that drop frames. BgJobs serializes jobs
+   so indexing and locations never compete; locations are enqueued after the
+   index prepare settles for the current book. */
+const idleYield = () => new Promise(r => {
+  if('requestIdleCallback' in window){ try{ requestIdleCallback(() => r(), { timeout: 300 }); return; }catch(e){} }
+  setTimeout(r, 0);
+});
+// Milliseconds of idle budget available right now (generous fallback when
+// requestIdleCallback is missing — e.g. background tabs).
+function idleBudgetMs(){
+  return new Promise((res) => {
+    if('requestIdleCallback' in window){
+      try{
+        requestIdleCallback((d) => {
+          let t = 50;
+          try{ t = (d && typeof d.timeRemaining === 'function') ? d.timeRemaining() : 50; }catch(e){}
+          res(t);
+        }, { timeout: 300 });
+        return;
+      }catch(e){}
+    }
+    setTimeout(() => res(50), 0);
+  });
+}
+// Resolve once an idle window with room opens. While the document is hidden
+// the retry loop polls until visible again (work pauses while hidden).
+function idleSlot(minMs){
+  return new Promise((res) => {
+    const tick = (deadline) => {
+      if(document.hidden){ setTimeout(() => {
+        if('requestIdleCallback' in window){ try{ requestIdleCallback(tick, { timeout: 400 }); return; }catch(e){} }
+        tick(null);
+      }, 300); return; }
+      let remain = 50;
+      try{ remain = (deadline && typeof deadline.timeRemaining === 'function') ? deadline.timeRemaining() : 50; }catch(e){}
+      if(remain >= (minMs || 2)) res(true);
+      else { try{ requestIdleCallback(tick, { timeout: 400 }); }catch(e){ setTimeout(() => res(true), 0); } }
+    };
+    if('requestIdleCallback' in window){ try{ requestIdleCallback(tick, { timeout: 400 }); return; }catch(e){} }
+    setTimeout(() => res(true), 0);
+  });
+}
+const BgJobs = {
+  current: null,   // {tag, cancelled} — at most one job runs
+  queued: [],      // pending exec fns (each carries .tag)
+  run(tag, fn){
+    this.cancel(tag);
+    const job = { tag, cancelled: false };
+    const exec = () => {
+      this.current = job;
+      Promise.resolve()
+        .then(() => fn(job))
+        .catch(() => {})
+        .finally(() => {
+          if(this.current === job) this.current = null;
+          const nx = this.queued.shift();
+          if(nx) nx();
+        });
+    };
+    exec.tag = tag;
+    if(this.current) this.queued.push(exec);
+    else exec();
+  },
+  cancel(tag){
+    if(this.current && this.current.tag === tag) this.current.cancelled = true;
+    this.queued = this.queued.filter((e) => e.tag !== tag);
+  }
+};
+
 /* ---------------- global locations engine ----------------
    One CFI location per ~1000 chars, persisted per book in localStorage so
    re-opens skip the multi-second locations.generate() pass entirely. Powers
@@ -2015,30 +2085,38 @@ const LocEngine = {
     }catch(e){ return null; }
   },
 
-  /* Generate in the background if no usable cache; persists when done. */
+  /* Generate in the background if no usable cache; persists when done.
+     Starts only inside a real idle window (≥2 ms budget) and never while
+     hidden; serialized through BgJobs so it never races index builds. */
   ensure(title){
-    if(this.ready() || this.genBusy) return;
+    if(this.ready()) return;
+    if(this.genBusy){ this.wantTitle = title; return; }
     const book = state.book;
     if(!book || !book.locations || !book.spine || !book.spine.length) return;
     this.genBusy = true;
-    const run = () => {
+    BgJobs.run('locations', async (job) => {
       try{
-        book.locations.generate(this.CHUNK).then(() => {
-          this.genBusy = false;
-          if(state.book !== book) return; // another book was opened meanwhile
-          try{
-            const locs = book.locations._locations;
-            if(Array.isArray(locs) && locs.length){
-              this.data = { title, spineLen: book.spine.length, total: locs.length, locations: locs.slice() };
-              this.store(this.data);
-              this.refreshUI();
-            }
-          }catch(e){}
-        }).catch(() => { this.genBusy = false; });
-      }catch(e){ this.genBusy = false; }
-    };
-    if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
-    else setTimeout(run, 400);
+        await idleSlot(2);
+        if(job.cancelled || state.book !== book) return;
+        await new Promise((res, rej) => {
+          try{ book.locations.generate(this.CHUNK).then(res, rej); }catch(e){ rej(e); }
+        });
+        if(job.cancelled || state.book !== book) return;
+        try{
+          const locs = book.locations._locations;
+          if(Array.isArray(locs) && locs.length){
+            this.data = { title, spineLen: book.spine.length, total: locs.length, locations: locs.slice() };
+            this.store(this.data);
+            this.refreshUI();
+          }
+        }catch(e){}
+      }catch(e){}
+      finally{
+        this.genBusy = false;
+        const w = this.wantTitle; this.wantTitle = null;
+        if(w) this.ensure(w);
+      }
+    });
   },
 
   /* Re-render progress chrome once global paging becomes available. */
@@ -2704,44 +2782,102 @@ function toggleSearch(){
    of loading every spine item per keystroke. */
 const SearchIndex = {
   mem: null, // {title, spineLen, chapters:[{href, text}]}
-  async ensure(book, title, onProgress){
+  _building: null, // {title, promise, cbs:[]} — one build per title at a time
+  fire(cbs, done, total){ (cbs || []).forEach((cb) => { try{ cb(done, total); }catch(e){} }); },
+  async ensure(book, title, onProgress, job){
     const spineLen = book && book.spine ? book.spine.length : 0;
     if(!book || !title || !spineLen) return null;
     if(this.mem && this.mem.title === title && this.mem.spineLen === spineLen) return this.mem;
     const cached = await BookStorage.getSearchIndex(title);
-    if(cached && cached.spineLen === spineLen && Array.isArray(cached.chapters)){
+    if(cached && !cached.partial && cached.spineLen === spineLen && Array.isArray(cached.chapters)){
       this.mem = cached;
       return cached;
     }
-    const chapters = [];
-    for(let i = 0; i < spineLen; i++){
-      const item = book.spine.get(i);
-      if(!item){ chapters.push({ href:'', text:'' }); continue; }
-      try{
-        await item.load(book.load.bind(book));
-        const doc = item.document;
-        const text = ((doc && doc.body && (doc.body.innerText || doc.body.textContent)) || '')
-          .replace(/\s+/g, ' ').trim().slice(0, 200000);
-        chapters.push({ href: item.href || '', text });
-      }catch(e){
-        chapters.push({ href: (item && item.href) || '', text: '' });
-      }finally{
-        try{ if(item.unload) item.unload(); }catch(e){}
-      }
-      if(onProgress){ try{ onProgress(i + 1, spineLen); }catch(e){} }
+    if(this._building && this._building.title === title && this._building.book === book){
+      if(typeof onProgress === 'function') this._building.cbs.push(onProgress);
+      return this._building.promise;
     }
-    this.mem = { title, spineLen, chapters };
-    BookStorage.saveSearchIndex(this.mem);
+    // Resume an interrupted build only when the saved prefix is intact —
+    // chapters.length === done guarantees no chapter is ever indexed twice.
+    const resume = (cached && cached.partial && cached.spineLen === spineLen &&
+      Array.isArray(cached.chapters) && cached.chapters.length === cached.done) ? cached : null;
+    const rec = { title, book, cbs: typeof onProgress === 'function' ? [onProgress] : [], promise: null };
+    rec.promise = this._build(book, title, spineLen, resume, rec.cbs, job);
+    this._building = rec;
+    try{ return await rec.promise; }
+    finally{ if(this._building === rec) this._building = null; }
+  },
+  async _build(book, title, spineLen, resume, cbs, job){
+    let chapters = [], i = 0, resumedFrom = 0;
+    if(resume){ chapters = resume.chapters.slice(); i = resume.done; resumedFrom = resume.done; }
+    const stale = () => (job && job.cancelled) || state.book !== book;
+    const savePartial = async (partial) => {
+      try{
+        await BookStorage.saveSearchIndex({
+          title, spineLen, chapters: chapters.slice(),
+          partial: !!partial, done: chapters.length, resumedFrom,
+        });
+      }catch(e){}
+    };
+    while(i < spineLen){
+      if(stale()){ await savePartial(true); return null; }
+      if(document.hidden){ await new Promise((r) => setTimeout(r, 300)); continue; }
+      const budget = await idleBudgetMs();
+      const n = Math.max(1, Math.min(6, Math.floor(budget / 4)));
+      for(let k = 0; k < n && i < spineLen; k++, i++){
+        if(stale()) break;
+        const item = book.spine.get(i);
+        if(!item){ chapters.push({ href:'', text:'' }); continue; }
+        try{
+          await item.load(book.load.bind(book));
+          const doc = item.document;
+          const text = ((doc && doc.body && (doc.body.innerText || doc.body.textContent)) || '')
+            .replace(/\s+/g, ' ').trim().slice(0, 200000);
+          chapters.push({ href: item.href || '', text });
+        }catch(e){
+          chapters.push({ href: (item && item.href) || '', text: '' });
+        }finally{
+          try{ if(item.unload) item.unload(); }catch(e){}
+        }
+        this.fire(cbs, i + 1, spineLen);
+      }
+      if(i % 10 === 0 || i >= spineLen) await savePartial(i < spineLen);
+      await idleYield();
+    }
+    if(stale()){ await savePartial(true); return null; }
+    this.mem = { title, spineLen, chapters, partial: false, done: spineLen, resumedFrom };
+    await BookStorage.saveSearchIndex(this.mem);
     return this.mem;
   },
-  // Warm the index idle so the first real search is instant.
+  // Warm the index idle so the first real search is instant; locations are
+  // enqueued only once the index settles (BgJobs serializes the two). A second
+  // prepare for the SAME book object (metadata, then after display) adopts the
+  // in-flight build instead of cancelling it — cancel-and-rebuild would
+  // reprocess the abort window's chapters on every open.
   prepare(book, title){
     if(!book || !title) return;
     const spineLen = book.spine ? book.spine.length : 0;
-    if(this.mem && this.mem.title === title && this.mem.spineLen === spineLen) return;
-    const run = () => { this.ensure(book, title, null).catch(()=>{}); };
-    if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 8000 });
-    else setTimeout(run, 1500);
+    if(this.mem && this.mem.title === title && this.mem.spineLen === spineLen){
+      LocEngine.ensure(title);
+      return;
+    }
+    if(this._building && this._building.title === title && this._building.book === book){
+      const p = this._building.promise;
+      Promise.resolve(p).then((r) => {
+        if(r && state.book === book) LocEngine.ensure(title);
+      }).catch(()=>{});
+      return;
+    }
+    BgJobs.run('index', async (job) => {
+      let r = null;
+      try{ r = await this.ensure(book, title, null, job); }catch(e){}
+      if(!r && !job.cancelled && state.book === book){
+        this._building = null;
+        try{ r = await this.ensure(book, title, null, job); }catch(e){}
+      }
+      if(job.cancelled || state.book !== book || !r) return;
+      LocEngine.ensure(title);
+    });
   }
 };
 async function doSearch(query){

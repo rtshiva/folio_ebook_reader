@@ -161,6 +161,67 @@ export function buildTestEpub() {
   return out;
 }
 
+// Builds an N-chapter stress EPUB in-page (app's own JSZip), stashing the
+// buffer on window.__sbuf. Split from opening so tests can observe (or spy
+// on) the open while it is still in flight — page.evaluate calls serialize,
+// so a combined generate+open would block all observation until done.
+export async function generateStressBuffer(page, title = 'Stress300', n = 300, repeat = 60) {
+  return page.evaluate(async ({ title, n, repeat }) => {
+    const zip = new JSZip();
+    const para = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(repeat);
+    let manifest = '', spine = '';
+    for (let i = 0; i < n; i++) {
+      manifest += `<item id="c${i}" href="ch${i}.xhtml" media-type="application/xhtml+xml"/>`;
+      spine += `<itemref idref="c${i}"/>`;
+      zip.file(`OEBPS/ch${i}.xhtml`,
+        `<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml">` +
+        `<head><title>Ch ${i}</title></head><body><h1>Chapter ${i}</h1><p>${para}</p><p>${para}</p></body></html>`);
+    }
+    zip.file('mimetype', 'application/epub+zip');
+    zip.file('META-INF/container.xml',
+      `<?xml version="1.0" encoding="utf-8"?>\n<container version="1.0" ` +
+      `xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>` +
+      `<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>` +
+      `</rootfiles></container>`);
+    zip.file('OEBPS/content.opf',
+      `<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" ` +
+      `version="3.0" unique-identifier="bid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">` +
+      `<dc:identifier id="bid">urn:folio:test:stress</dc:identifier>` +
+      `<dc:title>${title}</dc:title><dc:creator>Tester</dc:creator><dc:language>en</dc:language>` +
+      `</metadata>\n<manifest>${manifest}</manifest>\n<spine>${spine}</spine>\n</package>`);
+    const buf = await zip.generateAsync({ type: 'arraybuffer' });
+    window.__sbuf = buf;
+    return { bytes: buf.byteLength, spines: n };
+  }, { title, n, repeat });
+}
+
+// Opens a previously generated stress buffer (see generateStressBuffer).
+// Awaited form resolves when the book is displayed; the fire-and-forget form
+// (opts.awaitOpen === false) returns after kicking the open off so the test
+// can poll/spy while parsing, rendering, and background indexing proceed.
+export async function openStressBuffer(page, title, opts = {}) {
+  if (opts.awaitOpen === false) {
+    await page.evaluate((t) => { openBuffer(window.__sbuf, t); return 'kicked'; }, title);
+    return 'kicked';
+  }
+  return page.evaluate((t) => openBuffer(window.__sbuf, t), title);
+}
+
+// Builds an N-chapter stress EPUB in-page and opens it (generate + open).
+// Chapters carry heavy text so background indexing spans real time.
+export async function buildStressBook(page, title = 'Stress300', n = 300, repeat = 60) {
+  const info = await generateStressBuffer(page, title, n, repeat);
+  await openStressBuffer(page, title);
+  return info;
+}
+
+export async function searchIndexRecord(page, title) {
+  return page.evaluate(async (t) => {
+    try { return await BookStorage.getSearchIndex(t); }
+    catch (e) { return null; }
+  }, title);
+}
+
 // addInitScript payload faking the Tauri backend for boot-open tests:
 // get_initial_file -> fixed path, read_file_bytes -> the given epub bytes.
 export function tauriBootScript(epubBytes) {
