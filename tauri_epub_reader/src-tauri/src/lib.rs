@@ -905,4 +905,46 @@ mod tests {
         assert_eq!(partial_merged.matches("--enable-zero-copy").count(), 1);
         assert!(partial_merged.contains("--enable-gpu-rasterization"));
     }
+
+    #[test]
+    fn test_u6_fix_entities_named_and_bare_ampersand() {
+        // Known named entities decode to their literal characters
+        assert_eq!(fix_entities("a&nbsp;b"), "a\u{a0}b");
+        assert_eq!(fix_entities("x&mdash;y"), "x\u{2014}y");
+        // Bare ampersands (JS &&, prose "Tom & Jerry") get escaped so the
+        // strict XML parser accepts them
+        assert_eq!(fix_entities("if (a && b) {}"), "if (a &amp;&amp; b) {}");
+        assert_eq!(fix_entities("Tom & Jerry"), "Tom &amp; Jerry");
+        // A trailing '&' with nothing after it
+        assert_eq!(fix_entities("ends &"), "ends &amp;");
+        // Valid numeric references pass through untouched
+        assert_eq!(fix_entities("&#160;&#x2014;"), "&#160;&#x2014;");
+        // XML-native entities are left alone (no double-escaping)
+        assert_eq!(fix_entities("a &amp; b &lt; c"), "a &amp; b &lt; c");
+        // Unknown named entities are escaped rather than left fatal
+        assert_eq!(fix_entities("&foobar;"), "&amp;foobar;");
+        // Case sensitivity: exact-case entities decode, unknown case escapes
+        assert_eq!(fix_entities("&Auml;"), "\u{c4}");
+        assert_eq!(fix_entities("&AUML;"), "&amp;AUML;");
+        // No ampersands at all -> unchanged
+        assert_eq!(fix_entities("plain text"), "plain text");
+    }
+
+    #[test]
+    fn test_u7_fix_entities_cdata_and_structure() {
+        // CDATA sections are literal JS/CSS: entities and bare '&' survive
+        let cdata = "<script>if (a & b && c) {}</script><![CDATA[x & y&nbsp;z]]>";
+        let fixed = fix_entities(cdata);
+        assert!(fixed.contains("<![CDATA[x & y&nbsp;z]]>"));
+        // The script part (outside CDATA) still gets repaired
+        assert!(fixed.contains("if (a &amp; b &amp;&amp; c) {}"));
+        // A malformed numeric reference is escaped, not passed through
+        assert_eq!(fix_entities("&#xzz;"), "&amp;#xzz;");
+        assert_eq!(fix_entities("&#;"), "&amp;#;");
+        // Realistic chapter snippet: paragraph with entities plus script
+        let chapter = "<p>Word&nbsp;joined &mdash; ok</p><script>var s=\"a\"; if (s && t) {}</script>";
+        let fixed = fix_entities(chapter);
+        assert!(fixed.contains("Word\u{a0}joined \u{2014} ok"));
+        assert!(fixed.contains("if (s &amp;&amp; t) {}"));
+    }
 }

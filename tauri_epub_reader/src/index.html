@@ -175,6 +175,12 @@ body:not(.spread) #runHeadRight{max-width:90%;}
 .ch-nav-label:hover{background:var(--page);color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.16);}
 .ch-nav-label:active{transform:translateY(1px);}
 .ch-nav-label.disabled{pointer-events:none;}
+/* one-per-book discoverability pulse: the invisible labels briefly reveal */
+@keyframes pillpulse{
+  0%,100%{background:transparent;color:var(--desk);box-shadow:none}
+  40%,60%{background:var(--page);color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.16)}
+}
+.ch-nav-panel.pulse .ch-nav-label{animation:pillpulse 2.2s ease-in-out 2;}
 body.state-landing .ch-nav-panel{display:none!important;}
 
 /* ---------- chapter-crossing title flash (F2) ---------- */
@@ -214,6 +220,17 @@ body.state-landing #deskDim{display:none;}
 #cmdInput{width:100%;border:none;outline:none;background:transparent;color:var(--ink);
   font:500 15px var(--sans);padding:14px 18px;border-bottom:1px solid var(--hairS);}
 #cmdList{list-style:none;margin:0;padding:6px;max-height:46vh;overflow:auto;}
+/* settings sheet filter */
+#sheetFilter{width:calc(100% - 24px);margin:10px 12px 4px;background:color-mix(in srgb,var(--page) 92%,var(--ink));
+  border:1px solid var(--hairS);border-radius:9px;outline:none;color:var(--ink);
+  font:500 13px var(--sans);padding:8px 12px;}
+#sheetFilter:focus{border-color:var(--accent);}
+/* highlight color legend/filter dots */
+.hl-legend{display:flex;gap:8px;padding:8px 10px 6px;justify-content:center;}
+.hl-legend-dot{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+  font:600 10px var(--sans);color:var(--ink);display:flex;align-items:center;justify-content:center;padding:0;}
+.hl-legend-dot:hover{border-color:var(--ink);}
+.hl-legend-dot.on{border-color:var(--ink);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent);}
 .cmd-item{font:500 13px var(--sans);color:var(--ink);padding:9px 12px;border-radius:8px;cursor:pointer;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .cmd-item.sel,.cmd-item:hover{background:var(--sel);}
@@ -808,6 +825,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
     </button>
   </div>
   <div class="sh-body">
+    <input id="sheetFilter" type="text" placeholder="Filter settings…" autocomplete="off" spellcheck="false" aria-label="Filter settings">
     <section class="env-section">
       <div class="row-head">
         <h4 class="lbl">Reading Environment</h4>
@@ -949,6 +967,10 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
       <button class="toc-tab-btn active" id="tabToc">Contents</button>
       <button class="toc-tab-btn" id="tabBm">Bookmarks <span id="bmCountBadge" class="bm-badge">0</span></button>
       <button class="toc-tab-btn" id="tabHl">Highlights <span id="hlCountBadge" class="bm-badge">0</span></button>
+      <button class="toc-tab-btn" id="tabVoc" title="Words you looked up">Words</button>
+      <button class="icon-btn" id="btnExportMd" title="Export highlights, notes & vocabulary as Markdown" aria-label="Export notes as Markdown" style="margin-left:auto;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16"/></svg>
+      </button>
     </div>
     <button class="icon-btn" id="tocClose" aria-label="Close">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -957,6 +979,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   <ol id="tocList"></ol>
   <ul id="bmList" class="bm-list" style="display:none"></ul>
   <ul id="hlList" class="bm-list" style="display:none"></ul>
+  <ul id="vocList" class="bm-list" style="display:none"></ul>
 </aside>
 
 <!-- ============ search drawer ============ -->
@@ -1021,6 +1044,9 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
     <button class="hl-dot sel-hl-quick" data-hl="pink" style="background:#f2a0c0" title="Pink highlight" aria-label="Pink highlight"></button>
     <span class="sel-divider"></span>
     <button class="sel-btn" id="selDefine">Define</button>
+    <button class="sel-btn" id="selSpeak" title="Pronounce" aria-label="Pronounce selection">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>
+    </button>
     <button class="sel-btn" id="selFind">Find in book</button>
     <button class="sel-btn" id="selCopy">Copy</button>
   </div>
@@ -1781,8 +1807,20 @@ function updateLandingUI(){
   renderRecentShelf();
 }
 
+let _sessionPages = 0;   // pages turned since this open (session summary)
 function goHome(){
   closePanels();
+  // Session summary on the way out: today's minutes + pages this session
+  try{
+    if(state.book && statsCache){
+      const mins = Math.round(statsCache.days[dayKey()] || 0);
+      const parts = [];
+      if(mins > 0) parts.push('⏱ ' + mins + ' min today');
+      if(_sessionPages > 0) parts.push(_sessionPages + (_sessionPages === 1 ? ' page this session' : ' pages this session'));
+      if(parts.length) toast(parts.join('  ·  '));
+    }
+  }catch(e){}
+  _sessionPages = 0;
   body.classList.remove('state-reading');
   body.classList.add('state-landing');
   updateLandingUI();
@@ -1936,6 +1974,36 @@ async function sanitizeEpubEntities(buf){
     return dirty ? await zip.generateAsync({ type: 'arraybuffer' }) : buf;
   }catch(e){ return buf; }
 }
+// Feature: book covers on the recents shelf — extract the EPUB cover once
+// per open, downscale to a 200px JPEG thumb, and attach it to the recent
+// record the shelf already renders (fire-and-forget; never blocks the open).
+async function cacheBookCover(book, title){
+  try{
+    if(!book || !book.coverUrl || !title || title === 'Untitled') return;
+    const url = await book.coverUrl();
+    if(!url) return;
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = url;
+    });
+    if(!img.naturalWidth) return;
+    const scale = Math.min(1, 200 / img.naturalWidth);
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    cv.height = Math.max(1, Math.round((img.naturalHeight || 300) * scale));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    const dataUrl = cv.toDataURL('image/jpeg', 0.8);
+    const list = getRecents();
+    const rec = list.find(x => x.title === title);
+    if(rec && rec.thumb !== dataUrl){
+      rec.thumb = dataUrl;
+      try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
+      renderRecentShelf();
+    }
+  }catch(e){}
+}
 async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
   if(state.loading) return; state.loading=true;
   showLoader('Typesetting…');
@@ -1948,6 +2016,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     const book = isUrl ? ePub(opts.url) : ePub(buf);
     state.book = book;
     const initialTitle = (titleHint || '').trim() || 'Untitled';
+    cacheBookCover(book, initialTitle); // fire-and-forget cover extraction
     state.currentTitle = initialTitle;
     state.currentAuthor = '';
     state.currentFilePath = filePath || null;
@@ -2513,7 +2582,21 @@ function onRelocated(loc){
   const firstRelocation = state.lastSpineIdx === undefined;
   state.lastSpineIdx = loc.start.index;
   if(spineChanged && !firstRelocation && chTitle) showChFlash(chTitle);
-  if(firstRelocation) setTimeout(() => CoachMarks.start(), 500);   // F7
+  if(firstRelocation){
+    setTimeout(() => CoachMarks.start(), 500);   // F7
+    // Pill discoverability pulse: once per book, after the coach would have
+    // shown, briefly reveal the margin pills so they teach themselves.
+    try{
+      const pk = 'folio-pills-pulsed:' + (state.currentTitle || '');
+      if(!localStorage.getItem(pk)){
+        localStorage.setItem(pk, '1');
+        setTimeout(() => {
+          [el('chNavLeft'), el('chNavRight')].forEach(p => p && p.classList.add('pulse'));
+          setTimeout(() => [el('chNavLeft'), el('chNavRight')].forEach(p => p && p.classList.remove('pulse')), 5200);
+        }, 1600);
+      }
+    }catch(e){}
+  }
   if(spineChanged && settings.turnFx === 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches){
     document.querySelectorAll('#viewer iframe').forEach(f => {
       f.style.opacity = '0';
@@ -2628,6 +2711,7 @@ function onRelocatedCold(loc, frac, chTitle, d){
     if(!statsCache) loadStats();
     if(lastStatCfi && loc.start.cfi !== lastStatCfi){
       statsCache.pages = (statsCache.pages || 0) + 1;
+      _sessionPages++;
       saveStatsSoon();
     }
     lastStatCfi = loc.start.cfi;
@@ -2972,6 +3056,7 @@ function _flushRecentBook(){
     pct: pct !== undefined ? pct : (existing.pct || 0),
     cfi: cfi || existing.cfi || null,
     filePath: filePath || existing.filePath || null,
+    thumb: existing.thumb || null,
     timestamp: Date.now()
   });
   if(list.length > 4) list = list.slice(0, 4);
@@ -3404,6 +3489,7 @@ function renderBookmarks(){
 /* ---------------- highlights & notes ---------------- */
 const Highlights = {
   COLOR_FILL: { yellow:'#f7d64a', green:'#7fe08a', blue:'#7db8f8', pink:'#f2a0c0' },
+  _hlFilter: null,
   lastCfi: null,
   lastPtr: { x: innerWidth/2, y: 120 },
 
@@ -3471,13 +3557,38 @@ const Highlights = {
   renderList(){
     const listEl = el('hlList');
     if(!listEl) return;
-    const list = this.forBook();
+    const all = this.forBook();
     this.syncBadge();
-    if(!list.length){
+    if(!all.length){
+      this._hlFilter = null;
       listEl.innerHTML = '<li class="empty">No highlights yet.<br><small style="opacity:0.7">Select text in the book and press Highlight.</small></li>';
       return;
     }
+    // Feature: color legend + filter — dots show per-color counts; clicking
+    // one filters the list to that color, clicking again clears it.
+    const counts = {};
+    all.forEach(h => { counts[h.color] = (counts[h.color] || 0) + 1; });
+    if(this._hlFilter && !counts[this._hlFilter]) this._hlFilter = null;
+    const legend = document.createElement('li');
+    legend.className = 'hl-legend';
+    legend.innerHTML = Object.keys(this.COLOR_FILL).map(c => {
+      const n = counts[c] || 0;
+      return `<button class="hl-legend-dot${this._hlFilter === c ? ' on' : ''}${n ? '' : ' empty'}" data-color="${c}" title="${c} (${n})" style="background:${this.COLOR_FILL[c]}${n ? '' : ';opacity:.25'}">${n || ''}</button>`;
+    }).join('');
     listEl.innerHTML = '';
+    listEl.appendChild(legend);
+    legend.querySelectorAll('.hl-legend-dot').forEach(dot => dot.addEventListener('click', () => {
+      this._hlFilter = (this._hlFilter === dot.dataset.color) ? null : dot.dataset.color;
+      this.renderList();
+    }));
+    const list = this._hlFilter ? all.filter(h => h.color === this._hlFilter) : all;
+    if(!list.length){
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'No ' + this._hlFilter + ' highlights.';
+      listEl.appendChild(li);
+      return;
+    }
     list.forEach(h => {
       const li = document.createElement('li');
       li.className = 'bm-item';
@@ -3993,14 +4104,17 @@ class PageCacheManager {
         const item = state.book.spine.get(spineIndex);
         if (item && item.load) {
           const doc = await item.load(state.book.load.bind(state.book));
-          if (doc && doc.body) {
-            const txt = doc.body.innerText || doc.body.textContent || '';
+          // epub.js resolves load() with a wrapper; the Document lands on
+          // the section itself (same quirk jumpToTocIndex works around).
+          const sectionDoc = (item && item.document) || doc;
+          if (sectionDoc && sectionDoc.body) {
+            const txt = sectionDoc.body.innerText || sectionDoc.body.textContent || '';
             this.chapterTexts.set(spineIndex, txt);
             try{
-              let s = doc.getElementById('folio-dyn');
-              if(!s){ s = doc.createElement('style'); s.id = 'folio-dyn'; (doc.head||doc.documentElement).appendChild(s); }
+              let s = sectionDoc.getElementById('folio-dyn');
+              if(!s){ s = sectionDoc.createElement('style'); s.id = 'folio-dyn'; (sectionDoc.head||sectionDoc.documentElement).appendChild(s); }
               s.textContent = buildCSS();
-              const cleanHtml = '<!DOCTYPE html>' + doc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
+              const cleanHtml = '<!DOCTYPE html>' + sectionDoc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
               this.chapterHtmls.set(spineIndex, cleanHtml);
               // Feature 6: pre-render the neighbor chapter off-screen — fonts,
               // CSS and column layout warm before the reader ever crosses.
@@ -6283,13 +6397,13 @@ el('btnDemo').addEventListener('click',loadDemo);
 // change during reading.
 const VocabLog = {
   key(){ return 'folio-vocab:' + (state.currentTitle || ''); },
-  add(word, chapter){
+  add(word, chapter, cfi){
     try{
       if(!word || word.length < 2) return;
       const key = this.key();
       const list = JSON.parse(localStorage.getItem(key) || '[]');
       if(list.some(e => e.word === word)) return;
-      list.push({ word, chapter: chapter || '', ts: Date.now() });
+      list.push({ word, chapter: chapter || '', ts: Date.now(), cfi: cfi || '' });
       localStorage.setItem(key, JSON.stringify(list));
     }catch(e){}
   },
@@ -6298,6 +6412,18 @@ const VocabLog = {
     catch(e){ return 0; }
   }
 };
+// Feature: pronounce the selection through the speech engine — one tap
+// for language learners; pairs with the vocabulary builder.
+el('selSpeak').addEventListener('click', () => {
+  try{
+    const w = (selText || '').trim().split(/\s+/).slice(0, 3).join(' ');
+    if(!w){ toast('Select a word first'); return; }
+    const u = new SpeechSynthesisUtterance(w);
+    u.rate = 0.9;
+    speechSynthesis.speak(u);
+    hideSelBar();
+  }catch(e){ toast('Speech is not available'); }
+});
 el('selDefine').addEventListener('click', async ()=>{
   const w=(selText.split(' ')[0]||'').replace(/[^A-Za-z'-]/g,'').toLowerCase();
   const box=el('selDef');
@@ -6317,7 +6443,7 @@ el('selDefine').addEventListener('click', async ()=>{
       DictCache.set(w, txt);
       let ch = '';
       try{ ch = chapterFor(state.rendition.currentLocation().start.href) || ''; }catch(e){}
-      VocabLog.add(w, ch);
+      VocabLog.add(w, ch, state.currentCfi);
     }
     box.textContent=txt;
   }catch(e){ box.textContent='Definitions need an internet connection.'; }
@@ -6343,6 +6469,13 @@ el('btnHelp').addEventListener('click',toggleHelp);
 el('helpClose').addEventListener('click',closePanels);
 el('helpOverlay').addEventListener('click',e=>{ if(e.target===el('helpOverlay')) closePanels(); });
 el('btnSheet').addEventListener('click',toggleSheet);
+// Feature: settings filter — grey out sections that don't match
+el('sheetFilter').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#sheet .sh-body > section').forEach(sec => {
+    sec.style.display = (!q || sec.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+});
 el('sheetClose').addEventListener('click',closePanels);
 el('posPill').addEventListener('click',toggleToc);
 el('tocClose').addEventListener('click',closePanels);
@@ -6577,8 +6710,8 @@ const envNight = el('envNight');
 if(envNight) envNight.addEventListener('click', () => applyEnvironment('night'));
 // TOC drawer tabs: contents / bookmarks / highlights
 function setTocTab(which){
-  const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl' };
-  const lists = { toc:'tocList', bm:'bmList', hl:'hlList' };
+  const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl', voc:'tabVoc' };
+  const lists = { toc:'tocList', bm:'bmList', hl:'hlList', voc:'vocList' };
   Object.entries(tabs).forEach(([k, id]) => {
     const b = el(id); if(b) b.classList.toggle('active', k === which);
   });
@@ -6587,10 +6720,96 @@ function setTocTab(which){
   });
   if(which === 'bm') renderBookmarks();
   if(which === 'hl') Highlights.renderList();
+  if(which === 'voc') renderVocabList();
 }
 el('tabToc').addEventListener('click', () => setTocTab('toc'));
 el('tabBm').addEventListener('click', () => setTocTab('bm'));
 el('tabHl').addEventListener('click', () => setTocTab('hl'));
+el('tabVoc').addEventListener('click', () => setTocTab('voc'));
+
+// Feature: vocabulary list view — every Define lookup with its definition
+// and the chapter where it happened; clicking jumps back to that spot.
+function renderVocabList(){
+  const listEl = el('vocList');
+  if(!listEl) return;
+  const title = getActiveTitle();
+  let vocab = [];
+  try{ vocab = JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]'); }catch(e){}
+  listEl.innerHTML = '';
+  if(!vocab.length){
+    listEl.innerHTML = '<li class="empty">No words looked up yet.<br><small style="opacity:0.7">Select a word in the book and tap Define.</small></li>';
+    return;
+  }
+  vocab.slice().reverse().forEach(v => {
+    const li = document.createElement('li');
+    li.className = 'bm-item';
+    const def = (typeof DictCache !== 'undefined') ? DictCache.get(v.word) : null;
+    li.innerHTML = '<strong>' + (v.word || '').replace(/</g, '&lt;') + '</strong>' +
+      (v.chapter ? '<div class="bm-ch">' + v.chapter.replace(/</g, '&lt;') + '</div>' : '') +
+      (def ? '<div class="bm-snip">' + def.replace(/</g, '&lt;') + '</div>' : '');
+    li.style.cursor = v.cfi ? 'pointer' : 'default';
+    li.addEventListener('click', () => {
+      if(v.cfi && state.rendition){
+        NavHistory.push(state.currentCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+        state.rendition.display(v.cfi).catch(() => {});
+        closePanels();
+      }
+    });
+    listEl.appendChild(li);
+  });
+}
+
+// Export highlights, notes, bookmarks and vocabulary for the active book as
+// Markdown — clipboard first, .md download as fallback.
+async function exportBookData(){
+  const title = getActiveTitle() || 'Untitled';
+  const hls = Highlights.forBook();
+  const bms = getBookmarks().filter(b => b.bookTitle === title);
+  let vocab = [];
+  try{ vocab = JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]'); }catch(e){}
+  if(!hls.length && !bms.length && !vocab.length){ toast('Nothing collected yet in this book'); return; }
+  const L = ['# ' + title, '', '_' + new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) + ' — exported from Folio_'];
+  if(hls.length){
+    L.push('', '## Highlights');
+    hls.forEach(h => {
+      L.push('', '> ' + (h.snippet || '').replace(/\n/g, ' '));
+      const meta = [h.chapter, h.date].filter(Boolean).join(' · ');
+      if(meta) L.push('— _' + meta + '_');
+      if(h.note) L.push('**Note:** ' + h.note);
+    });
+  }
+  if(bms.length){
+    L.push('', '## Bookmarks');
+    bms.forEach(b => {
+      L.push('', '- ' + (b.snippet || b.chapter || 'Bookmark') + (b.chapter ? ' — _' + b.chapter + '_' : ''));
+    });
+  }
+  if(vocab.length){
+    L.push('', '## Vocabulary');
+    vocab.forEach(v => {
+      L.push('', '**' + v.word + '**' + (v.chapter ? ' — _' + v.chapter + '_' : ''));
+      const def = DictCache.get(v.word);
+      if(def) L.push('> ' + def.replace(/\n/g, ' '));
+    });
+  }
+  const md = L.join('\n');
+  const count = hls.length + bms.length + vocab.length;
+  try{
+    await navigator.clipboard.writeText(md);
+    toast('Copied ' + count + ' items as Markdown');
+    return;
+  }catch(e){}
+  try{
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = title.replace(/[\\/:*?"<>|]/g, '_') + ' — notes.md';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('Exported ' + count + ' items as Markdown');
+  }catch(e){ toast('Export failed'); }
+}
+el('btnExportMd').addEventListener('click', exportBookData);
 
 // One-tap quick-highlight color dots in the selection toolbar (F8)
 document.querySelectorAll('#selBar .sel-hl-quick').forEach(dot => dot.addEventListener('click', () => {
