@@ -133,6 +133,18 @@ body.state-landing #posPill{display:none}
 #wrap{grid-column:2;grid-row:1;height:100%;position:relative;animation:pagein .5s cubic-bezier(.22,.7,.25,1)}
 @keyframes pagein{from{opacity:0;transform:scale(.985)}}
 #viewer{width:100%;height:100%;background:var(--page);touch-action:pan-y}
+/* edge hover page-curl affordance (F1): a lifted paper corner near the
+   fore-edge suggests the peel gesture; pure composited transform */
+#viewer::before,#viewer::after{content:'';position:absolute;bottom:12px;width:24px;height:24px;z-index:5;
+  opacity:0;transition:opacity 120ms,transform 120ms;pointer-events:none;will-change:transform,opacity;}
+/* Right corner: fold crease runs top-right → bottom-left (shaded half at
+   the corner). Left corner mirrors it: crease top-left → bottom-right. */
+#viewer::before{right:0;transform-origin:bottom right;
+  background:linear-gradient(135deg,transparent 50%,var(--hairS) 50%);}
+#viewer::after{left:0;transform-origin:bottom left;
+  background:linear-gradient(225deg,transparent 50%,var(--hairS) 50%);}
+#viewer.curl-right::before{opacity:1;transform:rotate(-12deg) translateY(-6px);}
+#viewer.curl-left::after{opacity:1;transform:rotate(12deg) translateY(-6px);}
 
 .running-header{position:absolute;top:-24px;left:0;right:0;height:20px;display:flex;justify-content:space-between;
   align-items:center;padding:0 8px;pointer-events:none;user-select:none;z-index:10;opacity:.75;}
@@ -146,6 +158,119 @@ body:not(.spread) #runHeadRight{max-width:90%;}
   transition:transform .25s cubic-bezier(.34,1.56,.64,1),color .2s;transform:translateY(-8px);padding:0;}
 .bookmark-ribbon:hover{transform:translateY(-2px);color:var(--accent);}
 .bookmark-ribbon.bookmarked{transform:translateY(0);color:var(--accent);}
+
+/* ---------- edge chapter labels (F0) ---------- */
+/* "Previous/Next Chapter" pills sit in the desk margins, text the same
+   color as the desk at rest (invisible); hovering a label paints a
+   page-colored pill so the text becomes readable. */
+.ch-nav-panel{position:absolute;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;}
+.ch-nav-left{left:10px;}
+.ch-nav-right{right:10px;}
+.ch-nav-label{pointer-events:auto;display:block;width:176px;text-align:right;
+  font:600 13px/1.4 var(--sans);color:var(--desk);background:transparent;
+  padding:9px 14px;border:none;border-radius:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background 150ms ease,color 150ms ease,box-shadow 150ms ease;}
+.ch-nav-left .ch-nav-label{text-align:left;}
+.ch-nav-right .ch-nav-label{text-align:right;}
+.ch-nav-label:hover{background:var(--page);color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.16);}
+.ch-nav-label:active{transform:translateY(1px);}
+.ch-nav-label.disabled{pointer-events:none;}
+body.state-landing .ch-nav-panel{display:none!important;}
+
+/* ---------- chapter-crossing title flash (F2) ---------- */
+.ch-flash{position:absolute;top:40%;left:50%;transform:translateX(-50%);z-index:25;pointer-events:none;
+  font:600 15px/1.3 var(--sans);color:var(--ink);opacity:.85;white-space:nowrap;
+  background:color-mix(in srgb,var(--page) 90%,var(--ink));
+  padding:8px 20px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.12);
+  transition:opacity 300ms ease,visibility 300ms;}
+.ch-flash.hide{opacity:0;visibility:hidden;}
+
+/* ---------- desk dimming on idle (F6) ---------- */
+#deskDim{position:fixed;inset:0;z-index:0;background:rgba(0,0,0,0);pointer-events:none;
+  transition:background 1.5s ease;}
+#deskDim.dim{background:rgba(0,0,0,0.35);}
+body.state-landing #deskDim{display:none;}
+
+/* ---------- first-run coach marks (F7) ---------- */
+.coach-mark{position:fixed;z-index:120;max-width:280px;background:var(--ink);color:var(--page);
+  padding:12px 14px;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.3);
+  font:500 13px/1.45 var(--sans);animation:coachin .3s cubic-bezier(.34,1.4,.64,1);
+  pointer-events:none;}
+@keyframes coachin{from{opacity:0}}
+.coach-mark.coach-at-edge{right:36px;top:50%;transform:translateY(-50%);}
+.coach-mark.coach-at-rail{bottom:96px;left:50%;transform:translateX(-50%);}
+.coach-mark.coach-at-center{left:50%;top:50%;transform:translate(-50%,-50%);}
+.coach-text{margin-bottom:10px;pointer-events:none;}
+.coach-btn{background:var(--accent);color:#fff;border:none;font:600 12px var(--sans);
+  padding:6px 14px;border-radius:999px;cursor:pointer;pointer-events:auto;}
+.coach-btn:hover{filter:brightness(1.08);}
+
+/* ---------- command palette (F9) ---------- */
+.cmd-palette{position:fixed;top:18%;left:50%;transform:translateX(-50%);z-index:110;width:min(480px,90vw);
+  background:var(--page);border:1px solid var(--hairS);border-radius:14px;
+  box-shadow:0 24px 64px -12px rgba(20,12,4,.5);overflow:hidden;
+  transition:opacity .15s ease;}
+.cmd-palette.hide{opacity:0;visibility:hidden;pointer-events:none;}
+#cmdInput{width:100%;border:none;outline:none;background:transparent;color:var(--ink);
+  font:500 15px var(--sans);padding:14px 18px;border-bottom:1px solid var(--hairS);}
+#cmdList{list-style:none;margin:0;padding:6px;max-height:46vh;overflow:auto;}
+.cmd-item{font:500 13px var(--sans);color:var(--ink);padding:9px 12px;border-radius:8px;cursor:pointer;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cmd-item.sel,.cmd-item:hover{background:var(--sel);}
+.cmd-empty{font:500 13px var(--sans);color:var(--muted);padding:12px;text-align:center;}
+
+/* ---------- progress rail preview card ---------- */
+.rail-preview{position:absolute;bottom:26px;left:0;transform:translateX(-50%);pointer-events:none;min-width:160px;
+  max-width:260px;padding:8px 12px;border-radius:9px;background:color-mix(in srgb,var(--page) 95%,var(--ink));
+  border:1px solid var(--hairS);box-shadow:0 8px 24px rgba(0,0,0,.2);text-align:center;z-index:42;
+  transition:opacity .15s ease,transform .15s ease;}
+.rail-preview.hide{opacity:0;transform:translateX(-50%) translateY(6px);visibility:hidden;}
+.rail-preview::after{content:'';position:absolute;top:100%;left:50%;margin-left:-5px;border-width:5px;border-style:solid;
+  border-color:color-mix(in srgb,var(--page) 95%,var(--ink)) transparent transparent transparent;}
+.rp-ch{font:600 11px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
+.rp-meta{font:500 10.5px var(--sans);color:var(--muted);margin-bottom:3px;}
+.rp-snip{font:400 11px/1.35 var(--serif);color:var(--inkM);font-style:italic;max-height:2.7em;overflow:hidden;
+  text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+
+/* ---------- floating safety anchor (return pill) ---------- */
+.jump-anchor{position:fixed;bottom:68px;left:50%;transform:translateX(-50%) translateY(0);z-index:38;
+  display:flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--page) 92%,var(--ink));
+  border:1px solid var(--hairS);border-radius:999px;padding:5px 8px 5px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);
+  transition:transform .25s cubic-bezier(.34,1.56,.64,1),opacity .25s ease,visibility .25s;pointer-events:auto;}
+.jump-anchor.hide{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none;visibility:hidden;}
+
+/* ---------- ctrl/alt+wheel HUD pill (F5) ---------- */
+.nudge-hud{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:80;pointer-events:none;
+  font:600 14px var(--sans);color:var(--ink);
+  background:color-mix(in srgb,var(--page) 94%,var(--ink));
+  padding:6px 16px;border-radius:999px;box-shadow:0 4px 12px rgba(0,0,0,.15);
+  transition:opacity 250ms ease;}
+.nudge-hud.hide{opacity:0;}
+.jump-return-btn{display:inline-flex;align-items:center;gap:7px;background:none;border:none;padding:0;
+  font:600 12px var(--sans);color:var(--ink);cursor:pointer;}
+.jump-return-btn:hover{color:var(--accent);}
+.jump-dismiss-btn{background:none;border:none;color:var(--muted);font:600 11px var(--sans);cursor:pointer;
+  padding:2px 6px;border-radius:50%;}
+.jump-dismiss-btn:hover{color:var(--ink);}
+body.state-landing .jump-anchor{display:none!important;}
+
+/* ---------- optical reading environments ---------- */
+.env-section{margin-bottom:8px;}
+.env-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:7px;}
+.env-card{display:flex;flex-direction:column;align-items:center;padding:10px 6px;border-radius:10px;
+  border:1.5px solid var(--hairS);background:var(--desk);cursor:pointer;
+  transition:border-color .2s,transform .15s,box-shadow .2s;text-align:center;}
+.env-card:hover{border-color:var(--ink);transform:translateY(-2px);}
+.env-card.sel{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent);
+  background:color-mix(in srgb,var(--page) 85%,var(--desk));}
+.env-preview{width:100%;height:44px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  margin-bottom:7px;box-shadow:0 1px 3px rgba(0,0,0,.1);border:1px solid rgba(0,0,0,.06);}
+.env-prev-paper{background:#f7f3e8;color:#2a251e;font-family:'Literata',serif;}
+.env-prev-clean{background:#ffffff;color:#1a1a1a;font-family:'Lexend',sans-serif;}
+.env-prev-night{background:#141414;color:#dfd7c5;font-family:'Literata',serif;}
+.env-sample-text{font-size:17px;font-weight:600;}
+.env-name{font:600 12px var(--sans);color:var(--ink);margin-bottom:2px;}
+.env-sub{font:400 9.5px var(--sans);color:var(--muted);line-height:1.2;}
 
 .arrow{grid-row:1;align-self:center;justify-self:center;z-index:25;width:46px;height:46px;border-radius:50%;
   display:grid;place-items:center;border:1px solid var(--hair);color:var(--ink);
@@ -381,6 +506,8 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 .sel-row{display:flex;gap:2px}
 .sel-btn{flex:1;font:600 12px var(--sans);padding:8px 6px;border-radius:8px;color:var(--page);white-space:nowrap}
 .sel-btn:hover{background:rgba(255,255,255,.14)}
+.sel-hl-quick{align-self:center;flex:0 0 auto}
+.sel-divider{width:1px;align-self:stretch;margin:6px 4px;background:rgba(255,255,255,.18)}
 #selDef{font:400 12.5px/1.5 var(--serif);padding:8px 10px 6px;border-top:1px solid rgba(255,255,255,.18);
   margin-top:4px;max-height:130px;overflow-y:auto}
 /* keyboard shortcuts dialog */
@@ -539,6 +666,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 </style>
 </head>
 <body class="state-landing">
+<div id="deskDim" aria-hidden="true"></div>
 
 <!-- ============ landing / title page ============ -->
 <div id="landing">
@@ -626,6 +754,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
       <svg width="22" height="34" viewBox="0 0 24 36" fill="currentColor"><path d="M0 0h24v34l-12-8-12 8z"/></svg>
     </button>
     <div id="viewer"></div>
+    <div id="chFlash" class="ch-flash hide" aria-hidden="true"></div>
     <div id="pageFx"></div>
     <div class="edge-stack left"></div>
     <div class="edge-stack right"></div>
@@ -635,6 +764,12 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   <button class="arrow" id="btnNext" title="Next page" aria-label="Next page">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5 16 12l-6.5 7"/></svg>
   </button>
+  <div id="chNavLeft" class="ch-nav-panel ch-nav-left" aria-label="Previous chapter">
+    <button id="chLabelPrev" class="ch-nav-label" type="button">Previous Chapter</button>
+  </div>
+  <div id="chNavRight" class="ch-nav-panel ch-nav-right" aria-label="Next chapter">
+    <button id="chLabelNext" class="ch-nav-label" type="button">Next Chapter</button>
+  </div>
 </main>
 
 <footer id="bottombar">
@@ -644,9 +779,26 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
     <span id="pageBadge" class="bb-pages"></span>
     <span id="timeLeft" class="bb-time"></span>
   </div>
-  <div id="rail" title="Jump — drag or click (page granularity once pages are counted)"><div id="railFill"></div><div id="railKnob"></div></div>
+  <div id="rail" title="Jump — drag or click (page granularity once pages are counted)">
+    <div id="railPreview" class="rail-preview hide">
+      <div class="rp-ch" id="rpCh"></div>
+      <div class="rp-meta" id="rpMeta"></div>
+      <div class="rp-snip" id="rpSnip"></div>
+    </div>
+    <div id="railFill"></div>
+    <div id="railKnob"></div>
+  </div>
   <span id="pct"></span>
 </footer>
+
+<!-- ============ floating safety anchor ============ -->
+<div id="jumpAnchor" class="jump-anchor hide" role="status" aria-live="polite">
+  <button id="btnJumpReturn" class="jump-return-btn" type="button">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+    <span id="jumpReturnText">Return to Page 1</span>
+  </button>
+  <button id="btnJumpDismiss" class="jump-dismiss-btn" type="button" aria-label="Dismiss return anchor" title="Dismiss">✕</button>
+</div>
 
 <!-- ============ typography sheet ============ -->
 <aside id="sheet" aria-label="Typography and reading tools">
@@ -656,6 +808,28 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
     </button>
   </div>
   <div class="sh-body">
+    <section class="env-section">
+      <div class="row-head">
+        <h4 class="lbl">Reading Environment</h4>
+      </div>
+      <div class="env-cards" id="envCards">
+        <button type="button" class="env-card sel" data-env="paper" id="envPaper" title="Warm book stock & classical typography">
+          <span class="env-preview env-prev-paper"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Natural Paper</span>
+          <span class="env-sub">Warm serif · Book stock</span>
+        </button>
+        <button type="button" class="env-card" data-env="clean" id="envClean" title="Clean high-contrast sans-serif">
+          <span class="env-preview env-prev-clean"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Modern Clean</span>
+          <span class="env-sub">Sharp sans · High contrast</span>
+        </button>
+        <button type="button" class="env-card" data-env="night" id="envNight" title="Low-light amber on deep charcoal">
+          <span class="env-preview env-prev-night"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Velvet Night</span>
+          <span class="env-sub">Soft amber · No blue-light</span>
+        </button>
+      </div>
+    </section>
     <section>
       <div class="row-head">
         <h4 class="lbl">Reading preset</h4>
@@ -841,20 +1015,19 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 <div id="warm" aria-hidden="true"></div>
 <div id="selBar" role="toolbar" aria-label="Selection tools">
   <div class="sel-row">
-    <button class="sel-btn" id="selHl">Highlight</button>
+    <button class="hl-dot sel-hl-quick" data-hl="yellow" style="background:#f7d64a" title="Yellow highlight" aria-label="Yellow highlight"></button>
+    <button class="hl-dot sel-hl-quick" data-hl="green" style="background:#7fe08a" title="Green highlight" aria-label="Green highlight"></button>
+    <button class="hl-dot sel-hl-quick" data-hl="blue" style="background:#7db8f8" title="Blue highlight" aria-label="Blue highlight"></button>
+    <button class="hl-dot sel-hl-quick" data-hl="pink" style="background:#f2a0c0" title="Pink highlight" aria-label="Pink highlight"></button>
+    <span class="sel-divider"></span>
     <button class="sel-btn" id="selDefine">Define</button>
     <button class="sel-btn" id="selFind">Find in book</button>
     <button class="sel-btn" id="selCopy">Copy</button>
   </div>
-  <div id="selHlPal" hidden class="sel-hl-pal">
-    <button class="hl-dot" data-hl="yellow" style="background:#f7d64a" title="Yellow"></button>
-    <button class="hl-dot" data-hl="green" style="background:#7fe08a" title="Green"></button>
-    <button class="hl-dot" data-hl="blue" style="background:#7db8f8" title="Blue"></button>
-    <button class="hl-dot" data-hl="pink" style="background:#f2a0c0" title="Pink"></button>
-  </div>
   <div id="selDef" hidden></div>
 </div>
 <div id="hlPop" hidden></div>
+<div id="nudgeHud" class="nudge-hud hide" aria-hidden="true"></div>
 <div id="toast"></div>
 <input id="file" type="file" accept=".epub,application/epub+zip" hidden>
 
@@ -1208,14 +1381,20 @@ function applyFit(){
 }
 
 /* ---------------- CSS injected into the book iframes ---------------- */
+let _cssCache = '', _cssHash = '';
 function buildCSS(){
-  const t = THEMES[effectiveThemeKey()]||THEMES.paper;
+  const thKey = effectiveThemeKey();
   const fs = effSize();
-  const stack = (FONTS[settings.font]||FONTS.literata).stack;
-  const j = settings.justify;
   const lh = effLineHeight();
   const ls = effLetterSpacing();
   const ws = effWordSpacing();
+  const hash = thKey + '|' + settings.font + '|' + fs + '|' + lh + '|' + ls + '|' + ws + '|' +
+    settings.justify + '|' + settings.dropCaps + '|' + settings.warmth + '|' + settings.bionic + '|' + settings.guide;
+  if(hash === _cssHash) return _cssCache;
+  _cssHash = hash;
+  const t = THEMES[thKey]||THEMES.paper;
+  const stack = (FONTS[settings.font]||FONTS.literata).stack;
+  const j = settings.justify;
   const dropCapCss = settings.dropCaps ? `
 body > p:first-of-type::first-letter,
 section > p:first-of-type::first-letter,
@@ -1230,7 +1409,7 @@ div > p:first-of-type::first-letter {
   font-weight: 700 !important;
 }` : '';
 
-  return FONT_FACES + `
+  _cssCache = FONT_FACES + `
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
 body{
@@ -1262,6 +1441,7 @@ b.fio-b{font-weight:700;}
 .fio-hl{border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;cursor:pointer;}
 ${dropCapCss}
 `;
+  return _cssCache;
 }
 function eachContent(fn){
   const r = state.rendition; if(!r) return;
@@ -1544,6 +1724,9 @@ function renderReadingStats(){
   if((statsCache.pages || 0) > 0) parts.push(statsCache.pages + ' pages');
   const st = statStreak();
   if(st >= 2) parts.push(st + '-day streak');
+  // Feature 5: vocabulary collected via Define lookups on this book
+  const vocab = VocabLog.count(getActiveTitle());
+  if(vocab > 0) parts.push(vocab + (vocab === 1 ? ' word collected' : ' words collected'));
   e.textContent = parts.join('  ·  ');
   e.style.display = parts.length ? 'block' : 'none';
 }
@@ -1561,6 +1744,8 @@ setInterval(() => {
 }, 30000);
 
 function updateLandingUI(){
+  // P4: landing DOM is invisible during reading — skip all the work
+  if(body.classList.contains('state-reading')) return;
   renderReadingStats();
   const hasBook = !!(state.book && state.rendition);
   const title = getActiveTitle();
@@ -1607,6 +1792,7 @@ function resumeReading(){
   if(state.book && state.rendition){
     body.classList.remove('state-landing');
     body.classList.add('state-reading');
+    resetDeskDim();
     poke();
   }
 }
@@ -1647,12 +1833,119 @@ function createRendition(opts={}){
   return r;
 }
 
-async function openBuffer(buf, titleHint, filePath, targetCfi){
+function ensureEpubUrlPatched(){
+  if(typeof ePub === 'undefined' || !ePub.Book || ePub.__urlPatched) return;
+  ePub.__urlPatched = true;
+  const origBookResolve = ePub.Book.prototype.resolve;
+  ePub.Book.prototype.resolve = function(t, e){
+    if(t && t.indexOf('://') > -1) return t;
+    if(this.url && this.url.protocol === 'folio-cache:' && this.url.origin === 'null'){
+      let i = t;
+      if(this.path) i = this.path.resolve(t);
+      if(e !== 0){
+        const host = (this.url.Url && this.url.Url.host) ? this.url.Url.host : '';
+        const prefix = this.url.protocol + '//' + host;
+        const rel = this.url.path ? this.url.path().resolve(i) : ('/' + String(i).replace(/^\/+/, ''));
+        return prefix + (rel.startsWith('/') ? rel : '/' + rel);
+      }
+      return i;
+    }
+    return origBookResolve.call(this, t, e);
+  };
+  const origOpen = ePub.Book.prototype.open;
+  ePub.Book.prototype.open = function(t, e){
+    const res = origOpen.call(this, t, e);
+    if(this.url && this.url.constructor && !this.url.constructor.__patched){
+      const UrlClass = this.url.constructor;
+      const origUrlResolve = UrlClass.prototype.resolve;
+      UrlClass.prototype.resolve = function(x){
+        if(x && x.indexOf('://') > -1) return x;
+        if(this.origin === 'null' && this.protocol){
+          const host = (this.Url && this.Url.host) ? this.Url.host : '';
+          const prefix = this.protocol + '//' + host;
+          return prefix + this.path().resolve(x);
+        }
+        return origUrlResolve.call(this, x);
+      };
+      UrlClass.__patched = true;
+    }
+    return res;
+  };
+}
+
+/* Named HTML entities (&nbsp; &mdash; &rsquo; …) are not defined in XML:
+   XHTML chapters carrying them blow up with a fatal parse-error page when
+   the section is parsed as application/xhtml+xml. Rewrite the common named
+   entities to numeric character references before epub.js sees the book. */
+const FOLIO_ENTITIES = {
+  nbsp:160, iexcl:161, cent:162, pound:163, curren:164, yen:165, brvbar:166,
+  sect:167, uml:168, copy:169, ordf:170, laquo:171, not:172, shy:173,
+  reg:174, macr:175, deg:176, plusmn:177, sup2:178, sup3:179, acute:180,
+  micro:181, para:182, middot:183, cedil:184, sup1:185, ordm:186, raquo:187,
+  frac14:188, frac12:189, frac34:190, iquest:191, Agrave:192, Aacute:193,
+  Acirc:194, Atilde:195, Auml:196, Aring:197, AElig:198, Ccedil:199,
+  Egrave:200, Eacute:201, Ecirc:202, Euml:203, Igrave:204, Iacute:205,
+  Icirc:206, Iuml:207, ETH:208, Ntilde:209, Ograve:210, Oacute:211,
+  Ocirc:212, Otilde:213, Ouml:214, times:215, Oslash:216, Ugrave:217,
+  Uacute:218, Ucirc:219, Uuml:220, Yacute:221, THORN:222, szlig:223,
+  agrave:224, aacute:225, acirc:226, atilde:227, auml:228, aring:229,
+  aelig:230, ccedil:231, egrave:232, eacute:233, ecirc:234, euml:235,
+  igrave:236, iacute:237, icirc:238, iuml:239, eth:240, ntilde:241,
+  ograve:242, oacute:243, ocirc:244, otilde:245, ouml:246, divide:247,
+  oslash:248, ugrave:249, uacute:250, ucirc:251, uuml:252, yacute:253,
+  thorn:254, yuml:255, OElig:338, oelig:339, Scaron:352, scaron:353,
+  Yuml:376, fnof:402, circ:710, tilde:732, ensp:8194, emsp:8195,
+  thinsp:8201, zwnj:8204, zwj:8205, lrm:8206, rlm:8207, ndash:8211,
+  mdash:8212, lsquo:8216, rsquo:8217, sbquo:8218, ldquo:8220, rdquo:8221,
+  bdquo:8222, dagger:8224, Dagger:8225, bull:8226, hellip:8230,
+  permil:8240, prime:8242, Prime:8243, lsaquo:8249, rsaquo:8250,
+  oline:8254, frasl:8260, euro:8364, larr:8592, rarr:8594, darr:8593,
+  harr:8596, crarr:8629
+};
+async function sanitizeEpubEntities(buf){
+  if(typeof JSZip === 'undefined' || !buf) return buf;
+  try{
+    const zip = await JSZip.loadAsync(buf);
+    let dirty = false;
+    const names = Object.keys(zip.files).filter(n =>
+      !zip.files[n].dir && /\.(xhtml|html|htm|xml|opf|ncx)$/i.test(n));
+    for(const name of names){
+      const text = await zip.files[name].async('string');
+      if(text.indexOf('&') === -1) continue;
+      // CDATA sections hold literal JS/CSS — entity references there are
+      // not markup and must survive untouched. Everything else gets every
+      // ampersand repaired: named entities become numeric references, and
+      // bare '&' (JS "&&", "Tom & Jerry") becomes &amp; — all of which are
+      // fatal in XML parsing otherwise. When the document is later parsed,
+      // the references decode back to the author's intended characters.
+      const cleaned = text.split(/(<!\[CDATA\[[\s\S]*?\]\]>)/)
+        .map(seg => seg.startsWith('<![CDATA[')
+          ? seg
+          : seg.replace(/&(#[0-9]+;|#[xX][0-9a-fA-F]+;|[a-zA-Z][a-zA-Z0-9]{0,31};)?/g, (m, ref) => {
+              if(!ref) return '&amp;';
+              if(ref.charAt(0) === '#') return m;
+              const ent = ref.slice(0, -1);
+              const code = FOLIO_ENTITIES[ent];
+              if(code !== undefined) return '&#' + code + ';';
+              if(/^(amp|lt|gt|quot|apos)$/i.test(ent)) return m;
+              return '&amp;' + ref;
+            }))
+        .join('');
+      if(cleaned !== text){ zip.file(name, cleaned); dirty = true; }
+    }
+    return dirty ? await zip.generateAsync({ type: 'arraybuffer' }) : buf;
+  }catch(e){ return buf; }
+}
+async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
   if(state.loading) return; state.loading=true;
   showLoader('Typesetting…');
   try{
     await closeBook();
-    const book = ePub(buf);
+    ensureEpubUrlPatched();
+    autoThemeTick();
+    const isUrl = !!(opts && opts.url);
+    if(!isUrl && buf){ try{ buf = await sanitizeEpubEntities(buf); }catch(e){} }
+    const book = isUrl ? ePub(opts.url) : ePub(buf);
     state.book = book;
     const initialTitle = (titleHint || '').trim() || 'Untitled';
     state.currentTitle = initialTitle;
@@ -1666,7 +1959,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     loadPerBookType(initialTitle);
 
     // Cache to IndexedDB asynchronously (skipped for very large files)
-    try{
+    if(!isUrl) try{
       BookStorage.saveBook({
         title: initialTitle,
         author: state.currentAuthor,
@@ -1692,7 +1985,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
         // Real title known now — retry global pagination under the right key
         // (generate itself is chained after the index settles, inside prepare).
         LocEngine.attach(realTitle);
-        try{
+        if(!isUrl) try{
           BookStorage.saveBook({
             title: realTitle,
             author: state.currentAuthor,
@@ -1718,6 +2011,10 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
 
     body.classList.add('state-reading');
     body.classList.remove('state-landing');
+    state.lastSpineIdx = undefined;   // F2: a fresh open never flashes on its first relocation
+    chNavAnchorSteps.clear();         // F0: anchor steps are per-book
+    tocCurIdx = -1;
+    resetDeskDim();                   // F6: arm the idle dim timer for this session
     state.spreadOn = effectiveSpread();
     body.classList.toggle('spread', state.spreadOn);
     syncSpreadUI();
@@ -1741,6 +2038,18 @@ async function openBuffer(buf, titleHint, filePath, targetCfi){
     // (if needed) is chained after the search-index prepare settles.
     LocEngine.attach(getActiveTitle());
     if(!seenHint){ seenHint=true; toast('Swipe or tap the page edges to turn · D toggles two pages'); }
+    // Feature 2: smart resume — show context snippet from last session
+    else if(target && typeof target === 'string'){
+      try{
+        const ctx = JSON.parse(localStorage.getItem(state.posKey + ':ctx') || 'null');
+        if(ctx && ctx.text){
+          const snip = ctx.text.length > 60 ? ctx.text.slice(0, 60).trimEnd() + '…' : ctx.text;
+          toast('You were reading: "' + snip + '"' + (ctx.chapter ? ' — ' + ctx.chapter : ''));
+        }
+      }catch(e){}
+      // Feature 4: arm the fingerprint nudge for the first relocation
+      _fpPending = true;
+    }
     updateLandingUI();
     poke();
   }catch(err){
@@ -1807,7 +2116,11 @@ function onContent(contents){
   s.textContent=buildCSS();
   try{
     const cleanHtml = '<!DOCTYPE html>' + d.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
-    if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml);
+    // Key by the rendered section, not currentSpine: relocated() runs after
+    // this hook, so the unkeyed write would file the new chapter under the
+    // previous spine and feed the turn compositor the wrong adjacent page.
+    const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
+    if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
   }catch(e){}
   if(settings.bionic && d.body.dataset.fioBionic!=='1'){ bionifyDoc(d); d.body.dataset.fioBionic='1'; }
   // Illustrated chapters paginate faster when off-screen images decode lazily.
@@ -1826,8 +2139,6 @@ function hideSelBar(){
   if(b) b.classList.remove('show');
   const def=el('selDef');
   if(def){ def.hidden=true; def.textContent=''; }
-  const pal=el('selHlPal');
-  if(pal) pal.hidden=true;
   selText='';
 }
 function showSelBar(cx, y, h, text){
@@ -1870,6 +2181,9 @@ function wireSelection(contents){
 function wireContents(contents){
   const d=contents.document;
   wireSelection(contents);
+  // F1/F6 pointer tracking lives here too: moves over the page target the
+  // chapter document, not the shell window.
+  try{ d.addEventListener('pointermove', onPtrFx, { passive:true }); d.addEventListener('mousemove', onPtrFx, { passive:true }); }catch(e){}
   if(typeof turnGesture !== 'undefined' && turnGesture) turnGesture.bind(d);
   // When OUR fold engine owns the drag in this document, swallow the
   // touchend so EPUB.js internal swipe can't double-navigate (spec §31:
@@ -2166,6 +2480,16 @@ const LocEngine = {
 };
 
 /* ---------------- relocation: progress, chapter, resume ---------------- */
+/* P1: hot path = instant visual feedback on every page turn (<0.2ms)
+   cold path = deferred heavy work (storage, cache, nav panels) at 80ms debounce.
+   During rapid flipping, the cold path fires only once after the user stops. */
+let _relocColdTimer = 0;
+/* Feature 1: adaptive reading speed — rolling window of actual page-turn times */
+let _lastTurnTime = 0, _lastTurnPage = -1;
+const _paceHistory = [];
+let _effectivePace = 1.1; // minutes per page, starts at default
+function getEffectivePace(){ return _effectivePace; }
+
 function onRelocated(loc){
   if(!loc||!loc.start)return;
   const total=state.book.spine.length;
@@ -2174,6 +2498,8 @@ function onRelocated(loc){
   const gPct = gPage ? gPage.page / gPage.total : null;
   const frac = gPct != null ? gPct
     : clamp((loc.start.index+((d&&d.total)?(d.page-1)/d.total:0))/total,0,1);
+
+  // ── HOT PATH: instant visual updates ──
   el('railFill').style.width=(frac*100)+'%';
   el('railKnob').style.left=(frac*100)+'%';
   el('pct').textContent=Math.round(frac*100)+'%';
@@ -2181,32 +2507,35 @@ function onRelocated(loc){
 
   const chTitle = chapterFor(loc.start.href);
   el('chapter').textContent=chTitle;
-  const pillCh = el('posPillCh');
-  if(pillCh){
-    const short = chTitle.length > 28 ? chTitle.slice(0, 28).trimEnd() + '…' : chTitle;
-    pillCh.textContent = short || '—';
-    pillCh.setAttribute('title', chTitle);
-  }
-  const pillPct = el('posPillPct');
-  if(pillPct) pillPct.textContent = el('pct').textContent;
-  markTocCurrent(loc.start.href);
-  try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
-  // Pages-turned stat: first fix after open sets the baseline, moves count.
-  try{
-    if(!statsCache) loadStats();
-    if(lastStatCfi && loc.start.cfi !== lastStatCfi){
-      statsCache.pages = (statsCache.pages || 0) + 1;
-      saveStatsSoon();
-    }
-    lastStatCfi = loc.start.cfi;
-  }catch(e){}
 
-  // Page badge & reading time remaining
+  // Chapter-cross detection drives the F2 title flash and the F4 fade-in
+  const spineChanged = loc.start.index !== state.lastSpineIdx;
+  const firstRelocation = state.lastSpineIdx === undefined;
+  state.lastSpineIdx = loc.start.index;
+  if(spineChanged && !firstRelocation && chTitle) showChFlash(chTitle);
+  if(firstRelocation) setTimeout(() => CoachMarks.start(), 500);   // F7
+  if(spineChanged && settings.turnFx === 'none' && !matchMedia('(prefers-reduced-motion: reduce)').matches){
+    document.querySelectorAll('#viewer iframe').forEach(f => {
+      f.style.opacity = '0';
+      f.style.transition = 'opacity 120ms ease';
+      requestAnimationFrame(() => requestAnimationFrame(() => { f.style.opacity = '1'; }));
+    });
+  }
+
+  // Page badge & reading time — uses adaptive pace (Feature 1)
+  const pace = getEffectivePace();
   const pageBadge = el('pageBadge');
   const timeLeft = el('timeLeft');
+  const minsCh = (d && d.total)
+    ? Math.max(1, Math.round(Math.max(0, d.total - (state.spreadOn ? d.page + 1 : d.page)) * pace))
+    : null;
   if(pageBadge && gPage){
-    // Book-wide pagination is live (locations generated): show global pages.
     pageBadge.textContent = `Page ${gPage.page} of ${gPage.total}`;
+    if(timeLeft){
+      const rem = Math.max(0, gPage.total - (state.spreadOn ? gPage.page + 1 : gPage.page));
+      const mins = Math.max(1, Math.round(rem * pace));
+      timeLeft.textContent = `· ⏱ ${mins} min left` + (minsCh ? ` · ${minsCh} min in ch.` : '');
+    }
   } else if(d && d.total){
     const curP = d.page;
     const totP = d.total;
@@ -2219,38 +2548,143 @@ function onRelocated(loc){
     }
     if(timeLeft){
       const rem = Math.max(0, totP - (state.spreadOn ? curP + 1 : curP));
-      const mins = Math.max(1, Math.round(rem * 1.1));
-      timeLeft.textContent = `· ⏱ ${mins} min left`;
+      const mins = Math.max(1, Math.round(rem * pace));
+      timeLeft.textContent = `· ⏱ ${mins} min left` + (minsCh ? ` · ${minsCh} min in ch.` : '');
     }
   } else {
     if(pageBadge) pageBadge.textContent = Math.round(frac*100) + '%';
     if(timeLeft) timeLeft.textContent = '';
   }
 
-  // Running headers (Book title on left, Chapter on right)
+  // Running headers
   const bTitle = getActiveTitle();
-  const bAuthor = getActiveAuthor();
   if(el('runHeadLeft')) el('runHeadLeft').textContent = bTitle;
   if(el('runHeadRight')) el('runHeadRight').textContent = chTitle || bTitle;
+
+  // Chapter pills + chNavIdx resolve here (hot): the [ / ] keys fire right
+  // after a jump's badge flip, before the 80ms cold pass could update them.
+  updateChapterNav();
+
+  // Feature 1: measure actual reading speed (adaptive pace calibration)
+  const now = performance.now();
+  if(d && d.page !== _lastTurnPage && _lastTurnTime > 0){
+    const elapsed = (now - _lastTurnTime) / 60000; // minutes
+    if(elapsed > 0.08 && elapsed < 12){ // skip < 5s (rapid flip) and > 12 min (idle)
+      _paceHistory.push(elapsed);
+      if(_paceHistory.length > 25) _paceHistory.shift();
+      if(_paceHistory.length >= 3){
+        // Use median to resist outliers
+        const sorted = [..._paceHistory].sort((a,b) => a - b);
+        _effectivePace = sorted[Math.floor(sorted.length / 2)];
+      }
+    }
+  }
+  _lastTurnTime = now;
+  _lastTurnPage = d ? d.page : -1;
+
+  // ── COLD PATH: deferred by 80ms ──
+  state.currentCfi = loc.start.cfi;
+  // posPill is instant visual feedback — hot path, never 80ms behind
+  const pillCh = el('posPillCh');
+  if(pillCh){
+    const short = chTitle.length > 28 ? chTitle.slice(0, 28).trimEnd() + '…' : chTitle;
+    pillCh.textContent = short || '—';
+    pillCh.setAttribute('title', chTitle);
+  }
+  const pillPct = el('posPillPct');
+  if(pillPct) pillPct.textContent = el('pct').textContent;
+  clearTimeout(_relocColdTimer);
+  _relocColdTimer = setTimeout(() => onRelocatedCold(loc, frac, chTitle, d), 80);
+}
+
+function onRelocatedCold(loc, frac, chTitle, d){
+  markTocCurrent(loc.start.href, loc.start.cfi);
+  try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
+
+  // Feature 2: save context snippet for smart resume
+  try{
+    const snippet = (typeof pageCache !== 'undefined' && pageCache.getPage(0))
+      ? (pageCache.getPage(0).text || '').slice(0, 80).trim() : '';
+    if(snippet){
+      localStorage.setItem(state.posKey + ':ctx', JSON.stringify({
+        text: snippet, chapter: chTitle, pct: Math.round(frac * 100)
+      }));
+    }
+  }catch(e){}
+
+  // Feature 4: text fingerprint of the page — on resume, if the saved CFI
+  // lands on different text (layout shifted), the reader nudges to the page
+  // that still carries this fingerprint.
+  try{
+    const pc = (typeof pageCache !== 'undefined') ? pageCache : null;
+    const fp = (pc && pc.getPage(0) && (pc.getPage(0).text || ''))
+      .split(/[.!?]/)[0].trim().slice(0, 100) || '';
+    if(fp.length >= 20) localStorage.setItem(state.posKey + ':fp', fp);
+    else localStorage.removeItem(state.posKey + ':fp');
+  }catch(e){}
+
+  // Pages-turned stat
+  try{
+    if(!statsCache) loadStats();
+    if(lastStatCfi && loc.start.cfi !== lastStatCfi){
+      statsCache.pages = (statsCache.pages || 0) + 1;
+      saveStatsSoon();
+    }
+    lastStatCfi = loc.start.cfi;
+  }catch(e){}
 
   // Bookmark ribbon state
   updateRibbonState(loc.start.cfi);
 
-  // Recent book persistence
-  state.currentCfi = loc.start.cfi;
+  // Recent book persistence (already debounced by P2)
+  const bTitle = getActiveTitle();
+  const bAuthor = getActiveAuthor();
   saveRecentBook(bTitle, bAuthor, Math.round(frac * 100), loc.start.cfi, state.currentFilePath);
 
   updateLandingUI();
 
-  // Feed 15-page sliding window cache (5 back, 1 current, 10 forward)
+  // Feed 15-page sliding window cache
   if(typeof pageCache !== 'undefined'){
     const pIdx = (d && d.page) ? Math.max(0, d.page - 1) : 0;
     const pTotal = (d && d.total) ? Math.max(1, d.total) : 1;
     pageCache.update(loc.start.index, pIdx, pTotal, loc.start.cfi);
   }
 
-  // Read-aloud follows manual navigation: resync to the new page.
+  // Feature 4: one-shot fingerprint nudge after a session restore
+  if(_fpPending){
+    _fpPending = false;
+    nudgeToFingerprint();
+  }
+
+  // Read-aloud follows manual navigation
   TTS.onRelocated();
+}
+
+// Feature 4: if the restored CFI landed on text that no longer carries the
+// saved fingerprint (layout shifted), scan the nearby cached pages and nudge
+// the reader to the one that still matches. Fully silent; never moves more
+// than 3 pages, and only when the window cache already has the neighbors.
+let _fpPending = false;
+function nudgeToFingerprint(){
+  try{
+    const fp = localStorage.getItem(state.posKey + ':fp');
+    if(!fp || fp.length < 20 || !state.rendition) return;
+    const pc = (typeof pageCache !== 'undefined') ? pageCache : null;
+    if(!pc || !pc.getPage) return;
+    const probe = fp.slice(0, 40);
+    const has = (pg) => pg && (pg.text || '').includes(probe);
+    if(has(pc.getPage(0))) return; // CFI landed right
+    for(let off = 1; off <= 3; off++){
+      if(has(pc.getPage(off))){
+        for(let k = 0; k < off; k++) state.rendition.next();
+        return;
+      }
+      if(has(pc.getPage(-off))){
+        for(let k = 0; k < off; k++) state.rendition.prev();
+        return;
+      }
+    }
+  }catch(e){}
 }
 function chapterFor(href){
   if(!href)return'';
@@ -2273,7 +2707,7 @@ function makeTocRow(it, idx){
   b.style.paddingLeft=(20+it.depth*14)+'px';
   b.addEventListener('click',()=>{
     closePanels();
-    state.rendition&&state.rendition.display(it.href).catch(()=>{});
+    jumpToTocIndex(idx);
   });
   li.appendChild(b);
   return li;
@@ -2328,18 +2762,29 @@ async function buildTOC(book){
       list.appendChild(frag);
     }
     const loc=state.rendition&&state.rendition.currentLocation();
-    if(loc&&loc.start)markTocCurrent(loc.start.href);
+    if(loc&&loc.start)markTocCurrent(loc.start.href, loc.start.cfi);
     syncBookmarkBadge();
     Highlights.syncBadge();
     Ribbon.build();
+    // tocItems just landed: refresh the margin pills even if no relocation
+    // follows (their state was parked disabled while the TOC was in flight).
+    updateChapterNav();
   }catch(e){
     el('tocList').innerHTML='<li class="empty">This book has no table of contents.</li>';
     Ribbon.clear();
   }
 }
-function markTocCurrent(href){
+function markTocCurrent(href, cfi){
   const base=x=>String(x||'').split('/').pop().split('#')[0];
-  const idx=tocItems.findIndex(i=>base(i.href)===base(href));
+  // Anchor-aware: loc.start.href never carries the fragment, but the CFI
+  // asserts the target element id as a bracket (epubcfi(/6/2!/4/2[sec-a])).
+  // Without this, books that split one file into several TOC sections
+  // always resolve to the first entry.
+  const cfiFrag=(String(cfi||'').match(/\[([^\]]+)\]/)||[])[1]||'';
+  const frag=x=>{const h=String(x||'');const i=h.indexOf('#');return i>=0?h.slice(i+1):'';};
+  let idx=tocItems.findIndex(i=>base(i.href)===base(href)&&frag(i.href)===cfiFrag);
+  if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&!frag(i.href));
+  if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href));
   tocCurIdx=idx;
   const list=el('tocList');
   if(!list) return;
@@ -2420,7 +2865,12 @@ const Ribbon = {
       s.style.flexGrow = w;
       s.title = tip;
       s.addEventListener('click', () => {
-        if(state.rendition && href) state.rendition.display(href).catch(()=>{});
+        if(state.rendition && href) {
+          const curLoc = state.rendition.currentLocation();
+          const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
+          NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+          state.rendition.display(href).catch(()=>{});
+        }
       });
       frag.appendChild(s);
       return s;
@@ -2502,8 +2952,17 @@ function fetchCoverThumb(book, title){
   if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 4000 });
   else setTimeout(run, 800);
 }
+let _recentSaveTimer = 0, _recentPending = null;
 function saveRecentBook(title, author, pct, cfi, filePath){
   if(!title || title === 'Untitled' || title === 'Folio') return;
+  // P2: stash latest args and debounce 2s — avoids heavy work on every page turn
+  _recentPending = { title, author, pct, cfi, filePath };
+  clearTimeout(_recentSaveTimer);
+  _recentSaveTimer = setTimeout(_flushRecentBook, 2000);
+}
+function _flushRecentBook(){
+  const p = _recentPending; if(!p) return; _recentPending = null;
+  const { title, author, pct, cfi, filePath } = p;
   const all = getRecents();
   const existing = all.find(x => x.title === title) || {};
   let list = all.filter(x => x.title !== title);
@@ -2609,6 +3068,15 @@ function renderRecentShelf(){
       if(window.__TAURI_INTERNALS__ && b.filePath){
         try{
           const { invoke } = window.__TAURI_INTERNALS__;
+          try{
+            const handle = await invoke('book_open', { path: b.filePath });
+            if(handle && handle.hash){
+              await openBuffer(null, b.title, b.filePath, b.cfi, { url: `folio-cache://${handle.hash}/` });
+              return;
+            }
+          }catch(errDisk){
+            console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
+          }
           const bytes = await invoke('read_file_bytes', { path: b.filePath });
           if(bytes && bytes.length){
             const buf = new Uint8Array(bytes).buffer;
@@ -2671,6 +3139,194 @@ function updateRibbonState(cfi){
   const bm = isPageBookmarked(cfi);
   ribbon.classList.toggle('bookmarked', bm);
   ribbon.setAttribute('title', bm ? 'Bookmarked (click to remove)' : 'Bookmark this page (B)');
+}
+
+/* ---------------- navigation safety anchor & history stack ---------------- */
+const NavHistory = {
+  stack: [],
+  timer: null,
+  push(cfi, pageLabel, chapterTitle) {
+    if(!cfi) return;
+    const top = this.peek();
+    if(top && top.cfi === cfi) return;
+    this.stack.push({
+      cfi,
+      pageLabel: pageLabel || '',
+      chapterTitle: chapterTitle || '',
+      time: Date.now()
+    });
+    if(this.stack.length > 25) this.stack.shift();
+    this.renderAnchor();
+  },
+  pop() {
+    return this.stack.pop();
+  },
+  peek() {
+    return this.stack.length ? this.stack[this.stack.length - 1] : null;
+  },
+  renderAnchor() {
+    const item = this.peek();
+    const anchor = el('jumpAnchor');
+    if(!item || !anchor) return;
+    const txt = el('jumpReturnText');
+    if(txt){
+      const label = item.pageLabel ? `${item.pageLabel}` : (item.chapterTitle || 'previous page');
+      txt.textContent = `Return to ${label}`;
+    }
+    anchor.classList.remove('hide');
+    anchor.classList.add('show');
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.dismiss();
+    }, 9000);
+  },
+  dismiss() {
+    const anchor = el('jumpAnchor');
+    if(anchor){
+      anchor.classList.remove('show');
+      anchor.classList.add('hide');
+    }
+  },
+  returnBack() {
+    const item = this.pop();
+    this.dismiss();
+    if(item && item.cfi && state.rendition){
+      state.rendition.display(item.cfi);
+      toast('Returned to previous page');
+    }
+  }
+};
+
+/* ---------------- edge-hover chapter nav panels (F0) ----------------
+   Replaces the silk ribbons. Resolves the current TOC position with a
+   3-tier match: exact base+fragment (the CFI's bracketed anchor id), then
+   base-only — where several TOC entries share one spine file, the current
+   section is found by comparing the page's CFI element step against each
+   anchor's step (the old base(href)-only matcher always hit the FIRST
+   entry, so nav stuck at the opening section) — then spine proximity. */
+let chNavIdx = -1;   // resolved current TOC index, reused by the [ / ] keys
+const chNavAnchorSteps = new Map();   // spineIndex -> Map(tocIdx -> element step)
+const chNavAnchorComputing = new Set();
+
+function cfiElementStep(cfi){
+  // 'epubcfi(/6/2!/4/6[sec-b]/1:0)' → 6 (first body-level element index)
+  const tail = String(cfi || '').split('!')[1] || '';
+  const parts = tail.split('/');
+  return parts.length > 2 ? (parseInt(parts[2], 10) || 0) : 0;
+}
+
+function computeAnchorSteps(spineIndex, baseName){
+  if(chNavAnchorSteps.has(spineIndex) || chNavAnchorComputing.has(spineIndex)) return;
+  chNavAnchorComputing.add(spineIndex);
+  (async () => {
+    try{
+      const sec = state.book.spine.get(spineIndex);
+      if(!sec) return;
+      if(!sec.document) await sec.load(state.book.load.bind(state.book));
+      const doc = sec.document;
+      const steps = new Map();
+      if(doc && doc.getElementById && sec.cfiFromElement){
+        tocItems.forEach((it, i) => {
+          const h = String(it.href || '');
+          const hi = h.indexOf('#');
+          if(hi < 0) return;
+          if(String(h).split('/').pop().split('#')[0] !== baseName) return;
+          const a = doc.getElementById(h.slice(hi + 1));
+          if(!a) return;
+          steps.set(i, cfiElementStep(sec.cfiFromElement(a)));
+        });
+      }
+      chNavAnchorSteps.set(spineIndex, steps);
+      if(steps.size) updateChapterNav();
+    }catch(e){}
+    finally{ chNavAnchorComputing.delete(spineIndex); }
+  })();
+}
+
+function updateChapterNav(){
+  const leftPanel = el('chNavLeft');
+  const rightPanel = el('chNavRight');
+  if(!leftPanel || !rightPanel || !state.book) return;
+  // Books without a TOC (or mid-rebuild) can't resolve chapters: park both
+  // pills disabled instead of leaving the previous book's state showing.
+  // buildTOC() re-runs this once tocItems lands, so the pills re-enable.
+  if(!tocItems || !tocItems.length){
+    chNavIdx = -1;
+    [el('chLabelPrev'), el('chLabelNext')].forEach(b => {
+      if(b){ b.classList.add('disabled'); b.setAttribute('aria-disabled', 'true'); }
+    });
+    return;
+  }
+
+  const loc = state.rendition ? state.rendition.currentLocation() : null;
+  const curHref = loc && loc.start ? loc.start.href : '';
+  const curIndex = loc && loc.start ? loc.start.index : -1;
+  // loc.start.href never carries the anchor; the CFI asserts it as a
+  // bracketed element id (epubcfi(/6/2!/4/2[sec-a]/1:0)).
+  const cfiFrag = (String((loc && loc.start && loc.start.cfi) || '').match(/\[([^\]]+)\]/) || [])[1] || '';
+
+  const base = x => String(x||'').split('/').pop().split('#')[0];
+  const frag = x => { const h = String(x||''); const i = h.indexOf('#'); return i >= 0 ? h.slice(i+1) : ''; };
+
+  let idx = -1;
+  if(tocItems && tocItems.length){
+    // 1. Exact match (base file + anchor id from the CFI)
+    idx = tocItems.findIndex(i =>
+      base(i.href) === base(curHref) && frag(i.href) === cfiFrag
+    );
+    // 2. Base-only. A single match is unambiguous. Several matches mean the
+    //    TOC splits one spine file into sections: resolve by comparing the
+    //    visible page's last CFI element step against each anchor's step.
+    if(idx === -1){
+      const baseMatches = tocItems
+        .map((item, i) => ({ item, i }))
+        .filter(x => base(x.item.href) === base(curHref));
+      if(baseMatches.length === 1){
+        idx = baseMatches[0].i;
+      } else if(baseMatches.length > 1){
+        const curMatch = baseMatches.find(x => x.i === tocCurIdx);
+        const endCfi = (loc && loc.end && loc.end.cfi) || (loc && loc.start && loc.start.cfi) || '';
+        const curStep = cfiElementStep(endCfi);
+        const steps = curIndex >= 0 ? chNavAnchorSteps.get(curIndex) : null;
+        if(steps && steps.size){
+          let best = -1, bestStep = -1;
+          for(const x of baseMatches){
+            const s = steps.get(x.i);
+            if(s !== undefined && s <= curStep && s > bestStep){ best = x.i; bestStep = s; }
+          }
+          idx = best >= 0 ? best : (curMatch ? curMatch.i : baseMatches[0].i);
+        } else {
+          idx = curMatch ? curMatch.i : baseMatches[0].i;
+          if(curIndex >= 0) computeAnchorSteps(curIndex, base(curHref));
+        }
+      }
+    }
+    // 3. Spine-index proximity fallback
+    if(idx === -1 && curIndex >= 0){
+      idx = tocCurIdx >= 0 ? tocCurIdx : 0;
+    }
+  }
+  chNavIdx = idx;
+
+  // Label pills: fixed "Previous/Next Chapter" text, enabled per position
+  const prevBtn = el('chLabelPrev');
+  const nextBtn = el('chLabelNext');
+  const hasPrev = idx > 0;
+  const hasNext = idx >= 0 && idx < tocItems.length - 1;
+  if(prevBtn){
+    prevBtn.classList.toggle('disabled', !hasPrev);
+    prevBtn.setAttribute('aria-disabled', String(!hasPrev));
+    prevBtn.title = hasPrev
+      ? 'Previous: ' + (tocItems[idx - 1].label || `Chapter ${idx}`)
+      : 'Start of book';
+  }
+  if(nextBtn){
+    nextBtn.classList.toggle('disabled', !hasNext);
+    nextBtn.setAttribute('aria-disabled', String(!hasNext));
+    nextBtn.title = hasNext
+      ? 'Next: ' + (tocItems[idx + 1].label || `Chapter ${idx + 2}`)
+      : 'End of book';
+  }
 }
 async function toggleBookmark(){
   if(!state.rendition) return;
@@ -3147,6 +3803,9 @@ function renderSearchResults(matches, q){
       <div class="search-res-snip">…${highlighted}…</div>
     `;
     li.addEventListener('click', () => {
+      const curLoc = state.rendition ? state.rendition.currentLocation() : null;
+      const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
+      NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
       closeSearch();
       state.rendition.display(m.cfi || m.href);
       poke();
@@ -3343,6 +4002,9 @@ class PageCacheManager {
               s.textContent = buildCSS();
               const cleanHtml = '<!DOCTYPE html>' + doc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
               this.chapterHtmls.set(spineIndex, cleanHtml);
+              // Feature 6: pre-render the neighbor chapter off-screen — fonts,
+              // CSS and column layout warm before the reader ever crosses.
+              this.warmFrame(spineIndex, cleanHtml);
             }catch(err){}
           }
         }
@@ -3357,6 +4019,37 @@ class PageCacheManager {
     } else {
       setTimeout(doLoad, 200);
     }
+  }
+
+  /* Feature 6: pre-render the neighbor chapter in a hidden off-screen
+     iframe — the browser parses, styles and lays it out ahead of the
+     crossing, so the real swap finds warm font/CSS caches. Frames live in
+     their own host (never inside #viewer, so snapshot/selection queries are
+     untouched), capped to spine ±1 and culled on every call. */
+  warmFrame(spineIndex, html) {
+    try{
+      if(!this.warm) this.warm = new Map();
+      const cur = this.currentSpine;
+      for(const [k, fr] of [...this.warm]){
+        if(k === spineIndex || Math.abs(k - cur) > 1){ fr.remove(); this.warm.delete(k); }
+      }
+      if(this.warm.has(spineIndex) || Math.abs(spineIndex - cur) > 1) return;
+      let host = document.getElementById('warmFrames');
+      if(!host){
+        host = document.createElement('div');
+        host.id = 'warmFrames';
+        host.setAttribute('aria-hidden', 'true');
+        host.style.cssText = 'position:fixed;left:-9999px;top:0;width:10px;height:10px;overflow:hidden;pointer-events:none;';
+        document.body.appendChild(host);
+      }
+      const fr = document.createElement('iframe');
+      fr.setAttribute('aria-hidden', 'true');
+      fr.setAttribute('tabindex', '-1');
+      fr.style.cssText = 'width:900px;height:600px;border:none;visibility:hidden;';
+      fr.srcdoc = html;
+      host.appendChild(fr);
+      this.warm.set(spineIndex, fr);
+    }catch(e){}
   }
 
   getPage(offset) {
@@ -3383,6 +4076,14 @@ const FX_NAME  = {slide:'Slide', paper:'Paper flip', none:'Instant'};
 function pickFx(){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches) return 'none';
   return FX_ORDER.includes(settings.turnFx) ? settings.turnFx : 'slide';
+}
+/* Effective turn effect (F11): reduced-motion users get a gentle 90ms
+   crossfade instead of either the fold compositor or a hard swap — unless
+   they explicitly chose Instant. Drag gestures still consult pickFx() so
+   the fold engine never engages under reduced motion. */
+function effectiveFx(){
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches && settings.turnFx !== 'none') return 'crossfade';
+  return pickFx();
 }
 function atEdge(dir){
   try{
@@ -3417,8 +4118,25 @@ function snapshotPage(){
     pageCache.setChapterHtml(html);
   }
 
+  // Live pagination recipe: epub.js writes the column layout inline on
+  // <body>. Cross-chapter snapshots replay it so an adjacent chapter
+  // columnates with identical geometry (width re-based to one page step,
+  // letting the doc overflow into columns like the live renderer does).
+  let pageCSS = null;
+  try{
+    const bd = doc.body;
+    if(bd && /column/i.test(bd.style.cssText || '')){
+      pageCSS = {
+        bodyCss: bd.style.cssText,
+        htmlCss: doc.documentElement.style.cssText || '',
+        pageW: Math.round(vRect.width)
+      };
+    }
+  }catch(e){}
+
   return {
     docHtml: html,
+    pageCSS,
     vRect: {
       left: Math.round(vRect.left),
       top: Math.round(vRect.top),
@@ -3465,6 +4183,13 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
     snap.setAttribute('aria-hidden','true');
     snap.setAttribute('tabindex','-1');
     box.appendChild(snap);
+    // srcdoc fallback (no contentDocument yet) loads async; re-apply the
+    // pagination recipe when it lands so cross-chapter pages still columnate.
+    snap.addEventListener('load', () => {
+      const pc = snap.__pageCSS;
+      if(!pc) return;
+      try{ const d = snap.contentDocument; if(d) applyPageCSS(d, pc); }catch(e){}
+    });
   }
   box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
   const baseRelLeft = (customRelLeft !== undefined) ? customRelLeft : snapInfo.relLeft;
@@ -3497,16 +4222,40 @@ function releaseSnaps(root){
   });
 }
 
-function populateSnap(snap, html){
+function stripWidthDecl(css){
+  return css.replace(/(?:^|;)\s*(?:max-)?width\s*:[^;]*;?\s*/gi, ';').replace(/^;+|;+$/g, '');
+}
+// Re-bases an adjacent (unpaginated) chapter doc onto the live pagination:
+// same columns/gap/height/padding, width pinned to one page step so content
+// overflows into columns exactly like the live renderer. Docs that already
+// carry their own column layout (cached live html) are left untouched.
+function applyPageCSS(doc, pc){
+  try{
+    if(!doc || !doc.body) return;
+    const bd = doc.body;
+    if(/column/i.test(bd.style.cssText || '')) return;
+    const base = stripWidthDecl(pc.bodyCss || '');
+    const sep = base && !/;\s*$/.test(base) ? ';' : '';
+    bd.style.cssText = base + sep + `width:${pc.pageW || 618}px;`;
+    if(pc.htmlCss && doc.documentElement && !doc.documentElement.style.cssText){
+      doc.documentElement.style.cssText = pc.htmlCss;
+    }
+  }catch(e){}
+}
+
+function populateSnap(snap, html, pageCSS){
   try{
     const sDoc = snap.contentDocument;
     if(sDoc){
       sDoc.open();
       sDoc.write(html);
       sDoc.close();
+      snap.__pageCSS = null;
+      if(pageCSS) applyPageCSS(sDoc, pageCSS);
       return;
     }
   }catch(e){}
+  snap.__pageCSS = pageCSS || null;
   snap.srcdoc = html;
 }
 
@@ -3530,6 +4279,25 @@ async function fxSlide(dir, snapInfo){
     { duration: dur, easing: ease, fill: 'forwards' }
   );
 
+  try{ await anim.finished; }catch(e){}
+  finally{ releaseSnaps(wrap); wrap.remove(); }
+}
+
+/* Crossfade turn (F11): the old page's snapshot fades out over 90ms while
+   epub.js paints the destination beneath it — no fold, no slide. */
+async function fxCrossfade(dir, snapInfo){
+  const { vRect } = snapInfo;
+  const wrap = document.createElement('div');
+  wrap.className = 'snap-slider';
+  wrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;will-change:opacity;`;
+  const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+  populateSnap(snap, snapInfo.docHtml);
+  const anim = wrap.animate(
+    [{ opacity: 1 }, { opacity: 0 }],
+    { duration: 90, easing: 'linear', fill: 'forwards' }
+  );
   try{ await anim.finished; }catch(e){}
   finally{ releaseSnaps(wrap); wrap.remove(); }
 }
@@ -3590,8 +4358,13 @@ class PageSurfacePool {
 
     let inSameChapter = false;
     if(d && d.total) {
-      if(dir > 0 && d.page < d.total) inSameChapter = true;
-      if(dir < 0 && d.page > 1) inSameChapter = true;
+      // A spread turn advances TWO columns, not one: predicting from the
+      // spread's leading page keeps the step inside the chapter; otherwise
+      // every turn off a chapter's last spread lands beyond its content and
+      // the incoming page renders empty.
+      const stepPages = isSpread ? 2 : 1;
+      if(dir > 0 && d.page + stepPages <= d.total) inSameChapter = true;
+      if(dir < 0 && d.page - stepPages >= 1) inSameChapter = true;
     } else {
       const fWidth = snapInfo.fRect.width;
       if(dir > 0 && Math.abs(snapInfo.relLeft) + stepW + 10 < fWidth) inSameChapter = true;
@@ -3623,7 +4396,12 @@ class PageSurfacePool {
       html: adjacentHtml,
       relLeft: adjacentRelLeft,
       isBoundary: false,
-      spineIndex: targetSpine
+      spineIndex: targetSpine,
+      // Backward cross-chapter: the previous chapter's own width differs
+      // from the current one, so relLeft above is only a guess. The
+      // compositor measures the rendered snapshot and seats the last
+      // spread precisely (fitUnderneath).
+      measureLast: dir < 0
     };
   }
 }
@@ -3640,6 +4418,13 @@ class PageTurnCompositor {
     this.root = null;
     this.stationaryLeaf = null;
     this.underneathLeaf = null;
+    this.pendingSnaps = [];     // populated on a timer (flushSnaps) after init
+    this.underSnap = null;      // incoming-page iframe (measured for backward crosses)
+    this.underCropLeft = 0;
+    this.flipReady = false;     // true once snaps are flushed (and seat measured)
+    this.populated = false;     // false while content surfaces stay transparent
+    this.lastP = 0;
+    this.destroyed = false;
     // Fold-sheet model (spec §8-9): flat shrinking sheet + paper curl flap.
     // No live content is ever 3D-rotated, so text can never mirror.
     this.sheet = null;          // flat turning sheet, clipped via clip-path
@@ -3682,10 +4467,10 @@ class PageTurnCompositor {
 
     const sheet = document.createElement('div');
     sheet.className = 'pt-sheet';
-    sheet.style.cssText = `left:${bx}px;top:0;width:${bw}px;height:${VH}px;`;
+    sheet.style.cssText = `left:${bx}px;top:0;width:${bw}px;height:${VH}px;opacity:0;`;
     const { box: sBox, snap: sSnap } = createSnapBox(snap, bx, bw, relLeft);
     sheet.appendChild(sBox);
-    populateSnap(sSnap, html);
+    this.pendingSnaps.push({ snap: sSnap, html });
     if(this.quality !== 'basic') addGrain(sheet);
     root.appendChild(sheet);
     this.sheet = sheet;
@@ -3742,22 +4527,24 @@ class PageTurnCompositor {
         // 1. Stationary Left Page (L0) on left [0, WL]
         const statWrap = document.createElement('div');
         statWrap.className = 'pt-stationary-leaf';
-        statWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;`;
+        statWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
         const { box: statBox, snap: sSnap } = createSnapBox(snap, 0, WL, snap.relLeft);
         statWrap.appendChild(statBox);
-        populateSnap(sSnap, snap.docHtml);
+        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml });
         if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
 
         // 2. Underneath Right Page (R+1) revealed on right [WL, VW]
         const underWrap = document.createElement('div');
-        underWrap.className = 'pt-underneath-leaf';
-        underWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;`;
+        underWrap.className = 'pt-underneath-leaf pt-underneath';
+        underWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
         if(hasAdj) {
           const { box: uBox, snap: uSnap } = createSnapBox(snap, WL, WR, adjRelLeft);
           underWrap.appendChild(uBox);
-          populateSnap(uSnap, adjHtml);
+          this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+          this.underSnap = uSnap;
+          this.underCropLeft = WL;
         }
         if(this.quality !== 'basic') addGrain(underWrap);
         root.appendChild(underWrap);
@@ -3798,22 +4585,24 @@ class PageTurnCompositor {
         // 1. Stationary Right Page (R0) on right [WL, VW]
         const statWrap = document.createElement('div');
         statWrap.className = 'pt-stationary-leaf';
-        statWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;`;
+        statWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
         const { box: statBox, snap: sSnap } = createSnapBox(snap, WL, WR, snap.relLeft);
         statWrap.appendChild(statBox);
-        populateSnap(sSnap, snap.docHtml);
+        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml });
         if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
 
         // 2. Underneath Left Page (L-1) revealed on left [0, WL]
         const underWrap = document.createElement('div');
-        underWrap.className = 'pt-underneath-leaf';
-        underWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;`;
+        underWrap.className = 'pt-underneath-leaf pt-underneath';
+        underWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
         if(hasAdj) {
           const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, WL, adjRelLeft);
           underWrap.appendChild(uBox);
-          populateSnap(uSnap, adjHtml);
+          this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+          this.underSnap = uSnap;
+          this.underCropLeft = 0;
         }
         if(this.quality !== 'basic') addGrain(underWrap);
         root.appendChild(underWrap);
@@ -3852,12 +4641,14 @@ class PageTurnCompositor {
       const W = VW;
       // 1. Underneath revealed page
       const underWrap = document.createElement('div');
-      underWrap.className = 'pt-underneath-leaf';
-      underWrap.style.cssText = `left:0;top:0;width:${W}px;height:${VH}px;`;
+      underWrap.className = 'pt-underneath-leaf pt-underneath';
+      underWrap.style.cssText = `left:0;top:0;width:${W}px;height:${VH}px;opacity:0;`;
       if(hasAdj) {
         const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, W, adjRelLeft);
         underWrap.appendChild(uBox);
-        populateSnap(uSnap, adjHtml);
+        this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+        this.underSnap = uSnap;
+        this.underCropLeft = 0;
       }
       if(this.quality !== 'basic') addGrain(underWrap);
       root.appendChild(underWrap);
@@ -3879,7 +4670,77 @@ class PageTurnCompositor {
 
     document.body.appendChild(root);
     this.root = root;
+    // Content surfaces stay transparent (opacity 0 above) until flushSnaps
+    // writes the iframes on a zero-ms timer: populating synchronously inside
+    // a pointermove handler janks the drag start and stretches the gesture's
+    // velocity window. Until then the live page shows through unchanged, so
+    // the compositor is visually indistinguishable at p≈0.
     this.render(0);
+    setTimeout(() => this.flushSnaps(), 0);
+  }
+
+  flushSnaps(){
+    if(this.destroyed || !this.root) return;
+    // Populate only after the root is connected: a detached iframe has no
+    // contentDocument, so writing earlier would silently fall back to async
+    // srcdoc and the first turns of a session would show blank leaves.
+    const pc = this.snapInfo.pageCSS;
+    for(const item of this.pendingSnaps){
+      item.snap.__pageCSS = null;
+      populateSnap(item.snap, item.html, (item.html !== this.snapInfo.docHtml) ? pc : null);
+    }
+    this.pendingSnaps.length = 0;
+    this.populated = true;
+    if(this.sheet) this.sheet.style.opacity = '';
+    if(this.stationaryLeaf) this.stationaryLeaf.style.opacity = '';
+    if(this.underneathLeaf) this.underneathLeaf.style.opacity = '';
+    const adj = this.adjacentInfo;
+    if(adj && adj.measureLast && this.underSnap) this.fitUnderneath();
+    else this.flipReady = true;
+    this.render(this.lastP);
+  }
+
+  /* Backward cross-chapter: the previous chapter paginates to its own width,
+     so the last spread sits at (itsWidth - spread). The seat was a guess;
+     measure the rendered snapshot now and slide the window to the true last
+     spread. runTurnFx waits for this.flipReady before revealing the turn. */
+  fitUnderneath(){
+    const snap = this.underSnap;
+    if(!snap) return;
+    this.flipReady = false;
+    const apply = () => {
+      try{
+        const d = snap.contentDocument;
+        if(!d || !d.documentElement || d.readyState !== 'complete') return false;
+        // Body width only: documentElement.scrollWidth is floored at the
+        // iframe viewport, which over-seats chapters narrower than the
+        // current viewer (their window would land past the content).
+        const w = d.body ? d.body.scrollWidth : 0;
+        if(!w) return false;
+        // Seat the doc's final spread: window [w-VW, w) — exactly where the
+        // live renderer parks the previous chapter's last page.
+        const rel = -Math.max(0, Math.round(w) - this.vRect.width);
+        snap.style.left = `${rel}px`;
+        return true;
+      }catch(e){ return false; }
+    };
+    const fontRecheck = () => {
+      try{
+        const fd = snap.contentDocument && snap.contentDocument.fonts;
+        if(fd && fd.ready && fd.ready.then) fd.ready.then(() => {
+          if(this.root && snap.isConnected) apply();
+        }).catch(()=>{});
+      }catch(e){}
+    };
+    if(apply()){ this.flipReady = true; fontRecheck(); return; }
+    const t0 = performance.now();
+    const tick = () => {
+      if(!this.root) return;            // compositor destroyed mid-wait
+      if(apply()){ this.flipReady = true; return; }
+      if(performance.now() - t0 < 1200) requestAnimationFrame(tick);
+      else this.flipReady = true;       // give up: seat as predicted
+    };
+    requestAnimationFrame(tick);
   }
 
   // Full-spread two-phase fold (A-S): the fold travels the whole spread width
@@ -3894,7 +4755,7 @@ class PageTurnCompositor {
     // 1. Front sheet: the flat, un-turned remainder. Phase 1 matches the
     // legacy look extended full-spread; past the crossover the front is
     // face-down, so the sheet hides.
-    if(this.sheet){
+    if(this.sheet && this.populated){
       if(pc < 0.5){
         this.sheet.style.opacity = '1';
         this.sheet.style.visibility = 'visible';
@@ -3908,7 +4769,7 @@ class PageTurnCompositor {
     }
     // 2. Back sheet: paper over the opposite page in phase 2 (destroy swaps
     // to the live spread, as in the legacy path — no live text ever mirrors).
-    if(this.backSheet){
+    if(this.backSheet && this.populated){
       if(pc < 0.5 || this.isBoundary){
         this.backSheet.style.opacity = '0';
         this.backSheet.style.visibility = 'hidden';
@@ -3955,6 +4816,12 @@ class PageTurnCompositor {
     if(this.spineValley){
       this.spineValley.style.opacity = pc < 0.5 ? '1' : Math.max(0, 1 - (pc - 0.5) * 4).toFixed(3);
     }
+    // 7. Fore-edge depth hint on the underneath page (F10).
+    if(this.underneathLeaf){
+      const si = Math.min(pc * 0.6, 0.3);
+      this.underneathLeaf.style.boxShadow =
+        `inset ${dir > 0 ? '' : '-'}8px 0 16px rgba(0,0,0,${si.toFixed(3)})`;
+    }
   }
 
   // Single visual source of truth: TurnState p drives fold, curvature,
@@ -3963,6 +4830,7 @@ class PageTurnCompositor {
   // ambient shadow, edge highlight. No card rotation anywhere.
   render(p) {
     p = clamp(p, 0, 1.05);
+    this.lastP = p;
     const pc = clamp(p, 0, 1);
     const dir = this.dir;
     const bw = this.leafW || 1;
@@ -3977,7 +4845,8 @@ class PageTurnCompositor {
 
     // 1. Flat turning sheet shrinks as the fold advances (§17).
     // clip-path only: sheet never rotates, text never distorts or mirrors.
-    if(this.sheet) {
+    // Hidden entirely until flushSnaps populated the snapshot iframes.
+    if(this.sheet && this.populated) {
       const cut = Math.round(bw * pc);
       this.sheet.style.clipPath = dir > 0
         ? `inset(0 ${cut}px 0 0)`
@@ -4022,9 +4891,18 @@ class PageTurnCompositor {
       this.ambientShadow.style.opacity =
         premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
     }
+
+    // 6. Fore-edge depth hint on the underneath page (F10): shadow scales
+    //    with turn progress so the page stack reads as a physical volume.
+    if(this.underneathLeaf) {
+      const si = Math.min(pc * 0.6, 0.3);
+      this.underneathLeaf.style.boxShadow =
+        `inset ${dir > 0 ? '' : '-'}8px 0 16px rgba(0,0,0,${si.toFixed(3)})`;
+    }
   }
 
   destroy() {
+    this.destroyed = true;
     if(this.root) {
       releaseSnaps(this.root);
       this.root.remove();
@@ -4166,24 +5044,9 @@ class TurnGestureController {
         if(!inZone) return;
       } catch(err) {}
     }
-    if(atEdge(dir)) {
-      const snapInfo = snapshotPage();
-      if(!snapInfo) return;
-      this.active = true;
-      this.dir = dir;
-      this.snapInfo = snapInfo;
-      this.adjacentInfo = { isBoundary: true };
-      this.attachCapture(e);
-      this.dragDoc = this.downDoc;
-      this.compositor = new PageTurnCompositor(dir, snapInfo, this.adjacentInfo);
-      state.turning = true;
-      body.classList.add('turning');
-      return;
-    }
-
     const snapInfo = snapshotPage();
     if(!snapInfo) return;
-    const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
+    const adjacentInfo = atEdge(dir) ? { isBoundary: true } : PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
 
     this.active = true;
     this.dir = dir;
@@ -4216,6 +5079,10 @@ class TurnGestureController {
 
   async onPointerUp(e) {
     if(this.pointerId !== null && e.pointerId !== this.pointerId) return;
+    // Re-entrancy guard: one physical release reaches several bound handlers
+    // (viewer, stage, window, frame doc). The first one nulls pointerId and
+    // parks on the settle animation; duplicates must not re-run the commit.
+    if(!this.startTime) return;
     const wasActive = this.active;
     const startT = this.startTime;
     const sX = this.startX;
@@ -4332,7 +5199,12 @@ async function playTurnFx(dir, fx){
   state.turning = true; body.classList.add('turning');
   PageSound.play();
   try{
-    if(fx === 'slide') {
+    if(fx === 'crossfade') {
+      const arrived = nextRelocated(600);
+      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+      await fxCrossfade(dir, snapInfo);
+      await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
+    } else if(fx === 'slide') {
       const arrived = nextRelocated(600);
       const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
       await fxSlide(dir, snapInfo);
@@ -4341,6 +5213,14 @@ async function playTurnFx(dir, fx){
       // Physical Paper Flip with Moving Fold, Curvature, Perspective & Shadows
       const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
       const compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
+      // Backward chapter-cross: hold p=0 (front leaf still covers everything)
+      // until the previous chapter's last spread is measured and seated.
+      if(compositor.flipReady === false){
+        const t0 = performance.now();
+        while(compositor.flipReady === false && performance.now() - t0 < 900){
+          await new Promise(r => requestAnimationFrame(r));
+        }
+      }
       await PageTurnPhysics.animate({
         fromP: 0,
         toP: 1,
@@ -4366,7 +5246,7 @@ async function turn(dir, opts = {}){
   hideChrome(); // page turns never summon the bars
   hideSelBar();
   if(atEdge(dir)) return;
-  const fx = pickFx();
+  const fx = effectiveFx();
   if(fx === 'none'){
     (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
     return;
@@ -4407,6 +5287,23 @@ async function pageText(){
   const cached = (typeof pageCache !== 'undefined') ? pageCache.getPage(0) : null;
   if(cached && cached.text) return { txt: cached.text, cr };
   return {err:true};
+}
+/* Chapter-crossing title flash (F2): fires when a committed turn lands on a
+   different spine section; auto-hides after 900ms. */
+let chFlashTimer = 0, chFlashLast = 0;
+function showChFlash(text){
+  const f = el('chFlash');
+  if(!f) return;
+  // Queued turns can cross two chapters within a second; one flash is
+  // enough — re-triggers inside 1.5s are swallowed so the caption hides
+  // on schedule instead of flickering back on.
+  const now = performance.now();
+  if(now - chFlashLast < 1500) return;
+  chFlashLast = now;
+  f.textContent = text;
+  f.classList.remove('hide');
+  clearTimeout(chFlashTimer);
+  chFlashTimer = setTimeout(() => f.classList.add('hide'), 900);
 }
 function nextRelocated(timeout){
   return new Promise(res=>{
@@ -4750,7 +5647,7 @@ const Footnotes = {
       this.close();
       document.removeEventListener('pointerdown', closer, true);
     };
-    setTimeout(() => document.addEventListener('pointerdown', closer, true), 0);
+    document.addEventListener('pointerdown', closer, true);
   }
 };
 
@@ -4887,12 +5784,193 @@ function syncFullscreenUI(){
 document.addEventListener('fullscreenchange', syncFullscreenUI);
 document.addEventListener('webkitfullscreenchange', syncFullscreenUI);
 
+/* ---------------- first-run coach marks (F7) ----------------
+   Three one-time hints over the demo/first book: drag-to-flip, rail scrub,
+   and the shortcuts overlay. Dismissed permanently via localStorage. */
+const CoachMarks = {
+  steps: [
+    { target: 'viewer', pos: 'coach-at-edge', text: 'Drag the page edge to flip pages' },
+    { target: 'rail',   pos: 'coach-at-rail', text: 'Drag the progress bar to jump anywhere' },
+    { target: null,     pos: 'coach-at-center', text: 'Press ? to see all keyboard shortcuts' },
+  ],
+  current: 0,
+  done(){ try{ return !!localStorage.getItem('folio-coach-done'); }catch(e){ return false; } },
+  start(){
+    if(this.done() || !state.rendition || !body.classList.contains('state-reading')) return;
+    this.current = 0;
+    this.show();
+  },
+  show(){
+    this.hide();
+    const step = this.steps[this.current];
+    const mark = document.createElement('div');
+    mark.id = 'coachMark';
+    mark.className = 'coach-mark ' + step.pos;
+    const txt = document.createElement('div');
+    txt.className = 'coach-text';
+    txt.textContent = step.text;
+    const btn = document.createElement('button');
+    btn.className = 'coach-btn ' + (this.current >= this.steps.length - 1 ? 'coach-done' : 'coach-next');
+    btn.textContent = 'Got it';
+    btn.addEventListener('click', () => this.next());
+    mark.appendChild(txt);
+    mark.appendChild(btn);
+    document.body.appendChild(mark);
+  },
+  next(){
+    this.current++;
+    if(this.current >= this.steps.length){ this.finish(); return; }
+    this.show();
+  },
+  finish(){
+    try{ localStorage.setItem('folio-coach-done', '1'); }catch(e){}
+    this.hide();
+  },
+  hide(){
+    const old = document.getElementById('coachMark');
+    if(old) old.remove();
+  }
+};
+
+/* ---------------- command palette (F9, Ctrl+K) ----------------
+   Fuzzy (substring, then in-order subsequence) filter over reader commands
+   plus "Jump to:" entries for every TOC chapter. Enter runs the selection. */
+const COMMANDS = [
+  { id: 'toc',        label: 'Open table of contents',  action: () => toggleToc(),        keys: 'T' },
+  { id: 'settings',   label: 'Open typography settings', action: () => toggleSheet(),     keys: 'S' },
+  { id: 'search',     label: 'Search in book',          action: () => toggleSearch(),     keys: 'Ctrl+F' },
+  { id: 'bookmark',   label: 'Toggle bookmark',         action: () => toggleBookmark(),   keys: 'B' },
+  { id: 'tts',        label: 'Read aloud / pause',      action: () => TTS.toggle(),       keys: 'R' },
+  { id: 'fullscreen', label: 'Toggle fullscreen',       action: () => toggleFullscreen(), keys: 'F' },
+  { id: 'spread',     label: 'Toggle two-page spread',  action: () => { const b = el('btnSpread'); if(b) b.click(); }, keys: 'D' },
+  { id: 'bionic',     label: 'Toggle bionic reading',   action: () => setBionic(!settings.bionic) },
+  { id: 'guide',      label: 'Toggle reading guide',    action: () => setGuide(!settings.guide), keys: 'G' },
+  { id: 'help',       label: 'Keyboard shortcuts',      action: () => toggleHelp(),       keys: '?' },
+  { id: 'home',       label: 'Go to home / library',    action: () => goHome(),           keys: 'H' },
+];
+const CmdPalette = {
+  open: false, sel: 0, items: [],
+  toggle(){ this.open ? this.close() : this.show(); },
+  show(){
+    ensureCmdPalette();
+    const p = el('cmdPalette');
+    if(!p) return;
+    p.classList.remove('hide');
+    this.open = true;
+    const inp = el('cmdInput');
+    inp.value = '';
+    this.render('');
+    // Focus immediately (visibility flips synchronously now) and again on
+    // the next frame as a belt-and-braces for mid-transition layouts.
+    inp.focus();
+    requestAnimationFrame(() => inp.focus());
+  },
+  close(){
+    const p = el('cmdPalette');
+    if(p) p.classList.add('hide');
+    this.open = false;
+  },
+  matches(label, q){
+    if(!q) return true;
+    const s = label.toLowerCase();
+    if(s.includes(q)) return true;
+    let i = 0;
+    for(const c of s){ if(c === q[i]) i++; if(i >= q.length) return true; }
+    return i >= q.length;
+  },
+  render(q){
+    const list = el('cmdList');
+    if(!list) return;
+    q = q.trim().toLowerCase();
+    let cmds = COMMANDS.filter(c => this.matches(c.label, q));
+    if(state.rendition && tocItems && tocItems.length){
+      const tocCmds = tocItems
+        .map((it, i) => ({ id: 'toc' + i, jump: true, href: it.href,
+          label: 'Jump to: ' + (it.label || ('Chapter ' + (i + 1))) }))
+        .filter(c => this.matches(c.label, q))
+        .slice(0, 30);
+      cmds = cmds.concat(tocCmds);
+    }
+    this.items = cmds;
+    this.sel = 0;
+    list.innerHTML = '';
+    if(!cmds.length){
+      const li = document.createElement('li');
+      li.className = 'cmd-empty';
+      li.textContent = 'No matching commands';
+      list.appendChild(li);
+      return;
+    }
+    cmds.forEach((c, i) => {
+      const li = document.createElement('li');
+      li.className = 'cmd-item' + (i === this.sel ? ' sel' : '');
+      li.textContent = c.label + (c.keys ? '   ·   ' + c.keys : '');
+      li.addEventListener('click', () => this.exec(c));
+      li.addEventListener('mousemove', () => {
+        if(this.sel !== i){
+          this.sel = i;
+          [...list.children].forEach((n, j) => n.classList.toggle('sel', j === i));
+        }
+      });
+      list.appendChild(li);
+    });
+  },
+  move(d){
+    if(!this.items.length) return;
+    this.sel = (this.sel + d + this.items.length) % this.items.length;
+    const list = el('cmdList');
+    [...list.children].forEach((n, j) => n.classList.toggle('sel', j === this.sel));
+    const cur = list.children[this.sel];
+    if(cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
+  },
+  exec(c){
+    this.close();
+    try{ c.action(); }catch(e){}
+  }
+};
+// P6: the palette DOM is created on first Ctrl+K — power-user surface,
+// zero initial-DOM cost. Wiring happens once, at creation.
+let _cmdWired = false;
+function ensureCmdPalette(){
+  if(el('cmdPalette')){ if(!_cmdWired){ wireCmdPalette(); } return; }
+  const div = document.createElement('div');
+  div.id = 'cmdPalette';
+  div.className = 'cmd-palette hide';
+  div.setAttribute('role', 'dialog');
+  div.setAttribute('aria-label', 'Command palette');
+  div.innerHTML = '<input id="cmdInput" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false"><ul id="cmdList"></ul>';
+  document.body.appendChild(div);
+  wireCmdPalette();
+}
+function wireCmdPalette(){
+  if(_cmdWired) return;
+  _cmdWired = true;
+  el('cmdInput').addEventListener('keydown', e => {
+    e.stopPropagation();
+    if(e.key === 'Escape'){ e.preventDefault(); CmdPalette.close(); }
+    else if(e.key === 'ArrowDown'){ e.preventDefault(); CmdPalette.move(1); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); CmdPalette.move(-1); }
+    else if(e.key === 'Enter'){
+      e.preventDefault();
+      const c = CmdPalette.items[CmdPalette.sel];
+      if(c) CmdPalette.exec(c);
+    }
+  });
+  el('cmdInput').addEventListener('input', e => CmdPalette.render(e.target.value));
+  el('cmdPalette').addEventListener('pointerdown', e => e.stopPropagation());
+}
+
 /* ---------------- keyboard ---------------- */
 function onKey(e){
   const isCtrl = e.ctrlKey || e.metaKey;
   if(isCtrl && (e.key==='o' || e.key==='O')){
     e.preventDefault();
     el('file').click();
+    return;
+  }
+  if(isCtrl && (e.key==='k' || e.key==='K')){
+    e.preventDefault();
+    if(body.classList.contains('state-reading')) CmdPalette.toggle();
     return;
   }
   if(isCtrl && (e.key==='f' || e.key==='F')){
@@ -4908,7 +5986,7 @@ function onKey(e){
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
   const tag=(e.target&&e.target.tagName)||'';
   if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
-  if(e.key==='Escape'){ AutoScroll.stop(); Lightbox.close(); Footnotes.close(); closePanels(); return; }
+  if(e.key==='Escape'){ AutoScroll.stop(); Lightbox.close(); Footnotes.close(); CmdPalette.close(); closePanels(); return; }
   if(e.key==='?'){ toggleHelp(); return; }
   if(e.key==='f'||e.key==='F'){ toggleFullscreen(); return; }
   if(e.key==='r'||e.key==='R'){
@@ -4946,6 +6024,14 @@ function onKey(e){
     case 'H': {
       if(body.classList.contains('state-reading')) goHome();
       else if(state.book) resumeReading();
+      break;
+    }
+    case '[': {
+      if(chNavIdx > 0) jumpToTocIndex(chNavIdx - 1);
+      break;
+    }
+    case ']': {
+      if(tocItems && chNavIdx >= 0 && chNavIdx < tocItems.length - 1) jumpToTocIndex(chNavIdx + 1);
       break;
     }
   }
@@ -5072,11 +6158,21 @@ function syncSize(){
   el('sizeAuto').classList.toggle('on',settings.auto);
   applyFit();
 }
+let nudgeHudTimer = 0;
+function showNudgeHud(text){
+  const hud = el('nudgeHud');
+  if(!hud) return;
+  hud.textContent = text;
+  hud.classList.remove('hide');
+  clearTimeout(nudgeHudTimer);
+  nudgeHudTimer = setTimeout(() => hud.classList.add('hide'), 800);
+}
 function nudgeSize(d){
   const base=effSize();
   settings.auto=false;
   settings.size=clamp(Math.round((base+d)*10)/10,15,28);
   save(); syncSize(); relayout();
+  showNudgeHud('Aa ' + settings.size + 'px');
 }
 function nudgeWidth(d){
   if(settings.widthAuto) settings.widthAuto = false;
@@ -5090,7 +6186,76 @@ function nudgeWidth(d){
   if(sp) settings.widthSpread = nw;
   else settings.widthSingle = nw;
   save(); applyFit(); relayout();
+  showNudgeHud('↔ ' + effWidth() + 'px');
 }
+function applyEnvironment(envKey){
+  if(envKey === 'paper'){
+    settings.theme = 'paper';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = true;
+    settings.warmth = 0;
+    settings.preset = 'classic';
+  } else if(envKey === 'clean'){
+    settings.theme = 'light';
+    settings.themeAuto = false;
+    settings.font = 'Lexend';
+    settings.grain = false;
+    settings.warmth = 0;
+    settings.preset = 'relaxed';
+  } else if(envKey === 'night'){
+    settings.theme = 'noir';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = false;
+    settings.warmth = 40;
+    settings.preset = 'classic';
+  }
+  applyTheme();
+  syncFontSel();
+  applyWarmth();
+  syncWarm();
+  syncPresetUI();
+  syncControls();
+  save();
+  relayout();
+  syncEnvCards();
+}
+function syncEnvCards(){
+  const p = el('envPaper');
+  const c = el('envClean');
+  const n = el('envNight');
+  if(!p || !c || !n) return;
+  const isPaper = settings.theme === 'paper' && settings.font === 'Literata' && !settings.warmth;
+  const isClean = settings.theme === 'light' && settings.font === 'Lexend' && !settings.warmth;
+  const isNight = settings.theme === 'noir' && (settings.warmth > 0 || settings.theme === 'noir');
+  p.classList.toggle('sel', isPaper);
+  c.classList.toggle('sel', isClean);
+  n.classList.toggle('sel', isNight && !isPaper && !isClean);
+}
+
+// Feature 3: time-aware auto theme. With the Auto chip on, the hour of day
+// picks the theme and ramps warmth: paper by day, gradual dusk, night late.
+// A dark OS preference biases the dusk window toward night. Checked at open
+// and every 10 minutes — zero interaction after the one toggle.
+function autoThemeTick(){
+  if(!settings.themeAuto) return;
+  const h = new Date().getHours();
+  const dark = osDark();
+  let theme, warmth;
+  if(h >= 6 && h < 18){ theme = 'paper'; warmth = 0; }
+  else if(h >= 18 && h < 21){ theme = dark ? 'noir' : 'paper'; warmth = 20 + (h - 18) * 13; }
+  else if(h >= 21 && h < 23){ theme = 'noir'; warmth = 40; }
+  else { theme = 'noir'; warmth = 70; }
+  if(settings.theme !== theme || (settings.warmth || 0) !== warmth){
+    settings.theme = theme;
+    settings.warmth = warmth;
+    save();
+    applyTheme(); applyWarmth(); syncWarm(); syncEnvCards();
+    scheduleBookRefresh(false);
+  }
+}
+setInterval(autoThemeTick, 600000);
 function syncControls(){
   syncFontSel(); applyTheme();
   el('swBionic').checked=settings.bionic;
@@ -5102,6 +6267,7 @@ function syncControls(){
   el('swGrain').checked=settings.grain !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm();
   el('swPerBook').checked=!!settings.perBookType;
+  syncEnvCards();
 }
 
 /* ---------------- wiring ---------------- */
@@ -5112,6 +6278,26 @@ el('btnOpen').addEventListener('click',()=>el('file').click());
 el('file').addEventListener('change',e=>{ loadFile(e.target.files[0]); e.target.value=''; });
 el('btnDemo').addEventListener('click',loadDemo);
 
+// Feature 5: background vocabulary builder — every Define lookup is logged
+// per book; the landing stats badge shows the accumulation. No workflow
+// change during reading.
+const VocabLog = {
+  key(){ return 'folio-vocab:' + (state.currentTitle || ''); },
+  add(word, chapter){
+    try{
+      if(!word || word.length < 2) return;
+      const key = this.key();
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      if(list.some(e => e.word === word)) return;
+      list.push({ word, chapter: chapter || '', ts: Date.now() });
+      localStorage.setItem(key, JSON.stringify(list));
+    }catch(e){}
+  },
+  count(title){
+    try{ return JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]').length; }
+    catch(e){ return 0; }
+  }
+};
 el('selDefine').addEventListener('click', async ()=>{
   const w=(selText.split(' ')[0]||'').replace(/[^A-Za-z'-]/g,'').toLowerCase();
   const box=el('selDef');
@@ -5127,7 +6313,12 @@ el('selDefine').addEventListener('click', async ()=>{
     const m=j && j[0] && j[0].meanings && j[0].meanings[0];
     const def=m && m.definitions && m.definitions[0] && m.definitions[0].definition;
     const txt=def ? ((m.partOfSpeech?('('+m.partOfSpeech+') '):'')+def) : 'No definition found.';
-    if(def) DictCache.set(w, txt);
+    if(def){
+      DictCache.set(w, txt);
+      let ch = '';
+      try{ ch = chapterFor(state.rendition.currentLocation().start.href) || ''; }catch(e){}
+      VocabLog.add(w, ch);
+    }
     box.textContent=txt;
   }catch(e){ box.textContent='Definitions need an internet connection.'; }
 });
@@ -5201,7 +6392,7 @@ el('marginRange').addEventListener('input', e => {
 // Line height
 el('lhAuto').addEventListener('click', () => {
   settings.lhAuto = true;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 el('lhRange').addEventListener('input', e => {
   settings.lhAuto = false;
@@ -5212,7 +6403,7 @@ el('lhRange').addEventListener('input', e => {
 // Letter spacing
 el('lsAuto').addEventListener('click', () => {
   settings.lsAuto = true;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 el('lsRange').addEventListener('input', e => {
   settings.lsAuto = false;
@@ -5223,7 +6414,7 @@ el('lsRange').addEventListener('input', e => {
 // Word spacing
 el('wsAuto').addEventListener('click', () => {
   settings.wsAuto = true;
-  save(); applyFit(); refreshCSS();
+  save(); scheduleBookRefresh(false);
 });
 el('wsRange').addEventListener('input', e => {
   settings.wsAuto = false;
@@ -5297,6 +6488,93 @@ el('swPerBook').addEventListener('change',e=>{
 
 // Bookmark ribbon & TOC tabs
 el('bookmarkRibbon').addEventListener('click', toggleBookmark);
+
+// Dual silk chapter ribbons
+// Chapter jump helper shared by the edge panels and the [ / ] keys.
+// Same-file fragment targets need special care: rendition.display() resolves
+// the spine section and treats an already-open section as a no-op, so an
+// anchor jump ("Inaction" -> "Non-Interference" in one shared file) silently
+// did nothing. Resolve the anchor element's CFI from the section document
+// and display THAT — a real relocation the compositor can ride.
+async function jumpToTocIndex(idx){
+  if(!state.rendition || !tocItems || idx < 0 || idx >= tocItems.length) return;
+  const curLoc = state.rendition.currentLocation();
+  const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
+  NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+  const item = tocItems[idx];
+  const href = String(item.href || '');
+  const hi = href.indexOf('#');
+  const base = hi >= 0 ? href.slice(0, hi) : href;
+  const frag = hi >= 0 ? href.slice(hi + 1) : '';
+  try{
+    if(frag && state.book && state.book.spine){
+      const sec = state.book.spine.get(base);
+      if(sec){
+        // sec.load() resolves with a wrapper; the Document lands on the
+        // section itself.
+        if(!sec.document) await sec.load(state.book.load.bind(state.book));
+        const doc = sec.document;
+        const anchor = doc && doc.getElementById ? doc.getElementById(frag) : null;
+        // Element-terminal CFIs don't relocate an already-open section;
+        // build one with a text terminal (as the rail-seek CFIs carry).
+        if(anchor && sec.cfiFromElement){
+          let targetCfi = null;
+          try{
+            let tn = null;
+            if(doc.createTreeWalker){
+              const w = doc.createTreeWalker(anchor, 4 /* NodeFilter.SHOW_TEXT */);
+              tn = w.nextNode();
+            }
+            if(tn){
+              const r = doc.createRange();
+              r.setStart(tn, 0);
+              r.setEnd(tn, 0);
+              targetCfi = sec.cfiFromRange ? sec.cfiFromRange(r) : null;
+            }
+          }catch(e){}
+          if(!targetCfi){
+            try{ targetCfi = sec.cfiFromElement(anchor) + '/1:0'; }catch(e){}
+          }
+          if(targetCfi){
+            // Listen BEFORE navigating: relocated fires during display(), so
+            // a listener registered afterwards would always burn its whole
+            // timeout (~1.5s stall on every fragment jump).
+            const settled = nextRelocated(1500);
+            await state.rendition.display(targetCfi);
+            // The relocated handler may run against a pre-pagination
+            // location (end not yet computed) and under-resolve; re-run
+            // once the view has settled.
+            await settled;
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+            updateChapterNav();
+            toast('Jumped to ' + (item.label || 'chapter'));
+            return;
+          }
+        }
+      }
+    }
+    await state.rendition.display(href);
+  }catch(e){}
+  toast('Jumped to ' + (item.label || 'chapter'));
+}
+
+// Floating safety anchor
+const btnJumpReturn = el('btnJumpReturn');
+if(btnJumpReturn){
+  btnJumpReturn.addEventListener('click', () => NavHistory.returnBack());
+}
+const btnJumpDismiss = el('btnJumpDismiss');
+if(btnJumpDismiss){
+  btnJumpDismiss.addEventListener('click', () => NavHistory.dismiss());
+}
+
+// Reading environment cards
+const envPaper = el('envPaper');
+if(envPaper) envPaper.addEventListener('click', () => applyEnvironment('paper'));
+const envClean = el('envClean');
+if(envClean) envClean.addEventListener('click', () => applyEnvironment('clean'));
+const envNight = el('envNight');
+if(envNight) envNight.addEventListener('click', () => applyEnvironment('night'));
 // TOC drawer tabs: contents / bookmarks / highlights
 function setTocTab(which){
   const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl' };
@@ -5314,16 +6592,10 @@ el('tabToc').addEventListener('click', () => setTocTab('toc'));
 el('tabBm').addEventListener('click', () => setTocTab('bm'));
 el('tabHl').addEventListener('click', () => setTocTab('hl'));
 
-// Highlight button + color palette in the selection toolbar
-el('selHl').addEventListener('click', () => {
+// One-tap quick-highlight color dots in the selection toolbar (F8)
+document.querySelectorAll('#selBar .sel-hl-quick').forEach(dot => dot.addEventListener('click', () => {
   if(!Highlights.lastCfi){ toast('Select text in the book first'); return; }
-  const pal = el('selHlPal');
-  if(pal) pal.hidden = !pal.hidden;
-});
-document.querySelectorAll('#selHlPal .hl-dot').forEach(dot => dot.addEventListener('click', () => {
-  if(!Highlights.lastCfi) return;
   Highlights.add(Highlights.lastCfi, dot.dataset.hl, selText);
-  const pal = el('selHlPal'); if(pal) pal.hidden = true;
   hideSelBar();
   toast('Highlight added — click it to add a note');
 }));
@@ -5364,49 +6636,136 @@ el('btnSpread').addEventListener('click', async ()=>{
    LocEngine) when global pagination is ready, chapter-granular otherwise.
    Dragging previews positions with a light debounce; release commits. */
 const rail = el('rail');
-let railDragging = false, railLastGo = 0;
+let railDragging = false, railLastGo = 0, railDeparture = null;
+function updateRailPreview(f){
+  const preview = el('railPreview');
+  if(!preview) return;
+  let chTitle = '';
+  let pageStr = '';
+  let snippet = '';
+
+  if(LocEngine.ready()){
+    const cfi = LocEngine.cfiAtPct(f);
+    if(cfi){
+      const loc = LocEngine.forCfi(cfi);
+      if(loc){ pageStr = `Page ${loc.page} of ${loc.total} · ${Math.round(f * 100)}%`; }
+      chTitle = chapterFor(cfi);
+    }
+  }
+  if(!pageStr){ pageStr = `${Math.round(f * 100)}%`; }
+
+  if(!chTitle && state.book && state.book.spine){
+    const total = state.book.spine.length;
+    const sec = state.book.spine.get(clamp(Math.floor(f * total), 0, total - 1));
+    if(sec) chTitle = chapterFor(sec.href);
+  }
+  if(!chTitle) chTitle = state.currentTitle || 'Reading';
+
+  if(SearchIndex.mem && SearchIndex.mem.chapters && state.book && state.book.spine){
+    const total = state.book.spine.length;
+    const secIdx = clamp(Math.floor(f * total), 0, total - 1);
+    const sec = state.book.spine.get(secIdx);
+    if(sec){
+      const base = x => String(x||'').split('/').pop().split('#')[0];
+      const found = SearchIndex.mem.chapters.find(c => base(c.href) === base(sec.href));
+      if(found && found.text){
+        snippet = found.text.slice(0, 120).trim() + '…';
+      }
+    }
+  }
+
+  el('rpCh').textContent = chTitle;
+  el('rpMeta').textContent = pageStr;
+  const snipEl = el('rpSnip');
+  if(snipEl){
+    snipEl.textContent = snippet;
+    snipEl.style.display = snippet ? 'block' : 'none';
+  }
+  preview.classList.remove('hide');
+}
+function railSeekCommit(f){
+  if(!state.rendition || !state.book) return;
+  if(LocEngine.ready()){
+    const cfi = LocEngine.cfiAtPct(f);
+    if(cfi){
+      state.rendition.display(cfi).catch(()=>{});
+      return;
+    }
+  }
+  if(state.book && state.book.spine && state.book.spine.length){
+    const total = state.book.spine.length;
+    const sec = state.book.spine.get(clamp(Math.floor(f * total), 0, total - 1));
+    if(sec){ state.rendition.display(sec.href).catch(()=>{}); }
+  }
+}
 function railFraction(e){
   const r = rail.getBoundingClientRect();
   return clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
 }
 function railSeek(f){
   if(!state.rendition || !state.book) return;
-  if(LocEngine.ready()){
-    const cfi = LocEngine.cfiAtPct(f);
-    if(cfi){
-      const now = performance.now();
-      if(!railDragging || now - railLastGo > 220){
-        railLastGo = now;
-        state.rendition.display(cfi).catch(()=>{});
-      }
-      return;
-    }
+  if(!railDragging){
+    const curLoc = state.rendition.currentLocation();
+    const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
+    NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+    railSeekCommit(f);
+    return;
   }
-  const total = state.book.spine.length;
-  const sec = state.book.spine.get(clamp(Math.floor(f * total), 0, total - 1));
-  if(sec){ state.rendition.display(sec.href).catch(()=>{}); }
+  updateRailPreview(f);
 }
 rail.addEventListener('pointerdown', e => {
   if(!state.rendition) return;
   e.preventDefault();
   railDragging = true;
+  const curLoc = state.rendition.currentLocation();
+  railDeparture = {
+    cfi: curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi,
+    page: el('pageBadge') ? el('pageBadge').textContent : '',
+    ch: el('chapter') ? el('chapter').textContent : ''
+  };
   try{ rail.setPointerCapture(e.pointerId); }catch(err){}
-  railSeek(railFraction(e));
+  const f = railFraction(e);
+  el('railFill').style.width = (f * 100) + '%';
+  el('railKnob').style.left = (f * 100) + '%';
+  const r = rail.getBoundingClientRect();
+  const x = clamp(f * r.width, 85, Math.max(85, r.width - 85));
+  const rp = el('railPreview');
+  if(rp){ rp.style.left = x + 'px'; }
+  updateRailPreview(f);
 });
 rail.addEventListener('pointermove', e => {
   if(!railDragging) return;
   const f = railFraction(e);
   el('railFill').style.width = (f * 100) + '%';
   el('railKnob').style.left = (f * 100) + '%';
-  railSeek(f);
+  const r = rail.getBoundingClientRect();
+  const x = clamp(f * r.width, 85, Math.max(85, r.width - 85));
+  const rp = el('railPreview');
+  if(rp){ rp.style.left = x + 'px'; }
+  updateRailPreview(f);
 });
 const railRelease = e => {
   if(!railDragging) return;
   railDragging = false;
-  railSeek(railFraction(e));
+  try{ rail.releasePointerCapture(e.pointerId); }catch(err){}
+  const preview = el('railPreview');
+  if(preview) preview.classList.add('hide');
+  if(railDeparture && railDeparture.cfi){
+    NavHistory.push(railDeparture.cfi, railDeparture.page, railDeparture.ch);
+    railDeparture = null;
+  }
+  const f = railFraction(e);
+  railSeekCommit(f);
 };
 rail.addEventListener('pointerup', railRelease);
-rail.addEventListener('pointercancel', () => { railDragging = false; });
+rail.addEventListener('pointercancel', e => {
+  if(!railDragging) return;
+  railDragging = false;
+  try{ rail.releasePointerCapture(e.pointerId); }catch(err){}
+  const preview = el('railPreview');
+  if(preview) preview.classList.add('hide');
+  railDeparture = null;
+});
 
 /* swipe over the chrome edges too */
 let psw=null;
@@ -5484,6 +6843,52 @@ function onDocPointerDown(e){
 }
 addEventListener('pointerdown', onDocPointerDown);
 addEventListener('pointermove', e => AutoScroll.move(e), { passive:true });
+
+/* Edge hover page-curl affordance (F1): rAF-debounced pointer tracking;
+   suppressed mid-turn, while panels are open, and under reduced motion. */
+let curlRaf = 0;
+function curlUpdate(e){
+  if(curlRaf) return;
+  curlRaf = requestAnimationFrame(() => {
+    curlRaf = 0;
+    const v = el('viewer');
+    if(!v) return;
+    if(state.turning || state.recreating || turnGesture.active || panelsOpen() ||
+       matchMedia('(prefers-reduced-motion: reduce)').matches){
+      v.classList.remove('curl-right','curl-left');
+      return;
+    }
+    const r = v.getBoundingClientRect();
+    const inBand = e.clientY >= r.top && e.clientY <= r.bottom;
+    const nearR = inBand && e.clientX >= r.right - 60 && e.clientX <= r.right + 40;
+    const nearL = inBand && e.clientX <= r.left + 60 && e.clientX >= r.left - 40;
+    v.classList.toggle('curl-right', nearR);
+    v.classList.toggle('curl-left', nearL);
+  });
+}
+
+/* Desk dimming on idle (F6): after 10s without input the backdrop deepens;
+   any pointer move or key restores it. Overlay sits under the page. */
+let deskDimTimer = 0;
+function resetDeskDim(){
+  clearTimeout(deskDimTimer);
+  const dim = el('deskDim');
+  if(dim) dim.classList.remove('dim');
+  if(body.classList.contains('state-reading') && !panelsOpen()){
+    deskDimTimer = setTimeout(() => {
+      if(dim && body.classList.contains('state-reading') && !panelsOpen()){
+        dim.classList.add('dim');
+      }
+    }, 10000);
+  }
+}
+/* Pointer moves over the open book land in the chapter iframe document, so
+   the F1/F6 tracking must be bound there too (wireContents); mousemove is a
+   fallback because raw CDP input may skip pointer event synthesis. */
+function onPtrFx(e){ curlUpdate(e); resetDeskDim(); }
+addEventListener('pointermove', onPtrFx, { passive:true });
+addEventListener('mousemove', onPtrFx, { passive:true });
+addEventListener('keydown', resetDeskDim);
 
 /* ---------------- drag & drop ---------------- */
 let depth=0;
@@ -5632,11 +7037,23 @@ async function openEpubPath(path){
   const invoke = tauriInvoke();
   if(!invoke) return;
   try{
+
+    const title = String(path.split(/[\\/]/).pop() || '').replace(/\.epub$/i, '').trim() || 'Untitled';
+    closePanels();
+    try{
+      const handle = await invoke('book_open', { path });
+      if(handle && handle.hash){
+        await openBuffer(null, title, path, null, { url: `folio-cache://${handle.hash}/` });
+        return;
+      }
+    }catch(errDisk){
+      console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
+    }
     const bytes = await invoke('read_file_bytes', { path });
     if(!bytes || !bytes.length){ toast('Could not open that file'); return; }
     const buf = new Uint8Array(bytes).buffer;
-    const title = String(path.split(/[\\/]/).pop() || '').replace(/\.epub$/i, '').trim() || 'Untitled';
-    closePanels();
+
+
     await openBuffer(buf, title, path);
   }catch(err){
     console.warn('openEpubPath failed:', err);
@@ -5682,10 +7099,20 @@ async function tauriOpenPath(path){
   try{
     if(!path || typeof ePub === 'undefined') return;
     const { invoke } = window.__TAURI_INTERNALS__;
+    const name = String(path).split(/[\\/]/).pop().replace(/\.epub$/i,'') || 'Untitled';
+    try{
+      const handle = await invoke('book_open', { path });
+      if(handle && handle.hash){
+        await openBuffer(null, name, path, null, { url: `folio-cache://${handle.hash}/` });
+        return;
+      }
+    }catch(errDisk){
+      console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
+    }
     const bytes = await invoke('read_file_bytes', { path });
     if(!bytes || !bytes.length) return;
     const buf = (bytes instanceof ArrayBuffer) ? bytes : new Uint8Array(bytes).buffer;
-    const name = String(path).split(/[\\/]/).pop().replace(/\.epub$/i,'');
+
     await openBuffer(buf, name, path);
   }catch(e){
     hideLoader();
@@ -5698,6 +7125,17 @@ if(window.__TAURI_INTERNALS__){
     window.__TAURI_INTERNALS__.invoke('get_initial_file').then(p => { if(p) tauriOpenPath(p); }).catch(()=>{});
   }catch(e){}
 }
+
+// Margin chapter pills (F0): one click, one chapter. The labels blend with
+// the desk at rest and reveal on hover; clicks jump one chapter.
+const chLabelPrevBtn = el('chLabelPrev');
+if(chLabelPrevBtn) chLabelPrevBtn.addEventListener('click', () => {
+  if(chNavIdx > 0) jumpToTocIndex(chNavIdx - 1);
+});
+const chLabelNextBtn = el('chLabelNext');
+if(chLabelNextBtn) chLabelNextBtn.addEventListener('click', () => {
+  if(tocItems && chNavIdx >= 0 && chNavIdx < tocItems.length - 1) jumpToTocIndex(chNavIdx + 1);
+});
 </script>
 </body>
 </html>

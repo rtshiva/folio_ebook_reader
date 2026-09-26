@@ -25,3 +25,5 @@ tauri = { version = "2.11.6", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-single-instance = "2"
 rfd = "0.17.2"
+zip = "2"
+sha2 = "0.10"

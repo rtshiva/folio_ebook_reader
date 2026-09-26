@@ -117,16 +117,26 @@ test('D10 background slicing: no long tasks, chunked index, hidden pause', async
 });
 
 test('D11 index resume after reload without reprocessing', async ({ page }) => {
+  test.setTimeout(90000);
   await fresh(page);
   // Phase 1: generate + kick the open (don't await it) so polling observes
   // the build mid-flight; wait until the partial record shows done >= 10.
   await generateStressBuffer(page, 'Stress60', 60, 120);
+  // Pace the chunked build (one chapter per ~130ms): on a fast idle machine
+  // the unpaced build completes 0→60 between polls, collapsing this test's
+  // mid-flight premise. Phase 2 runs on a fresh page, unpaced.
+  await page.evaluate(() => {
+    const og = idleBudgetMs;
+    idleBudgetMs = async () => { await new Promise(r => setTimeout(r, 250)); return og(); };
+  });
   await openStressBuffer(page, 'Stress60', { awaitOpen: false });
   let doneBefore = 0;
-  for (let i = 0; i < 30; i++) {
+  // 24s window: the chunked idle build slows considerably under machine
+  // load, and a short poll makes this test flaky rather than meaningful.
+  for (let i = 0; i < 80; i++) {
     const r = await searchIndexRecord(page, 'Stress60');
     if (r && r.partial && Number(r.done) >= 10) { doneBefore = Number(r.done); break; }
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
   }
   expect(doneBefore).toBeGreaterThanOrEqual(10);
   // Freeze the build mid-flight so the reload below is guaranteed to catch a
@@ -511,4 +521,60 @@ test('D2 drawers never leak hit-testable chrome when closed', async ({ page }) =
     await page.waitForTimeout(700);
     expect(await hitTopLeft(page), `after ${name}`).not.toMatch(/^(closebtn|drawersvg)$/);
   }
+});
+
+test('D12 P-A disk cache fallback to read_file_bytes on book_open error', async ({ page }) => {
+  await fresh(page);
+  await page.evaluate(() => {
+    window.__bookOpenCalled = false;
+    window.__readFileBytesCalled = false;
+    window.__TAURI_INTERNALS__ = {
+      invoke: async (cmd, args) => {
+        if (cmd === 'book_open') {
+          window.__bookOpenCalled = true;
+          throw new Error('Simulated unzip/disk error');
+        }
+        if (cmd === 'read_file_bytes') {
+          window.__readFileBytesCalled = true;
+          return window.__demoBytes ? window.__demoBytes.slice() : null;
+        }
+        return null;
+      }
+    };
+  });
+  await page.evaluate(async () => {
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/epub+zip');
+    zip.file('META-INF/container.xml', `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+    zip.file('content.opf', `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Fallback Book</dc:title><dc:language>en</dc:language></metadata>
+<manifest>
+<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+</manifest>
+<spine toc="toc"><itemref idref="c1"/></spine>
+</package>`);
+    zip.file('toc.ncx', `<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><navMap><navPoint id="p1"><navLabel><text>Chapter 1</text></navLabel><content src="ch1.xhtml"/></navPoint></navMap></ncx>`);
+    zip.file('ch1.xhtml', `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Fallback Chapter</h1><p>Content loaded via fallback.</p></body></html>`);
+    const buf = await zip.generateAsync({ type: 'arraybuffer' });
+    window.__demoBytes = [...new Uint8Array(buf)];
+  });
+
+  await page.evaluate(async () => {
+    await tauriOpenPath('C:/test_fallback.epub');
+  });
+
+  await page.waitForFunction(() => document.body.classList.contains('state-reading'), null, { timeout: 12000 });
+  const check = await page.evaluate(() => ({
+    bookOpen: window.__bookOpenCalled,
+    readFile: window.__readFileBytesCalled,
+    title: document.getElementById('bookTitle').textContent,
+  }));
+  expect(check.bookOpen).toBe(true);
+  expect(check.readFile).toBe(true);
+  expect(check.title).toBe('Fallback Book');
 });

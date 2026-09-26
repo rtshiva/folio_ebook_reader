@@ -7,3 +7,7 @@ dist/
 .DS_Store
 Thumbs.db
 *.tmp
+
+# Playwright test output
+
+tauri_epub_reader/tests/e2e/artifacts/

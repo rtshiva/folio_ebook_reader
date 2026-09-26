@@ -16,7 +16,7 @@
 | Native file picker dialog | ✅ | Rust `rfd` crate, `pick_file` command |
 | Drag & drop EPUB onto window | ✅ | Tauri `dragDropEnabled` + frontend overlay |
 | Book bytes delivered to frontend | ✅ | `read_file_bytes` → raw bytes via `tauri::ipc::Response` binary IPC |
-| Book data cached on disk (Rust side) | ❌ | In-memory LRU `BookCache` (keyed by path, returns cached raw bytes) added; disk cache still TODO |
+| Book data cached on disk (Rust side) | ✅ | Fast unzipped disk cache (`book_open`) keyed by sha256+len+mtime in app cache dir, served via custom `folio-cache://` protocol; LRU background eviction (600 MB / 30 books); byte-array fallback |
 | Raw IPC for large files | ✅ | `read_file_bytes` returns `tauri::ipc::Response` raw bytes — no JSON number-array serialization |
 
 ## 2. Reading Engine
@@ -38,6 +38,7 @@
 | Themes (paper variants) | ✅ | Manual pick + auto follow OS day/night (`themeAuto`) |
 | Running header (chapter / book) | ✅ | Two-column header above the page |
 | Per-book typography settings | ✅ | Settings keyed per book (`perBookType`) |
+| Curated Optical Environments | ✅ | `#envCards`: Natural Paper (Literata+grain), Modern Clean (Lexend), Velvet Night (noir+amber) with Bringhurst auto-harmony |
 
 ## 3. Page-Turn & Motion
 
@@ -72,6 +73,8 @@
 | Mouse-wheel page turning | ✅ | Wheel down/up turns pages in the shell and inside chapter iframes; `Ctrl+Wheel` = type size, `Alt+Wheel` = page width |
 | Click-to-turn edge zones | ✅ | Edge zones + drag-to-turn gesture cover click-to-turn |
 | Auto-scroll mode | ✅ | Middle-click toggles auto-scroll (`AutoScroll`) |
+| Dual silk chapter ribbons | ✅ | `#chRibbonPrev` & `#chRibbonNext`: jump to current/previous chapter and next chapter with hover tooltips, smart disabled states, `[` / `]` hotkeys |
+| Non-destructive rail preview & safety anchor | ✅ | `#railPreview`: floating chapter, page/pct, and excerpt snippet preview during scrubbing; `#jumpAnchor`: "Return to Page X" safety pill with 9s auto-dismiss |
 
 ## 5. Search & Lookup
 
@@ -122,7 +125,7 @@
 ### P0 — Performance (measurable wins)
 
 1. **[DONE]** **Zero-copy book loading + Rust-side disk cache.**
-   `read_file_bytes` now returns `tauri::ipc::Response` raw bytes (no JSON array), and an in-memory LRU `BookCache` in Rust returns cached bytes on re-open. The Rust-side *disk* cache is still TODO.
+   `read_file_bytes` returns `tauri::ipc::Response` raw bytes. Unzipped disk cache (`book_open`) decompresses with zip-slip safety into `{app_cache}/folio-unzip/{hash}/`, served via custom `folio-cache://` protocol directly into epub.js, with 600 MB / 30-book LRU disk eviction and automatic byte-array fallback on failure.
 1. **[DONE]** **Persist `locations.generate()` results per book.**
    `LocEngine` stores CFI locations per book; only generated on first open. Unlocked book-wide "page N of M" badge and page-granularity rail seeking (`railSeek`).
 3. **[DONE]** **Move the page-flip to compositor-only properties (GPU).**

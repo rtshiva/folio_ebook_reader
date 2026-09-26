@@ -145,8 +145,8 @@ test('R7 highlight add, list, jump', async ({ page }) => {
   });
   await page.evaluate((c) => state.rendition.emit('selected', c), cfi);
   expect(await page.evaluate(() => Highlights.lastCfi)).toBe(cfi);
-  await page.evaluate(() => { selText = 'test snippet'; document.getElementById('selHl').click(); });
-  await page.evaluate(() => document.querySelector('#selHlPal .hl-dot[data-hl="yellow"]').click());
+  // F8: the selection bar now carries one-tap quick-highlight dots
+  await page.evaluate(() => { selText = 'test snippet'; document.querySelector('#selBar .sel-hl-quick[data-hl="yellow"]').click(); });
   const n = await page.evaluate(() => JSON.parse(localStorage.getItem('folio-highlights') || '[]').length);
   expect(n).toBe(1);
   expect(await page.evaluate(() => document.getElementById('hlCountBadge').textContent)).toBe('1');

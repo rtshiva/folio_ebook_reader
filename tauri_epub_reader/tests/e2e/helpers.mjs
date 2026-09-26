@@ -6,6 +6,10 @@ export async function fresh(page) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.locator('#btnDemo').waitFor({ timeout: 9000 });
+  // Pin the environment: Feature 3's time-aware auto theme (on by default)
+  // would otherwise re-theme and re-layout during opens, making every test
+  // that assumes the default theme timing-sensitive.
+  await page.evaluate(() => { try { settings.themeAuto = false; save(); } catch(e){} });
 }
 
 export async function openDemo(page) {

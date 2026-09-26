@@ -8,7 +8,7 @@ A high-performance, lightweight desktop EPUB reader built with Tauri 2.0 and nat
 - **True Offline Support**: Bundles `jszip.min.js`, `epub.min.js`, and core reading styles locally—zero internet or CDN required.
 - **Native `.epub` File Association**: Configured in `tauri.conf.json` so double-clicking any `.epub` file on Windows launches the reader directly.
 - **Single Instance with File Forwarding**: A second launch (e.g. another double-clicked `.epub`) forwards its path to the running window instead of spawning a duplicate.
-- **Instant Re-opens**: Book bytes travel as raw binary IPC (`tauri::ipc::Response`) and are kept in a Rust-side in-memory LRU cache.
+- **Instant Re-opens & Unzipped Disk Cache**: Re-opening previously read books uses a zip-slip-safe Rust disk cache served via custom `folio-cache://` protocol, bypassing JSZip decompression in the JS heap with 600 MB / 30-book LRU disk eviction and in-memory raw binary IPC fallback.
 - **Drag & Drop**: Drop `.epub` files directly into the desktop window.
 - **Hotkeys**:
   - `Ctrl + O`: Open native file dialog to pick an EPUB.
@@ -34,20 +34,25 @@ A high-performance, lightweight desktop EPUB reader built with Tauri 2.0 and nat
 
 ```
 tauri_epub_reader/
+├── docs/                      # Technical documentation
+│   ├── DESIGN_AND_LLD.md      # Comprehensive design document & Low-Level Design (LLD)
+│   ├── FEATURES.md            # Features tracking & roadmap
+│   └── DESIGN-IMPROVEMENTS.md # Performance & UI design notes
 ├── package.json               # Scripts: "dev", "build", "test" (cargo + Playwright e2e)
 ├── playwright.config.mjs      # Serves src/ on :8124, runs tests/e2e
 ├── tests/e2e/                 # Playwright specs (helpers, shipped, design) + failure artifacts
 ├── src/                       # Desktop frontend
 │   ├── index.html             # The Folio reader adapted for desktop
-│   └── vendor/                # Local offline vendor bundles
+│   └── vendor/                # Local offline vendor bundles & local WOFF2 fonts
 │       ├── jszip.min.js
-│       └── epub.min.js
+│       ├── epub.min.js
+│       └── fonts/
 └── src-tauri/                 # Rust backend
     ├── Cargo.toml             # Tauri 2 dependencies
     ├── tauri.conf.json        # Window settings, permissions & file associations
     └── src/
         ├── main.rs
-        └── lib.rs             # Tauri commands (get_initial_file, read_file_bytes, pick_file)
+        └── lib.rs             # Tauri commands (get_initial_file, read_file_bytes, book_open, pick_file) & folio-cache:// protocol
 ```
 
 ## Running the App
@@ -72,7 +77,7 @@ The compiled executable will be at:
 
 ### Automated Tests
 ```powershell
-npm test            # cargo test + Playwright e2e (18 specs, demo-book driven)
+npm test            # cargo test (U1–U5) + Playwright e2e (29 specs, demo-book driven)
 npm run test:e2e    # browser suite only
 npm run test:rust   # Rust unit tests only
 ```
