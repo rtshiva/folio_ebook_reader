@@ -529,11 +529,25 @@ fn entity_replacement(name: &str) -> Option<char> {
         "oline" => '\u{203e}',
         "frasl" => '\u{2044}',
         "euro" => '\u{20ac}',
+        "trade" => '\u{2122}',
         "larr" => '\u{2190}',
         "rarr" => '\u{2192}',
         "darr" => '\u{2191}',
         "harr" => '\u{2194}',
         "crarr" => '\u{21b5}',
+        "minus" => '\u{2212}',
+        "radic" => '\u{221a}',
+        "infin" => '\u{221e}',
+        "asymp" => '\u{2248}',
+        "ne" => '\u{2260}',
+        "le" => '\u{2264}',
+        "ge" => '\u{2265}',
+        "sdot" => '\u{22c5}',
+        "loz" => '\u{25ca}',
+        "spades" => '\u{2660}',
+        "clubs" => '\u{2663}',
+        "hearts" => '\u{2665}',
+        "diams" => '\u{2666}',
         _ => return None,
     })
 }
@@ -963,6 +977,9 @@ mod tests {
         assert_eq!(fix_entities("1&frac12;"), "1\u{bd}");
         assert_eq!(fix_entities("m&sup2;"), "m\u{b2}");
         assert_eq!(fix_entities("m&sup3;"), "m\u{b3}");
+        assert_eq!(fix_entities("Folio&trade;"), "Folio\u{2122}");
+        assert_eq!(fix_entities("a &le; b &ge; c &ne; d"), "a \u{2264} b \u{2265} c \u{2260} d");
+        assert_eq!(fix_entities("1 &minus; 2 &asymp; -1"), "1 \u{2212} 2 \u{2248} -1");
         // Bare ampersands (JS &&, prose "Tom & Jerry") get escaped so the
         // strict XML parser accepts them
         assert_eq!(fix_entities("if (a && b) {}"), "if (a &amp;&amp; b) {}");
