@@ -196,9 +196,23 @@ pub fn unzip_epub(
     meta: &fs::Metadata,
     mtime_ms: u128,
 ) -> Result<BookManifest, String> {
+    // Zip-bomb guards: a malicious EPUB must not fill the disk. The on-disk
+    // cache is capped at 600 MB across books, but extraction happens before
+    // eviction runs — so bound the extraction itself.
+    const MAX_FILES: usize = 20000;
+    const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024; // 100 MB single entry
+    const MAX_TOTAL_BYTES: u64 = 512 * 1024 * 1024; // 512 MB uncompressed total
     let file = fs::File::open(epub_path).map_err(|e| format!("Cannot open epub file: {}", e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Cannot read zip archive: {}", e))?;
+    if archive.len() > MAX_FILES {
+        return Err(format!(
+            "EPUB has too many entries ({} > {})",
+            archive.len(),
+            MAX_FILES
+        ));
+    }
     let mut files = Vec::new();
+    let mut total: u64 = 0;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("Cannot read zip entry: {}", e))?;
@@ -213,6 +227,13 @@ pub fn unzip_epub(
                 continue;
             }
         };
+        if entry.size() > MAX_FILE_BYTES {
+            return Err(format!("EPUB entry too large: {}", raw_name));
+        }
+        total = total.saturating_add(entry.size());
+        if total > MAX_TOTAL_BYTES {
+            return Err("EPUB uncompressed size exceeds limit".to_string());
+        }
         let out_path = target_dir.join(&clean_path);
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Cannot create dir: {}", e))?;
@@ -285,10 +306,15 @@ pub fn evict_disk_cache(
 
     let mut dirs: Vec<DirEntryInfo> = Vec::new();
     let mut total_books = 0usize;
+    // Protected bytes still occupy disk, so they count toward the byte cap
+    // even though the protected directory itself is never evicted.
+    let mut total_bytes: u64 = 0;
     for entry in entries.flatten() {
         let p = entry.path();
         if p.is_dir() {
             total_books += 1;
+            let bytes = dir_size(&p);
+            total_bytes += bytes;
             if let Some(protect) = protect_dir_name {
                 if p.file_name().and_then(|n| n.to_str()) == Some(protect) {
                     continue;
@@ -305,15 +331,12 @@ pub fn evict_disk_cache(
                         .map(|d| d.as_millis())
                         .unwrap_or(0)
                 });
-            let bytes = dir_size(&p);
             dirs.push(DirEntryInfo { path: p, atime, bytes });
         }
     }
 
     // Sort by atime ascending (oldest first)
     dirs.sort_by_key(|d| d.atime);
-
-    let mut total_bytes: u64 = dirs.iter().map(|d| d.bytes).sum();
 
     for d in dirs {
         if total_books <= max_books && total_bytes <= max_bytes {
@@ -696,6 +719,20 @@ pub fn is_xml_mime(mime: &str) -> bool {
         || mime.ends_with("+xml")
 }
 
+/// Body bytes for a folio-cache response: XML resources are repaired for
+/// strict parsing when they are valid UTF-8, and passed through untouched
+/// otherwise (binary-safe; never lossy).
+pub fn xml_response_body(mime: &str, bytes: Vec<u8>) -> Vec<u8> {
+    if is_xml_mime(mime) {
+        match std::str::from_utf8(&bytes) {
+            Ok(text) => fix_entities(text).into_bytes(),
+            Err(_) => bytes,
+        }
+    } else {
+        bytes
+    }
+}
+
 pub fn merge_gpu_flags(existing: &str) -> String {
     let gpu_flags = "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist";
     let trimmed = existing.trim();
@@ -780,8 +817,9 @@ pub fn run() {
                         // webview can cache resource fetches across chapters
                         // and sessions without any invalidation risk.
                         // Chapters are parsed as strict XML: repair bare
-                        // '&' and named/unknown entities before serving.
-                        let body: Vec<u8> = if is_xml_mime(mime) { fix_entities(&String::from_utf8_lossy(&bytes)).into_bytes() } else { bytes };
+                        // '&' and named/unknown entities before serving
+                        // (UTF-8 only; legacy encodings pass through raw).
+                        let body: Vec<u8> = xml_response_body(mime, bytes);
                         tauri::http::Response::builder()
                             .status(200)
                             .header("Content-Type", mime)
@@ -1082,6 +1120,84 @@ mod tests {
         assert!(book1.exists());
         assert!(!book2.exists());
 
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u12_response_body_repairs_utf8_and_preserves_legacy_bytes() {
+        // Valid UTF-8 chapters get entity repair for strict XML parsing
+        let repaired = xml_response_body(
+            "application/xhtml+xml",
+            b"<p>Tom & Jerry &mdash; ok</p>".to_vec(),
+        );
+        assert_eq!(
+            String::from_utf8(repaired).unwrap(),
+            "<p>Tom &amp; Jerry \u{2014} ok</p>"
+        );
+
+        // Legacy single-byte chapters (invalid UTF-8) pass through byte
+        // identical: no U+FFFD corruption, encoding declaration still applies
+        let legacy: Vec<u8> = vec![0x3c, 0x70, 0x3e, 0xe9, 0x26, 0x3c, 0x2f, 0x70, 0x3e];
+        assert_eq!(
+            xml_response_body("application/xhtml+xml", legacy.clone()),
+            legacy
+        );
+
+        // Non-XML resources are never rewritten, even when valid UTF-8
+        let css = b"a & b { color: red; }".to_vec();
+        assert_eq!(xml_response_body("text/css; charset=utf-8", css.clone()), css);
+    }
+
+    #[test]
+    fn test_u13_unzip_epub_roundtrip_and_guards() {
+        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!("folio_test_unzip_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let epub_path = tmp.join("mini.epub");
+        {
+            let f = fs::File::create(&epub_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            w.start_file("mimetype", opts).unwrap();
+            w.write_all(b"application/epub+zip").unwrap();
+            w.start_file("OEBPS/ch1.xhtml", opts).unwrap();
+            w.write_all(b"<html><body><p>hi</p></body></html>").unwrap();
+            w.start_file("../evil.txt", opts).unwrap();
+            w.write_all(b"nope").unwrap();
+            w.finish().unwrap();
+        }
+        let meta = fs::metadata(&epub_path).unwrap();
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+        let manifest = unzip_epub(&epub_path, &target, "mini.epub", &meta, 1).unwrap();
+        // Traversal entry skipped, legitimate entries extracted
+        assert_eq!(manifest.files.len(), 2);
+        assert!(target.join("OEBPS/ch1.xhtml").is_file());
+        assert!(!target.join("evil.txt").exists());
+        assert!(target.join("manifest.json").is_file());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u14_evict_counts_protected_bytes() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_evict2_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let book1 = tmp.join("book1");
+        let book2 = tmp.join("book2");
+        fs::create_dir_all(&book1).unwrap();
+        fs::create_dir_all(&book2).unwrap();
+        fs::write(book1.join("atime"), "100").unwrap();
+        fs::write(book2.join("atime"), "200").unwrap();
+        // 40 KB blob in each book; cap at 50 KB with room for 30 books:
+        // only the byte cap can trigger, and only because the protected
+        // book's bytes count toward it.
+        fs::write(book1.join("blob.bin"), vec![1u8; 40 * 1024]).unwrap();
+        fs::write(book2.join("blob.bin"), vec![2u8; 40 * 1024]).unwrap();
+        evict_disk_cache(&tmp, 50 * 1024, 30, Some("book1"));
+        assert!(book1.exists());
+        assert!(!book2.exists());
         let _ = fs::remove_dir_all(&tmp);
     }
 }

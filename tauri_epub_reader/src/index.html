@@ -2050,7 +2050,9 @@ async function sanitizeEpubEntities(buf){
               const ent = ref.slice(0, -1);
               const code = FOLIO_ENTITIES[ent];
               if(code !== undefined) return '&#' + code + ';';
-              if(/^(amp|lt|gt|quot|apos)$/i.test(ent)) return m;
+              // XML entity names are case-sensitive: &AMP; is undefined and
+              // fatal to the parser, so only the exact lowercase forms pass.
+              if(/^(amp|lt|gt|quot|apos)$/.test(ent)) return m;
               return '&amp;' + ref;
             }))
         .join('');
@@ -2090,7 +2092,15 @@ async function cacheBookCover(book, title){
   }catch(e){}
 }
 async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
-  if(state.loading) return; state.loading=true;
+  if(state.loading){
+    // A second open arriving mid-load (double-clicked file, Open-With while
+    // booting) used to vanish silently. Park it and drain it when the
+    // current open settles, so the requested book is never lost.
+    window.__folioPendingOpen = { buf, titleHint, filePath, targetCfi, opts };
+    toast('Still opening a book — queued');
+    return;
+  }
+  state.loading=true;
   showLoader('Typesetting…');
   try{
     await closeBook();
@@ -2192,10 +2202,13 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     /* settle pass: epub.js sizes its columns from its very first container
        measurement, which can race the stage layout on open. Recreating once
-       (silently, under the loader) guarantees it measures the settled DOM. */
+       (silently, under the loader) guarantees it measures the settled DOM.
+       A settle failure must never fail the open itself — the first display
+       above already succeeded, so log and continue with it. */
     if(state.spreadOn){
       state.settling = true;
-      try{ await recreateRendition(); } finally { state.settling = false; }
+      try{ await recreateRendition(); }catch(e){ console.warn('settle pass failed:', e); }
+      finally { state.settling = false; }
     }
 
     buildTOC(book);
@@ -2227,7 +2240,20 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     updateLandingUI();
     hideLoader();
     toast('Could not open that file — Folio reads DRM-free EPUBs');
-  }finally{ state.loading=false; }
+  }finally{
+    state.loading=false;
+    // Drain a queued open (see the loading guard above): the pending request
+    // was parked instead of dropped, so run it now that the gate is free.
+    const pending = window.__folioPendingOpen || null;
+    window.__folioPendingOpen = null;
+    if(pending){
+      try{
+        if(pending.tauriPath) await openEpubPath(pending.tauriPath);
+        else await openBuffer(pending.buf, pending.titleHint, pending.filePath, pending.targetCfi, pending.opts);
+      }
+      catch(e){ console.warn('queued open failed:', e); }
+    }
+  }
 }
 let seenHint=false;
 
@@ -2264,9 +2290,11 @@ async function applySpread(){
 
 function loadFile(file, optionalPath){
   if(!file) return;
+  if(state.loading){ toast('Still opening a book — try again in a moment'); return; }
   if(!/\.epub$/i.test(file.name) && file.type!=='application/epub+zip'){
     toast('That does not look like an EPUB file'); return;
   }
+  if(file.size === 0){ toast('That file is empty — Folio reads DRM-free EPUBs'); return; }
   showLoader('Opening…');
   const cleanName = (file.name || '').replace(/\.epub$/i, '').trim();
   const filePath = optionalPath || file.path || null;
@@ -3276,8 +3304,8 @@ function renderRecentShelf(){
             console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
           }
           const bytes = await invoke('read_file_bytes', { path: b.filePath });
-          if(bytes && bytes.length){
-            const buf = new Uint8Array(bytes).buffer;
+          if(ipcByteLength(bytes) > 0){
+            const buf = ipcToBuffer(bytes);
             await openBuffer(buf, b.title, b.filePath, b.cfi);
             return;
           }
@@ -6028,11 +6056,28 @@ const Lightbox = {
   el(){ return document.getElementById('lightbox'); },
   open(src){
     let lb = this.el();
-    if(!lb){ lb = document.createElement('div'); lb.id = 'lightbox'; lb.innerHTML = '<img alt="">'; document.body.appendChild(lb); }
-    lb.querySelector('img').src = src;
+    if(!lb){
+      lb = document.createElement('div');
+      lb.id = 'lightbox';
+      lb.innerHTML = '<img alt="">';
+      lb.addEventListener('click', () => this.close());
+      document.body.appendChild(lb);
+    }
+    const img = lb.querySelector('img');
+    if(img){
+      img.onerror = () => { this.close(); };
+      img.src = src;
+    }
     lb.classList.add('show');
   },
-  close(){ const lb = this.el(); if(lb) lb.classList.remove('show'); }
+  close(){
+    const lb = this.el();
+    if(lb){
+      lb.classList.remove('show');
+      const img = lb.querySelector('img');
+      if(img) img.src = '';
+    }
+  }
 };
 
 /* ---------------- footnote popup ---------------- */
@@ -6732,7 +6777,20 @@ function syncControls(){
 el('btnHome').addEventListener('click',goHome);
 el('btnResume').addEventListener('click',resumeReading);
 el('curBookBadge').addEventListener('click',resumeReading);
-el('btnOpen').addEventListener('click',()=>el('file').click());
+el('btnOpen').addEventListener('click', async ()=>{
+  // In the Tauri desktop app prefer the native file dialog: it returns a
+  // disk path, so the book streams through the folio-cache backend instead
+  // of being buffered whole into the WebView's memory via <input type=file>.
+  const invoke = tauriInvoke();
+  if(invoke){
+    try{
+      const picked = await invoke('pick_file');
+      if(picked){ await openEpubPath(picked); return; }
+      return; // dialog cancelled — stay where we are
+    }catch(e){ console.warn('native picker failed, falling back to file input:', e); }
+  }
+  el('file').click();
+});
 el('file').addEventListener('change',e=>{ loadFile(e.target.files[0]); e.target.value=''; });
 el('btnDemo').addEventListener('click',loadDemo);
 
@@ -7602,8 +7660,27 @@ function tauriInvoke(){
   }catch(e){}
   return null;
 }
+/* Byte length across every shape the Tauri IPC bridge can hand back:
+   ArrayBuffer (byteLength), typed arrays and plain arrays (length). */
+function ipcByteLength(bytes){
+  if(!bytes) return 0;
+  if(typeof bytes.byteLength === 'number') return bytes.byteLength;
+  if(typeof bytes.length === 'number') return bytes.length;
+  return 0;
+}
+function ipcToBuffer(bytes){
+  if(bytes instanceof ArrayBuffer) return bytes;
+  return new Uint8Array(bytes).buffer;
+}
 async function openEpubPath(path){
-  if(!path || state.loading) return;
+  if(!path) return;
+  if(state.loading){
+    // Never drop an Open-With request: park the path; openBuffer's finally
+    // drains it once the current open settles.
+    window.__folioPendingOpen = { tauriPath: path };
+    toast('Still opening a book — queued');
+    return;
+  }
   const invoke = tauriInvoke();
   if(!invoke) return;
   try{
@@ -7620,8 +7697,8 @@ async function openEpubPath(path){
       console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
     }
     const bytes = await invoke('read_file_bytes', { path });
-    if(!bytes || !bytes.length){ toast('Could not open that file'); return; }
-    const buf = new Uint8Array(bytes).buffer;
+    if(ipcByteLength(bytes) === 0){ toast('Could not open that file'); return; }
+    const buf = ipcToBuffer(bytes);
 
 
     await openBuffer(buf, title, path);
@@ -7668,7 +7745,13 @@ addEventListener('load', () => {
 async function tauriOpenPath(path){
   try{
     if(!path || typeof ePub === 'undefined') return;
-    const { invoke } = window.__TAURI_INTERNALS__;
+    if(state.loading){
+      window.__folioPendingOpen = { tauriPath: path };
+      toast('Still opening a book — queued');
+      return;
+    }
+    const invoke = tauriInvoke();
+    if(!invoke) return;
     const name = String(path).split(/[\\/]/).pop().replace(/\.epub$/i,'') || 'Untitled';
     try{
       const handle = await invoke('book_open', { path });
@@ -7680,8 +7763,8 @@ async function tauriOpenPath(path){
       console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
     }
     const bytes = await invoke('read_file_bytes', { path });
-    if(!bytes || !bytes.length) return;
-    const buf = (bytes instanceof ArrayBuffer) ? bytes : new Uint8Array(bytes).buffer;
+    if(ipcByteLength(bytes) === 0) return;
+    const buf = ipcToBuffer(bytes);
 
     await openBuffer(buf, name, path);
   }catch(e){
@@ -7690,11 +7773,9 @@ async function tauriOpenPath(path){
   }
 }
 window.__folioOpenPath = tauriOpenPath;
-if(window.__TAURI_INTERNALS__){
-  try{
-    window.__TAURI_INTERNALS__.invoke('get_initial_file').then(p => { if(p) tauriOpenPath(p); }).catch(()=>{});
-  }catch(e){}
-}
+// NOTE: cold-start open lives in checkStartupFile() (called at init above).
+// Do not invoke get_initial_file here as well — a duplicate boot open races
+// the first through openBuffer and one of the two files is silently dropped.
 
 // Margin chapter pills (F0): one click, one chapter. The labels blend with
 // the desk at rest and reveal on hover; clicks jump one chapter. Jumps are
