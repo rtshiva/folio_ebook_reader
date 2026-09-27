@@ -3095,7 +3095,7 @@ const Ribbon = {
 
 /* ---------------- recent books shelf ---------------- */
 function getRecents(){
-  try{ return JSON.parse(localStorage.getItem('folio-recents')||'[]'); }catch(e){ return []; }
+  try{ const r = JSON.parse(localStorage.getItem('folio-recents')||'[]'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
 }
 function updateRecentThumb(title, thumb){
   if(!title || !thumb) return;
@@ -3304,7 +3304,7 @@ function renderRecentShelf(){
 
 /* ---------------- bookmarks ---------------- */
 function getBookmarks(){
-  try{ return JSON.parse(localStorage.getItem('folio-bookmarks')||'[]'); }catch(e){ return []; }
+  try{ const r = JSON.parse(localStorage.getItem('folio-bookmarks')||'[]'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
 }
 function currentBookKey(){
   return getActiveTitle();
@@ -3630,7 +3630,7 @@ const Highlights = {
   lastPtr: { x: innerWidth/2, y: 120 },
 
   all(){
-    try{ return JSON.parse(localStorage.getItem('folio-highlights')||'[]'); }catch(e){ return []; }
+    try{ const r = JSON.parse(localStorage.getItem('folio-highlights')||'[]'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
   },
   forBook(){
     const k = currentBookKey();
