@@ -3552,8 +3552,8 @@ function layoutChNavPills(){
 async function toggleBookmark(){
   if(!state.rendition) return;
   const loc = state.rendition.currentLocation();
-  if(!loc || !loc.start) return;
-  const cfi = loc.start.cfi;
+  const cfi = loc && loc.start ? loc.start.cfi : state.currentCfi;
+  if(!cfi) return;
   const bookTitle = currentBookKey();
   let all = getBookmarks();
   const existingIdx = all.findIndex(b => b.bookTitle === bookTitle && (b.cfi === cfi || (b.cfi && b.cfi.split('!')[0] === cfi.split('!')[0] && b.cfi.split(',')[0] === cfi.split(',')[0])));
@@ -3569,7 +3569,7 @@ async function toggleBookmark(){
     if(pt && pt.txt){
       snippet = pt.txt.slice(0, 140) + (pt.txt.length > 140 ? '…' : '');
     }
-    const ch = chapterFor(loc.start.href) || 'Chapter';
+    const ch = (loc && loc.start && chapterFor(loc.start.href)) || (el('chapter') ? el('chapter').textContent : 'Chapter');
     const pct = el('pct') ? el('pct').textContent : '';
     all.unshift({
       id: 'bm_' + Date.now(),
@@ -3590,7 +3590,8 @@ function deleteBookmark(id, e){
   let all = getBookmarks().filter(b => b.id !== id);
   saveBookmarks(all);
   const loc = state.rendition && state.rendition.currentLocation();
-  if(loc && loc.start) updateRibbonState(loc.start.cfi);
+  const cfi = loc && loc.start ? loc.start.cfi : state.currentCfi;
+  updateRibbonState(cfi);
   toast('Bookmark deleted');
 }
 function renderBookmarks(){
