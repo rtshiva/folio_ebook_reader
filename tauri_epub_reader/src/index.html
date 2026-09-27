@@ -3111,21 +3111,33 @@ function fetchCoverThumb(book, title){
   if(!book || !title || typeof book.coverUrl !== 'function') return;
   const run = () => {
     try{
+      if(!state.book || state.book !== book) return;
       book.coverUrl().then(url => {
         if(!url) return;
+        const cleanup = () => {
+          if(typeof url === 'string' && url.startsWith('blob:')){
+            try{ URL.revokeObjectURL(url); }catch(e){}
+          }
+        };
         const img = new Image();
         img.onload = () => {
           try{
+            const nw = img.naturalWidth || 72;
+            const nh = img.naturalHeight || 108;
             const TW = 72;
-            const scale = TW / (img.naturalWidth || TW);
-            const TH = Math.max(1, Math.round((img.naturalHeight || TW) * scale));
+            const scale = TW / nw;
+            const TH = Math.max(1, Math.min(240, Math.round(nh * scale)));
             const cv = document.createElement('canvas');
             cv.width = TW; cv.height = TH;
-            cv.getContext('2d').drawImage(img, 0, 0, TW, TH);
-            updateRecentThumb(title, cv.toDataURL('image/jpeg', 0.72));
+            const ctx = cv.getContext('2d');
+            if(ctx){
+              ctx.drawImage(img, 0, 0, TW, TH);
+              updateRecentThumb(title, cv.toDataURL('image/jpeg', 0.72));
+            }
           }catch(e){}
+          finally{ cleanup(); }
         };
-        img.onerror = () => {};
+        img.onerror = () => { cleanup(); };
         img.src = url;
       }).catch(()=>{});
     }catch(e){}
