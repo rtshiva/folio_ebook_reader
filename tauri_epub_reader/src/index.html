@@ -6008,7 +6008,8 @@ function panelsOpen(){
   return body.classList.contains('sheet-open') ||
          body.classList.contains('toc-open') ||
          body.classList.contains('search-open') ||
-         body.classList.contains('help-open');
+         body.classList.contains('help-open') ||
+         (typeof CmdPalette !== 'undefined' && CmdPalette.open);
 }
 function showChrome(){
   if(!body.classList.contains('state-reading'))return;
@@ -6053,6 +6054,7 @@ function closePanels(){
   body.classList.remove('toc-open');
   body.classList.remove('search-open');
   body.classList.remove('help-open');
+  if(typeof CmdPalette !== 'undefined' && CmdPalette.open) CmdPalette.close();
   syncScrim();
   if(body.classList.contains('state-reading')) scheduleHide(1200);
 }
@@ -6298,6 +6300,11 @@ function wireCmdPalette(){
   });
   el('cmdInput').addEventListener('input', e => CmdPalette.render(e.target.value));
   el('cmdPalette').addEventListener('pointerdown', e => e.stopPropagation());
+  document.addEventListener('pointerdown', e => {
+    if(CmdPalette.open && el('cmdPalette') && !el('cmdPalette').contains(e.target)){
+      CmdPalette.close();
+    }
+  });
 }
 
 /* ---------------- keyboard ---------------- */
