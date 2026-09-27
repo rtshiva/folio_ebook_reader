@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Page Flip Animation & Navigation Tests</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 20px; background: #f5f1ea; color: #333; }
+  h1 { font-size: 1.4em; margin-bottom: 6px; }
+  h2 { font-size: 1.1em; margin-top: 20px; color: #555; }
+  .suite { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; background: #fff; }
+  .pass { color: #2a7d2e; } .fail { color: #c0392b; font-weight: bold; }
+  .result { padding: 2px 0; font-size: 0.92em; }
+  .summary { margin-top: 16px; padding: 10px; border-radius: 6px; font-weight: bold; }
+  .summary.pass-bg { background: #d5f5d5; } .summary.fail-bg { background: #fdd; }
+  pre { font-size: 0.82em; background: #f0ece4; padding: 6px 10px; border-radius: 4px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>Page Flip Animation & Navigation Tests</h1>
+<p>Tests for click zones, drag gestures, compositor rendering, keyboard triggers, and edge cases.</p>
+<div id="results"></div>
+<div id="summary"></div>
+
+<script>
+// =====================================================================
+//  Minimal test framework
+// =====================================================================
+const results = [];
+function assert(cond, msg) {
+  results.push({ pass: !!cond, msg });
+  if (!cond) console.error('FAIL:', msg);
+}
+function assertEq(a, b, msg) { assert(a === b, `${msg} — expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
+function assertClose(a, b, eps, msg) { assert(Math.abs(a - b) < eps, `${msg} — expected ~${b}, got ${a}`); }
+
+// =====================================================================
+//  Stubs & mocks replicating the real app environment
+// =====================================================================
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+// Mock DOM elements
+const mockElements = {};
+function el(id) { return mockElements[id] || document.getElementById(id); }
+
+// Mock state
+const state = { spreadOn: false, rendition: null, recreating: false, turning: false, spreadPending: false, book: null };
+const body = document.body;
+
+// Mock PageTurnConfig
+const PageTurnConfig = {
+  quality: 'premium',
+  fullSpreadFold: true,
+  activationDistance: 10,
+  verticalToleranceRatio: 1.8,
+  edgeZoneWidthRatio: 0.35,
+  allowFullPageDrag: true,
+  commitThreshold: 0.38,
+  commitVelocity: 1.2,
+  velocityWeight: 0.26,
+  overscrollResistance: 0.26,
+  perspective: 2200,
+  maxCurvature: 22,
+  maxFlapAngle: 32,
+  flapWidthRatio: 0.30,
+  flapWidthMax: 150,
+  foldShadowOpacity: 0.36,
+  foldShadowWidth: 40,
+  ambientShadowOpacity: 0.32,
+  ambientShadowWidthRatio: 0.36,
+  edgeHighlightOpacity: 0.18,
+  springDamping: 1.18,
+  springFrequency: 14,
+  maxAnimationDuration: 480,
+  clickTurnDuration: 420,
+};
+
+// =====================================================================
+// TEST SUITE 1: Click Zone Direction Determination
+// =====================================================================
+(function testClickZones() {
+  const suiteName = 'Click Zone Direction';
+  let turnDir = null;
+  const _turn = (dir) => { turnDir = dir; };
+  function toggleChrome() {}
+
+  // Simulate the FIXED handleClick logic
+  function handleClick_fixed(clientX, viewerRect, spreadOn, evtFromIframe, iframeLeft) {
+    let cx = clientX;
+    if (evtFromIframe) cx += iframeLeft;
+
+    if (spreadOn) {
+      const spineX = viewerRect.left + viewerRect.width / 2;
+      if (cx < spineX) return -1;
+      else return 1;
+    } else {
+      const rel = (cx - viewerRect.left) / (viewerRect.width || 1);
+      if (rel < 0.25) return -1;
+      else if (rel > 0.75) return 1;
+      else return 0; // middle zone
+    }
+  }
+
+  // Simulate the OLD (buggy) handleClick logic
+  function handleClick_old(clientX, innerWidth) {
+    const x = clientX / innerWidth;
+    if (x < 0.25) return -1;
+    else if (x > 0.75) return 1;
+    else return 0;
+  }
+
+  const viewerRect = { left: 100, top: 50, width: 800, height: 600 };
+  const innerW = 1024;
+
+  // Test 1: Spread mode — click on left page (spine at 500)
+  assertEq(handleClick_fixed(200, viewerRect, true, false, 0), -1,
+    'Spread: click on left page should go backward');
+
+  // Test 2: Spread mode — click on right page
+  assertEq(handleClick_fixed(600, viewerRect, true, false, 0), 1,
+    'Spread: click on right page should go forward');
+
+  // Test 3: Spread mode — click exactly on spine
+  assertEq(handleClick_fixed(500, viewerRect, true, false, 0), 1,
+    'Spread: click on spine should go forward (>= spine)');
+
+  // Test 4: THE BUG — iframe-sourced click on left page edge
+  // In iframe, clientX=10 (left edge of iframe), iframe starts at x=100
+  // Old code: 10/1024 = 0.0098 < 0.25 → backward (CORRECT by accident)
+  // But if iframe starts at x=300 and clientX=200 inside iframe:
+  // Old code: 200/1024 = 0.195 < 0.25 → backward
+  // Fixed: 200+300=500, spineX=500 → forward!  (CORRECT for right page click in iframe)
+  assertEq(handleClick_fixed(200, viewerRect, true, true, 300), 1,
+    'Spread iframe: click at iframe-x=200 with iframe at main-x=300 → right page → forward');
+
+  // Test 5: THE BUG SCENARIO — left border click with iframe offset
+  // User clicks at the far left of the left page, iframe left = 100
+  // iframe-relative clientX = 5 (near left border of iframe)
+  assertEq(handleClick_fixed(5, viewerRect, true, true, 100), -1,
+    'Spread iframe: click at iframe-x=5, iframe at x=100 → cx=105 < spineX=500 → backward');
+
+  // Test 6: Old code would get this wrong with certain viewer offsets
+  // Viewer at left=200, width=800, single-page mode
+  // Click at main-window x=220 (just inside left edge of viewer)
+  // Old: 220/1024 = 0.215 < 0.25 → backward (happens to be right)
+  // But with viewer at left=400: click at x=420
+  // Old: 420/1024 = 0.41 → MIDDLE zone (wrong! should be backward)
+  const viewerRect2 = { left: 400, top: 50, width: 800, height: 600 };
+  assertEq(handleClick_fixed(420, viewerRect2, false, false, 0), -1,
+    'Single page: click near left edge of offset viewer should go backward');
+  assertEq(handleClick_old(420, 1024), 0,
+    'OLD code: same click incorrectly maps to middle zone');
+
+  // Test 7: Single page — right edge click
+  assertEq(handleClick_fixed(1150, viewerRect2, false, false, 0), 1,
+    'Single page: click near right edge should go forward');
+
+  // Test 8: Single page — middle zone
+  assertEq(handleClick_fixed(800, viewerRect2, false, false, 0), 0,
+    'Single page: click in middle should trigger chrome toggle zone');
+
+  // Test 9: Very narrow window (mobile-like)
+  const mobileRect = { left: 0, top: 0, width: 375, height: 667 };
+  assertEq(handleClick_fixed(30, mobileRect, false, false, 0), -1,
+    'Mobile single: click at x=30 → rel=0.08 → backward');
+  assertEq(handleClick_fixed(340, mobileRect, false, false, 0), 1,
+    'Mobile single: click at x=340 → rel=0.91 → forward');
+
+  // Test 10: Spread mode on mobile-like viewport
+  assertEq(handleClick_fixed(100, mobileRect, true, false, 0), -1,
+    'Mobile spread: click left of spine → backward');
+  assertEq(handleClick_fixed(250, mobileRect, true, false, 0), 1,
+    'Mobile spread: click right of spine → forward');
+})();
+
+// =====================================================================
+// TEST SUITE 2: Iframe Coordinate Mapping
+// =====================================================================
+(function testIframeCoordinateMapping() {
+  // Simulate the coordinate mapping from onPointerDown
+  function mapToWindow(clientX, clientY, evtDoc, mainDoc, iframeRect) {
+    let cx = clientX, cy = clientY;
+    if (evtDoc !== mainDoc && iframeRect) {
+      cx += iframeRect.left;
+      cy += iframeRect.top;
+    }
+    return { cx, cy };
+  }
+
+  const mainDoc = 'main';
+  const iframeDoc = 'iframe';
+  const iframeRect = { left: 150, top: 60 };
+
+  // Event from main doc — no mapping needed
+  const r1 = mapToWindow(300, 200, mainDoc, mainDoc, iframeRect);
+  assertEq(r1.cx, 300, 'Main doc event: cx unchanged');
+  assertEq(r1.cy, 200, 'Main doc event: cy unchanged');
+
+  // Event from iframe doc — should be offset by iframe position
+  const r2 = mapToWindow(50, 100, iframeDoc, mainDoc, iframeRect);
+  assertEq(r2.cx, 200, 'Iframe event: cx=50 + iframe.left=150 = 200');
+  assertEq(r2.cy, 160, 'Iframe event: cy=100 + iframe.top=60 = 160');
+
+  // Drag delta should be correct when both events from same doc
+  const down = mapToWindow(100, 200, iframeDoc, mainDoc, iframeRect);
+  const move = mapToWindow(50, 200, iframeDoc, mainDoc, iframeRect);
+  const dx = move.cx - down.cx;
+  assertEq(dx, -50, 'Drag dx from iframe events: 50-100 = -50 (drag left → forward)');
+
+  // Drag delta when down is iframe, move is window (after capture)
+  const downI = mapToWindow(100, 200, iframeDoc, mainDoc, iframeRect);
+  const moveW = mapToWindow(200, 200, mainDoc, mainDoc, null);
+  const dx2 = moveW.cx - downI.cx;
+  assertEq(dx2, -50, 'Cross-doc drag: window move x=200 minus iframe-mapped down x=250 = -50');
+})();
+
+// =====================================================================
+// TEST SUITE 3: Drag Direction Detection
+// =====================================================================
+(function testDragDirection() {
+  // dx < 0 means dragging left → forward (dir = 1)
+  // dx > 0 means dragging right → backward (dir = -1)
+  function detectDir(dx) { return dx < 0 ? 1 : -1; }
+
+  assertEq(detectDir(-50), 1, 'Drag left → forward (dir=1)');
+  assertEq(detectDir(50), -1, 'Drag right → backward (dir=-1)');
+  assertEq(detectDir(-1), 1, 'Tiny drag left → forward');
+  assertEq(detectDir(1), -1, 'Tiny drag right → backward');
+})();
+
+// =====================================================================
+// TEST SUITE 4: Drag Activation Threshold
+// =====================================================================
+(function testDragActivation() {
+  const actDist = PageTurnConfig.activationDistance; // 10
+  const tolRatio = PageTurnConfig.verticalToleranceRatio; // 1.8
+
+  function shouldActivate(dx, dy) {
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    return absDx >= actDist && absDx >= tolRatio * absDy;
+  }
+
+  assert(shouldActivate(15, 2), 'Horizontal drag 15px, 2px vertical → activates');
+  assert(!shouldActivate(5, 2), 'Horizontal drag 5px < 10px threshold → no activation');
+  assert(!shouldActivate(15, 15), 'Diagonal 15/15: |dx|=15 < 1.8*15=27 → no activation');
+  assert(shouldActivate(20, 8), '20px horizontal, 8px vertical: 20 >= 1.8*8=14.4 → activates');
+  assert(!shouldActivate(15, 9), '15px horizontal, 9px vertical: 15 < 1.8*9=16.2 → no activation');
+  assert(shouldActivate(100, 0), 'Pure horizontal 100px → activates');
+  assert(!shouldActivate(0, 100), 'Pure vertical → no activation');
+})();
+
+// =====================================================================
+// TEST SUITE 5: Commit Score & Velocity
+// =====================================================================
+(function testCommitScore() {
+  const threshold = PageTurnConfig.commitThreshold;  // 0.38
+  const velCommit = PageTurnConfig.commitVelocity;   // 1.2
+  const velWeight = PageTurnConfig.velocityWeight;    // 0.26
+
+  function shouldCommit(p, v0, isBoundary) {
+    if (isBoundary) return false;
+    const commitScore = p + velWeight * v0;
+    return commitScore >= threshold || v0 > velCommit;
+  }
+
+  assert(shouldCommit(0.5, 0, false), 'p=0.5 > threshold → commit');
+  assert(!shouldCommit(0.1, 0, false), 'p=0.1 < threshold, no velocity → no commit');
+  assert(shouldCommit(0.2, 1.5, false), 'p=0.2 but velocity=1.5 > 1.2 → commit by flick');
+  assert(shouldCommit(0.3, 0.5, false), 'p=0.3 + 0.26*0.5=0.43 > 0.38 → commit');
+  assert(!shouldCommit(0.9, 2, true), 'At boundary → never commit');
+  assert(!shouldCommit(0.2, 0.3, false), 'p=0.2 + 0.26*0.3=0.278 < 0.38 → no commit');
+})();
+
+// =====================================================================
+// TEST SUITE 6: Curvature C(p) and Fold Position
+// =====================================================================
+(function testCurvatureAndFold() {
+  // C(p) = sin(πp)
+  function curvature(p) { return Math.sin(Math.PI * p); }
+
+  assertClose(curvature(0), 0, 0.001, 'C(0) = 0');
+  assertClose(curvature(0.5), 1, 0.001, 'C(0.5) = 1 (max curvature)');
+  assertClose(curvature(1), 0, 0.001, 'C(1) = 0');
+  assertClose(curvature(0.25), Math.SQRT1_2, 0.001, 'C(0.25) = √½');
+
+  // Fold position for forward turn: foldX = W * (1 - p)
+  function foldX_fwd(W, p) { return W * (1 - p); }
+  assertEq(foldX_fwd(800, 0), 800, 'Forward fold at p=0: fold at right edge');
+  assertEq(foldX_fwd(800, 0.5), 400, 'Forward fold at p=0.5: fold at center');
+  assertEq(foldX_fwd(800, 1), 0, 'Forward fold at p=1: fold at left edge');
+
+  // Fold position for backward turn: foldX = W * p
+  function foldX_bwd(W, p) { return W * p; }
+  assertEq(foldX_bwd(800, 0), 0, 'Backward fold at p=0: fold at left edge');
+  assertEq(foldX_bwd(800, 1), 800, 'Backward fold at p=1: fold at right edge');
+})();
+
+// =====================================================================
+// TEST SUITE 7: Full-Fold Phase Transitions
+// =====================================================================
+(function testFullFoldPhases() {
+  // Phase 1: pc < 0.5 — front sheet visible, back sheet hidden
+  // Phase 2: pc >= 0.5 — front sheet hidden, back sheet visible
+  function getPhaseVisibility(pc, isBoundary) {
+    const frontVisible = pc < 0.5;
+    const backVisible = pc >= 0.5 && !isBoundary;
+    return { frontVisible, backVisible };
+  }
+
+  let v = getPhaseVisibility(0.0, false);
+  assert(v.frontVisible && !v.backVisible, 'p=0.0: front visible, back hidden');
+
+  v = getPhaseVisibility(0.3, false);
+  assert(v.frontVisible && !v.backVisible, 'p=0.3: front visible, back hidden');
+
+  v = getPhaseVisibility(0.5, false);
+  assert(!v.frontVisible && v.backVisible, 'p=0.5: phase 2 starts, back visible');
+
+  v = getPhaseVisibility(0.8, false);
+  assert(!v.frontVisible && v.backVisible, 'p=0.8: back visible');
+
+  v = getPhaseVisibility(1.0, false);
+  assert(!v.frontVisible && v.backVisible, 'p=1.0: back visible');
+
+  // At boundary: back is always hidden
+  v = getPhaseVisibility(0.7, true);
+  assert(!v.frontVisible && !v.backVisible, 'p=0.7 at boundary: both hidden');
+})();
+
+// =====================================================================
+// TEST SUITE 8: Clip-Path Calculations
+// =====================================================================
+(function testClipPath() {
+  // Forward clip on sheet: inset(0 ${VW - foldX}px 0 0)
+  function clipFwd(VW, foldX) {
+    return `inset(0 ${Math.round(VW - foldX)}px 0 0)`;
+  }
+  assertEq(clipFwd(800, 800), 'inset(0 0px 0 0)', 'Forward p=0: no clipping');
+  assertEq(clipFwd(800, 400), 'inset(0 400px 0 0)', 'Forward p=0.5: half clipped');
+  assertEq(clipFwd(800, 0), 'inset(0 800px 0 0)', 'Forward p=1: fully clipped');
+
+  // Back sheet forward clip: inset(0 0 0 ${foldX}px)
+  function clipBackFwd(foldX) {
+    return `inset(0 0 0 ${Math.round(foldX)}px)`;
+  }
+  assertEq(clipBackFwd(400), 'inset(0 0 0 400px)', 'Back sheet fwd at spine: clips from fold');
+  assertEq(clipBackFwd(0), 'inset(0 0 0 0px)', 'Back sheet fwd at p=1: fully visible');
+})();
+
+// =====================================================================
+// TEST SUITE 9: Edge Detection (atEdge)
+// =====================================================================
+(function testAtEdge() {
+  function isLastPage(loc) {
+    if (!loc || !loc.start) return false;
+    if (loc.start.index !== 5) return false; // spine length - 1
+    const d = loc.start.displayed;
+    return !d || d.page >= d.total;
+  }
+
+  function atEdge(dir, loc, spineLen) {
+    if (!loc || !loc.start) return false;
+    if (dir > 0) return isLastPage(loc);
+    const d = loc.start.displayed;
+    return loc.start.index === 0 && (!d || d.page <= 1);
+  }
+
+  // First page of book
+  assert(atEdge(-1, { start: { index: 0, displayed: { page: 1, total: 10 } } }, 6),
+    'At first page of book → backward is edge');
+  assert(!atEdge(1, { start: { index: 0, displayed: { page: 1, total: 10 } } }, 6),
+    'At first page → forward is NOT edge');
+
+  // Last page of book
+  assert(atEdge(1, { start: { index: 5, displayed: { page: 10, total: 10 } } }, 6),
+    'At last page of book → forward is edge');
+  assert(!atEdge(-1, { start: { index: 5, displayed: { page: 10, total: 10 } } }, 6),
+    'At last page → backward is NOT edge');
+
+  // Middle page
+  assert(!atEdge(1, { start: { index: 2, displayed: { page: 3, total: 10 } } }, 6),
+    'Middle page → forward not edge');
+  assert(!atEdge(-1, { start: { index: 2, displayed: { page: 3, total: 10 } } }, 6),
+    'Middle page → backward not edge');
+})();
+
+// =====================================================================
+// TEST SUITE 10: Turn Queue
+// =====================================================================
+(function testTurnQueue() {
+  let queue = 0;
+  const maxQueue = 3;
+
+  function queueTurn(dir) {
+    if (Math.abs(queue) < maxQueue) {
+      queue += dir;
+      return true;
+    }
+    return false;
+  }
+
+  assert(queueTurn(1), 'Queue forward: accepted');
+  assertEq(queue, 1, 'Queue = 1');
+  assert(queueTurn(1), 'Queue another forward: accepted');
+  assertEq(queue, 2, 'Queue = 2');
+  assert(queueTurn(1), 'Queue third: |2| < 3, accepted');
+  assertEq(queue, 3, 'Queue = 3');
+  assert(!queueTurn(1), 'Queue fourth: |3| >= 3, rejected');
+  assertEq(queue, 3, 'Queue still 3');
+
+  // Queue a backward while forward is pending
+  queue = 2;
+  assert(queueTurn(-1), 'Queue backward while forward pending: |2| < 3, accepted');
+  assertEq(queue, 1, 'Queue = 2 - 1 = 1');
+})();
+
+// =====================================================================
+// TEST SUITE 11: Overscroll Resistance
+// =====================================================================
+(function testOverscroll() {
+  const resistance = PageTurnConfig.overscrollResistance; // 0.26
+
+  function overscrollP(rawP) {
+    return clamp(rawP * resistance, 0, 0.22);
+  }
+
+  assertClose(overscrollP(0.5), 0.13, 0.01, 'Overscroll at rawP=0.5: 0.5*0.26=0.13');
+  assertClose(overscrollP(1.0), 0.22, 0.01, 'Overscroll at rawP=1.0: clamped to 0.22');
+  assertClose(overscrollP(0), 0, 0.001, 'Overscroll at rawP=0: 0');
+  assertClose(overscrollP(-0.5), 0, 0.001, 'Negative rawP: clamped to 0');
+})();
+
+// =====================================================================
+// TEST SUITE 12: Spring Physics Settling
+// =====================================================================
+(function testSpringPhysics() {
+  const omega = PageTurnConfig.springFrequency; // 14
+
+  function springPos(fromP, toP, v0, tSec) {
+    const C1 = fromP - toP;
+    const C2 = v0 + omega * C1;
+    const decay = Math.exp(-omega * tSec);
+    const y = (C1 + C2 * tSec) * decay;
+    return toP + y;
+  }
+
+  // Starting at p=0, settling to p=1
+  const p0 = springPos(0, 1, 1.2, 0);
+  assertClose(p0, 0, 0.01, 'Spring at t=0: starts at fromP');
+
+  const p1 = springPos(0, 1, 1.2, 0.5);
+  assert(p1 > 0.9, `Spring at t=0.5s: should be near target (got ${p1.toFixed(3)})`);
+
+  const p2 = springPos(0, 1, 1.2, 1.0);
+  assertClose(p2, 1, 0.01, 'Spring at t=1.0s: should be settled at target');
+
+  // Settling back to 0 (cancel)
+  const pc = springPos(0.4, 0, -0.5, 0.5);
+  assertClose(pc, 0, 0.05, 'Spring cancel from p=0.4 to 0 at t=0.5s: near 0');
+})();
+
+// =====================================================================
+// TEST SUITE 13: Adjacent Surface Info (same chapter)
+// =====================================================================
+(function testAdjacentSurface() {
+  function getAdjacentRelLeft(relLeft, dir, stepW) {
+    return relLeft - (dir * stepW);
+  }
+
+  // Forward: relLeft shifts left by stepW
+  assertEq(getAdjacentRelLeft(-200, 1, 800), -1000,
+    'Forward same-chapter: relLeft=-200 → adj=-200-800=-1000');
+
+  // Backward: relLeft shifts right by stepW
+  assertEq(getAdjacentRelLeft(-200, -1, 800), 600,
+    'Backward same-chapter: relLeft=-200 → adj=-200+800=600');
+
+  // At chapter start (relLeft=0), forward
+  assertEq(getAdjacentRelLeft(0, 1, 800), -800,
+    'Forward from start: relLeft=0 → adj=-800');
+})();
+
+// =====================================================================
+// TEST SUITE 14: Spread Page Detection
+// =====================================================================
+(function testSpreadPageDetection() {
+  function inSameChapter(dir, page, total, isSpread) {
+    const stepPages = isSpread ? 2 : 1;
+    if (dir > 0 && page + stepPages <= total) return true;
+    if (dir < 0 && page - stepPages >= 1) return true;
+    return false;
+  }
+
+  assert(inSameChapter(1, 3, 10, true), 'Forward spread page 3/10: 3+2=5 ≤ 10 → same chapter');
+  assert(!inSameChapter(1, 9, 10, true), 'Forward spread page 9/10: 9+2=11 > 10 → cross chapter');
+  assert(inSameChapter(-1, 5, 10, true), 'Backward spread page 5/10: 5-2=3 ≥ 1 → same chapter');
+  assert(!inSameChapter(-1, 1, 10, true), 'Backward spread page 1/10: 1-2=-1 < 1 → cross chapter');
+  assert(!inSameChapter(-1, 2, 10, true), 'Backward spread page 2/10: 2-2=0 < 1 → cross chapter');
+  assert(inSameChapter(-1, 3, 10, true), 'Backward spread page 3/10: 3-2=1 ≥ 1 → same chapter');
+
+  // Single page mode
+  assert(inSameChapter(1, 9, 10, false), 'Forward single page 9/10: 9+1=10 ≤ 10 → same');
+  assert(!inSameChapter(1, 10, 10, false), 'Forward single page 10/10: 10+1=11 > 10 → cross');
+})();
+
+// =====================================================================
+// TEST SUITE 15: Flap Geometry
+// =====================================================================
+(function testFlapGeometry() {
+  function flapWidth(leafW) {
+    return Math.max(24, Math.round(Math.min(PageTurnConfig.flapWidthMax, leafW * PageTurnConfig.flapWidthRatio)));
+  }
+
+  assertEq(flapWidth(400), 120, 'Flap width for 400px leaf: 400*0.30=120');
+  assertEq(flapWidth(600), 150, 'Flap width for 600px leaf: capped at 150');
+  assertEq(flapWidth(50), 24, 'Flap width for 50px leaf: minimum 24');
+
+  // Flap angle
+  function flapAngle(dir, C) {
+    return (dir > 0 ? -1 : 1) * PageTurnConfig.maxFlapAngle * Math.pow(C, 0.8);
+  }
+
+  assertClose(flapAngle(1, 1), -32, 0.1, 'Forward flap at max curvature: -32°');
+  assertClose(flapAngle(-1, 1), 32, 0.1, 'Backward flap at max curvature: 32°');
+  assertClose(flapAngle(1, 0), 0, 0.001, 'Flap at zero curvature: 0°');
+})();
+
+// =====================================================================
+// TEST SUITE 16: Ambient Shadow Scaling
+// =====================================================================
+(function testAmbientShadow() {
+  function ambientOpacity(pc) {
+    const C = Math.sin(Math.PI * pc);
+    return PageTurnConfig.ambientShadowOpacity * C;
+  }
+
+  assertClose(ambientOpacity(0), 0, 0.001, 'Ambient shadow at p=0: 0');
+  assertClose(ambientOpacity(0.5), 0.32, 0.001, 'Ambient shadow at p=0.5: max');
+  assertClose(ambientOpacity(1), 0, 0.001, 'Ambient shadow at p=1: 0');
+})();
+
+// =====================================================================
+// TEST SUITE 17: Spine Valley Opacity (Full-Fold Phase 2)
+// =====================================================================
+(function testSpineValley() {
+  function spineValleyOpacity(pc) {
+    return pc < 0.5 ? 1 : Math.max(0, 1 - (pc - 0.5) * 4);
+  }
+
+  assertClose(spineValleyOpacity(0), 1, 0.001, 'Spine valley at p=0: fully visible');
+  assertClose(spineValleyOpacity(0.3), 1, 0.001, 'Spine valley at p=0.3: fully visible');
+  assertClose(spineValleyOpacity(0.5), 1, 0.001, 'Spine valley at p=0.5: still 1');
+  assertClose(spineValleyOpacity(0.625), 0.5, 0.001, 'Spine valley at p=0.625: half');
+  assertClose(spineValleyOpacity(0.75), 0, 0.001, 'Spine valley at p=0.75: gone');
+  assertClose(spineValleyOpacity(1), 0, 0.001, 'Spine valley at p=1: gone');
+})();
+
+// =====================================================================
+// TEST SUITE 18: Edge Zone Width
+// =====================================================================
+(function testEdgeZone() {
+  const ratio = PageTurnConfig.edgeZoneWidthRatio; // 0.35
+
+  function inEdgeZone(startX, dir, vrLeft, vrRight, vrWidth) {
+    const zx = vrWidth * ratio;
+    if (dir > 0) return startX >= vrRight - zx;
+    else return startX <= vrLeft + zx;
+  }
+
+  const vr = { left: 100, right: 900, width: 800 };
+  const zx = 800 * 0.35; // = 280
+
+  // Forward: right edge zone = [620, 900]
+  assert(inEdgeZone(700, 1, vr.left, vr.right, vr.width), 'Forward drag from x=700: in right zone');
+  assert(!inEdgeZone(500, 1, vr.left, vr.right, vr.width), 'Forward drag from x=500: not in right zone');
+
+  // Backward: left edge zone = [100, 380]
+  assert(inEdgeZone(200, -1, vr.left, vr.right, vr.width), 'Backward drag from x=200: in left zone');
+  assert(!inEdgeZone(500, -1, vr.left, vr.right, vr.width), 'Backward drag from x=500: not in left zone');
+})();
+
+// =====================================================================
+// Render results
+// =====================================================================
+(function renderResults() {
+  const container = document.getElementById('results');
+  let passCount = 0, failCount = 0;
+
+  // Group by test name prefix
+  const suites = {};
+  for (const r of results) {
+    const parts = r.msg.split(':');
+    const suite = parts.length > 1 ? parts[0].trim() : 'General';
+    if (!suites[suite]) suites[suite] = [];
+    suites[suite].push(r);
+  }
+
+  for (const [name, tests] of Object.entries(suites)) {
+    const div = document.createElement('div');
+    div.className = 'suite';
+    const h2 = document.createElement('h2');
+    h2.textContent = name;
+    div.appendChild(h2);
+    for (const t of tests) {
+      const p = document.createElement('div');
+      p.className = `result ${t.pass ? 'pass' : 'fail'}`;
+      p.textContent = `${t.pass ? '✓' : '✗'} ${t.msg}`;
+      div.appendChild(p);
+      if (t.pass) passCount++; else failCount++;
+    }
+    container.appendChild(div);
+  }
+
+  const summary = document.getElementById('summary');
+  summary.className = `summary ${failCount === 0 ? 'pass-bg' : 'fail-bg'}`;
+  summary.textContent = `${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`;
+  document.title = `[${failCount === 0 ? 'PASS' : 'FAIL'}] Page Flip Tests`;
+})();
+</script>
+</body>
+</html>
