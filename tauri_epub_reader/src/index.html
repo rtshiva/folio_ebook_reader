@@ -4058,10 +4058,18 @@ function splitSentences(t){
   const parts=(t||'').split(/([.!?…]+)/), out=[]; let s='';
   for(let i=0;i<parts.length;i+=2){
     s+=parts[i];
-    if(parts[i+1]){ s+=parts[i+1]; out.push(s.trim()); s=''; }
+    if(parts[i+1]){
+      s+=parts[i+1];
+      const trimmed = s.trim();
+      if(trimmed && /[\p{L}\p{N}]/u.test(trimmed)){
+        out.push(trimmed);
+        s='';
+      }
+    }
   }
-  if(s.trim())out.push(s.trim());
-  return out.filter(Boolean);
+  const rem = s.trim();
+  if(rem && /[\p{L}\p{N}]/u.test(rem)) out.push(rem);
+  return out;
 }
 
 class PageCacheManager {
