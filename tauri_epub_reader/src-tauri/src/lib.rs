@@ -152,6 +152,7 @@ pub fn sanitize_entry(name: &str) -> Option<PathBuf> {
     for comp in p.components() {
         match comp {
             std::path::Component::Normal(c) => clean.push(c),
+            std::path::Component::CurDir => continue,
             _ => return None,
         }
     }
@@ -850,6 +851,11 @@ mod tests {
         let clean_nested = sanitize_entry("OEBPS/chapters/ch1.xhtml");
         assert!(clean_nested.is_some());
         assert_eq!(clean_nested.unwrap(), Path::new("OEBPS/chapters/ch1.xhtml"));
+
+        // Accept relative paths with ./ components
+        let clean_cur = sanitize_entry("./OEBPS/chapters/ch1.xhtml");
+        assert!(clean_cur.is_some());
+        assert_eq!(clean_cur.unwrap(), Path::new("OEBPS/chapters/ch1.xhtml"));
     }
 
     #[test]
