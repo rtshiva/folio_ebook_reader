@@ -2521,9 +2521,9 @@ const LocEngine = {
   /* Restore a persisted list; returns true when global paging is live. */
   attach(title){
     this.data = null;
-    if(!state.book || !state.book.locations) return false;
+    if(!state.book || !state.book.locations || !state.book.spine) return false;
     const d = this.load(title);
-    if(d && d.spineLen === state.book.spine.length){
+    if(d && typeof d.spineLen === 'number' && d.spineLen === state.book.spine.length){
       try{
         state.book.locations._locations = d.locations.slice();
         state.book.locations.total = d.locations.length;
@@ -2557,6 +2557,7 @@ const LocEngine = {
      out-of-range CFI that silently fails to display. */
   cfiAtPct(p){
     if(!this.ready() || !state.book || !state.book.locations) return null;
+    if(typeof p !== 'number' || isNaN(p)) return null;
     try{
       p = clamp(p, 0, 1);
       if(p >= 1){
