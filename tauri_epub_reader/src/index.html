@@ -1277,13 +1277,13 @@ function fitInfo(){
 function spreadMetrics(){
   const padX = clamp(innerWidth*0.05, 16, 48);
   const gutter = Math.round(clamp(innerWidth*0.03, 40, 72));
-  const availW = innerWidth - padX*2;
-  const pageMax = Math.min((availW - gutter)/2, 950);
-  const h = innerHeight - 150;
+  const availW = Math.max(100, innerWidth - padX*2);
+  const pageMax = Math.max(50, Math.min((availW - gutter)/2, 950));
+  const h = Math.max(100, innerHeight - 150);
   const fsRaw = Math.min(pageMax/settings.measure, h/26);
   const fs = Math.round(clamp(fsRaw, 14, 22)*10)/10;
   const feasible = fsRaw >= 15;                       // below ~15px a spread stops being readable
-  const pageW = Math.round(Math.min(pageMax, fs*settings.measure));
+  const pageW = Math.max(50, Math.round(Math.min(pageMax, fs*settings.measure)));
   return { feasible, fs, pageW, gutter, mw: pageW*2 + gutter };
 }
 function effSize(){
@@ -1292,19 +1292,19 @@ function effSize(){
 }
 function effWidth(){
   const padX = clamp(innerWidth*0.05, 16, 48);
-  const availW = Math.round(innerWidth - padX*2);
+  const availW = Math.max(100, Math.round(innerWidth - padX*2));
   const sp = !!state.spreadOn;
   if(settings.widthAuto){
     return sp ? spreadMetrics().mw : fitInfo().mw;
   }
   if(sp){
     const minW = Math.min(720, availW);
-    const maxW = Math.min(2000, availW);
+    const maxW = Math.max(minW, Math.min(2000, availW));
     const w = settings.widthSpread || spreadMetrics().mw;
     return Math.round(clamp(w, minW, maxW));
   } else {
     const minW = Math.min(460, availW);
-    const maxW = Math.min(1400, availW);
+    const maxW = Math.max(minW, Math.min(1400, availW));
     const w = settings.widthSingle || fitInfo().mw;
     return Math.round(clamp(w, minW, maxW));
   }
@@ -1313,15 +1313,15 @@ function syncWidthSlider(){
   const wInput = el('widthRange');
   if(!wInput) return;
   const padX = clamp(innerWidth*0.05, 16, 48);
-  const availW = Math.round(innerWidth - padX*2);
+  const availW = Math.max(200, Math.round(innerWidth - padX*2));
   const sp = !!state.spreadOn;
-  const minW = sp ? Math.min(720, availW) : Math.min(460, availW);
-  const maxW = sp ? Math.min(2000, availW) : Math.min(1400, availW);
+  const minW = sp ? Math.min(720, Math.max(100, availW - 40)) : Math.min(460, Math.max(100, availW - 40));
+  const maxW = sp ? Math.max(minW + 50, Math.min(2000, availW)) : Math.max(minW + 50, Math.min(1400, availW));
   const mw = effWidth();
 
   wInput.min = minW;
   wInput.max = maxW;
-  wInput.value = mw;
+  wInput.value = clamp(mw, minW, maxW);
   el('widthAuto').classList.toggle('on', settings.widthAuto);
   el('widthOut').textContent = mw + 'px';
   if(typeof setFill === 'function') setFill(wInput);
