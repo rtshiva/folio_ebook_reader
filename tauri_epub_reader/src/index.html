@@ -6407,6 +6407,25 @@ function onKey(e){
     if(body.classList.contains('state-reading')) toggleBookmark();
     return;
   }
+  if(isCtrl && (e.key==='=' || e.key==='+')){
+    e.preventDefault();
+    nudgeSize(0.5);
+    return;
+  }
+  if(isCtrl && e.key==='-'){
+    e.preventDefault();
+    nudgeSize(-0.5);
+    return;
+  }
+  if(isCtrl && e.key==='0'){
+    e.preventDefault();
+    settings.auto = true;
+    save();
+    syncSize();
+    relayout();
+    showNudgeHud('Aa Auto');
+    return;
+  }
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
   const tag=(e.target&&e.target.tagName)||'';
   if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
