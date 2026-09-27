@@ -1398,11 +1398,12 @@ function applyFit(){
   rs.setProperty('--mw', mw+'px');
   rs.setProperty('--gut', sm.gutter+'px');
   rs.setProperty('--pad-y', my+'px');
-  el('sizeOut').textContent = es.toFixed(1)+'px';
+  const so = el('sizeOut');
+  if(so) so.textContent = es.toFixed(1) + 'px' + (settings.auto ? ' (Auto)' : '');
   el('landingColophon').textContent = 'Set for this screen · '+coloText().replace(/^(Fitted|Manual) · /,'');
   el('colophon').textContent = coloText();
-  el('sizeRange').value = es;
-  setFill(el('sizeRange'));
+  const sr = el('sizeRange');
+  if(sr){ sr.value = es; setFill(sr); }
   syncWidthSlider();
   syncMarginSlider();
   syncLhSlider();
@@ -6603,8 +6604,8 @@ function syncSpreadUI(){
     b.classList.toggle('sel', b.dataset.spread === (settings.spread||'auto')));
 }
 function syncSize(){
-  el('sizeRange').disabled=settings.auto;
-  el('sizeAuto').classList.toggle('on',settings.auto);
+  const r = el('sizeRange'); if(r) r.disabled = !!settings.auto;
+  const a = el('sizeAuto'); if(a) a.classList.toggle('on', !!settings.auto);
   applyFit();
 }
 let nudgeHudTimer = 0;
