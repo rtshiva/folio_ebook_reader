@@ -1749,15 +1749,29 @@ async function closeBook(){
   if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
   lastStatCfi = null;
   LocEngine.data = null;
+  if(typeof pageCache !== 'undefined') pageCache.clear();
   SearchIndex.clear();
   Ribbon.clear();
   Highlights.hidePop();
   hideSelBar();
+  // Drop deferred work bound to the old book: a pending cold-path pass would
+  // otherwise file the previous chapter under the new book's position key.
+  if(typeof _relocColdTimer !== 'undefined') clearTimeout(_relocColdTimer);
+  if(typeof _fpPending !== 'undefined') _fpPending = false;
   if(typeof AutoScroll !== 'undefined') AutoScroll.stop();
   if(typeof TTS !== 'undefined' && TTS.active) TTS.stop(true);
+  // A close can land mid-turn (open another book from recents while the fold
+  // is animating): park the gesture, its capture overlay, and every turn
+  // flag/queue so nothing completes against the incoming book.
+  try{
+    if(typeof turnGesture !== 'undefined' && turnGesture && typeof turnGesture.cancel === 'function') turnGesture.cancel();
+  }catch(e){}
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
+  state.turning=false; state.recreating=false; state.settling=false; state.spreadPending=false;
+  try{ turnQueue = 0; }catch(e){}
+  try{ body.classList.remove('turning'); }catch(e){}
   state.currentTitle=''; state.currentAuthor=''; state.currentFilePath=null; state.currentCfi=null;
   el('viewer').innerHTML='';
   updateLandingUI();
@@ -2191,6 +2205,8 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     body.classList.remove('state-landing');
     state.lastSpineIdx = undefined;   // F2: a fresh open never flashes on its first relocation
     chNavAnchorSteps.clear();         // F0: anchor steps are per-book
+    NavHistory.clear();               // return-anchors hold CFIs into the previous book
+    _sessionPages = 0;                // session page count restarts with each book
     tocCurIdx = -1;
     resetDeskDim();                   // F6: arm the idle dim timer for this session
     state.spreadOn = effectiveSpread();
@@ -3413,6 +3429,13 @@ const NavHistory = {
       anchor.classList.add('hide');
     }
   },
+  /* Per-book reset: entries hold CFIs into a specific book — carrying them
+     across an open would jump the new book to a foreign location. */
+  clear() {
+    clearTimeout(this.timer);
+    this.stack.length = 0;
+    this.dismiss();
+  },
   returnBack() {
     const item = this.pop();
     this.dismiss();
@@ -4130,6 +4153,25 @@ class PageCacheManager {
     this.chapterHtmls = new Map(); // spineIndex -> string (HTML)
     this.preloadingSpines = new Set();
     this.cachedChapterHtml = '';
+  }
+
+  /* Per-book reset: every cache is keyed by spine index, so without this a
+     newly opened book inherits the previous book's chapter text/HTML at the
+     same indexes (stale turn-compositor surfaces, wrong fingerprints). */
+  clear(){
+    this.window.clear();
+    this.chapterTexts.clear();
+    this.chapterHtmls.clear();
+    this.preloadingSpines.clear();
+    this.cachedChapterHtml = '';
+    this.currentSpine = 0;
+    this.currentPage = 0;
+    this.totalPagesInSpine = 1;
+    this.currentCfi = '';
+    if(this.warm){
+      try{ for(const [, fr] of this.warm){ try{ fr.remove(); }catch(e){} } }catch(e){}
+      this.warm.clear();
+    }
   }
 
   setChapterHtml(html, spineIndex) {
@@ -5597,6 +5639,26 @@ class TurnGestureController {
     target.addEventListener('pointerup', e => this.onPointerUp(e), { passive: false });
     target.addEventListener('pointercancel', e => this.onPointerUp(e), { passive: false });
   }
+
+  /* Abort an in-flight gesture (book close/switch): drop the capture overlay
+     so it can't block the incoming book, destroy the half-built compositor,
+     and forget every pointer so a late pointerup can't turn the new book. */
+  cancel() {
+    try{ this.detachCapture(); }catch(e){}
+    try{ if(this.compositor && this.compositor.destroy) this.compositor.destroy(); }catch(e){}
+    this.active = false;
+    this.compositor = null;
+    this.dir = 0;
+    this.pointerId = null;
+    this.startTime = 0;
+    this.gestureRect = null;
+    this.downDoc = null;
+    this.dragDoc = null;
+    this.snapInfo = null;
+    this.adjacentInfo = null;
+    this.currentP = 0;
+    this.recentMoves = [];
+  }
 }
 
 turnGesture = new TurnGestureController();
@@ -5609,8 +5671,8 @@ window.addEventListener('pointercancel', e => turnGesture.onPointerUp(e), { pass
 let turnQueue = 0;
 async function playTurnFx(dir, fx){
   const snapInfo = snapshotPage();
-  if(!snapInfo){
-    (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+  if(!snapInfo || !state.rendition){
+    try{ if(state.rendition) (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{}); }catch(e){}
     return;
   }
   PageSound.play();
@@ -5683,9 +5745,14 @@ async function turn(dir, opts = {}){
   }
   state.turning = true;
   body.classList.add('turning');
+  // Generation guard: a book switch swaps state.rendition mid-flight. Every
+  // continuation below re-checks that we still own the same book, so a turn
+  // that started on the old book can never advance the new one.
+  const rGen = state.rendition;
   try{
     await playTurnFx(dir, fx);
     while(turnQueue !== 0){
+      if(!state.rendition || state.rendition !== rGen){ turnQueue = 0; break; }
       const nextDir = turnQueue > 0 ? 1 : -1;
       turnQueue -= nextDir;
       if(!atEdge(nextDir)){
@@ -5696,7 +5763,7 @@ async function turn(dir, opts = {}){
     }
   } catch(e){
     turnQueue = 0;
-    (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+    try{ if(state.rendition) (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{}); }catch(ignored){}
   } finally {
     state.turning = false;
     body.classList.remove('turning');
@@ -5772,7 +5839,7 @@ const TTS = {
   active: false, paused: false, stopped: true,
   sents: [], si: 0,
   doc: null, hl: null, hlDoc: null,
-  utt: null, rate: 1, relocT: null,
+  utt: null, rate: 1, relocT: null, gen: 0,
 
   supported(){ return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window; },
 
@@ -5785,6 +5852,7 @@ const TTS = {
   start(){
     if(!state.rendition){ toast('Open a book to start read aloud'); return; }
     this.active = true; this.paused = false; this.stopped = false;
+    this.gen++; this.si = 0;
     body.classList.add('tts-on');
     this.syncUI();
     toast('Read aloud on — R pauses · Shift+R stops · - / = speed');
@@ -5802,7 +5870,11 @@ const TTS = {
     try{ speechSynthesis.resume(); }catch(e){}
     this.syncUI();
     // Chrome can drop a paused queue: nudge the cursor if nothing is speaking.
+    // The generation check keeps a pre-stop watchdog from firing into a
+    // later session (e.g. book switched and restarted within 200ms).
+    const g0 = this.gen;
     setTimeout(() => {
+      if(this.gen !== g0) return;
       if(this.active && !this.paused && !this.stopped && !speechSynthesis.speaking && !speechSynthesis.pending){
         this.speakNext();
       }
@@ -5810,6 +5882,8 @@ const TTS = {
   },
   stop(silent){
     this.stopped = true; this.active = false; this.paused = false;
+    this.gen++;
+    this.sents = []; this.si = 0; this.doc = null;
     clearTimeout(this.relocT);
     if(this.utt){
       this.utt.onend = null;
@@ -5937,9 +6011,11 @@ const TTS = {
 
   async loadPageAndSpeak(){
     if(this.stopped || !this.active) return;
+    const g = this.gen;
     this.sents = await this.collectSentences();
+    if(this.gen !== g || this.stopped || !this.active) return;
     this.si = 0;
-    if(!this.sents.length){ setTimeout(() => this.autoAdvance(), 500); return; }
+    if(!this.sents.length){ setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
     this.speakNext();
   },
   speakNext(){
@@ -5949,15 +6025,16 @@ const TTS = {
     this.applyHighlight(sent);
     const u = new SpeechSynthesisUtterance(sent.text);
     u.rate = this.rate;
+    const gu = this.gen;
     u.onend = () => {
-      if(this.stopped || !this.active) return;
+      if(this.gen !== gu || this.stopped || !this.active) return;
       this.si++;
-      setTimeout(() => this.speakNext(), 140);
+      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 140);
     };
     u.onerror = () => {
-      if(this.stopped || !this.active) return;
+      if(this.gen !== gu || this.stopped || !this.active) return;
       this.si++;
-      setTimeout(() => this.speakNext(), 60);
+      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 60);
     };
     this.utt = u;
     try{ speechSynthesis.speak(u); }catch(e){ this.stop(true); }

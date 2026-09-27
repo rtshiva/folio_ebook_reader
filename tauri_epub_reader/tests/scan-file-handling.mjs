@@ -71,10 +71,32 @@ check('dragDropEnabled true', /"dragDropEnabled":\s*true/.test(conf),
 check('edge-only click zones',
   !/relX\s*<\s*0\.(44|28)/.test(html) && /clickEdgePx/.test(html),
   'proportional zones turn the page on taps deep inside the book; keep flips in clickEdgePx band');
-
 // 8. The idle desk-dim timer must not re-arm: with no toggle to disable it,
 // any re-arm repaints the surround on every idle/input cycle.
 check('no idle desk-dim re-arm', !/deskDimTimer\s*=\s*setTimeout/.test(html),
   're-arming the dim timer brings back the ambient background cycling');
+
+// 9-12. Book-switch lifecycle: per-book caches, deferred work, turn state,
+// and speech sessions must not leak from the closed book into the next one.
+const regionAfter = (src, marker, n) => {
+  const i = src.indexOf(marker);
+  if (i < 0) return '';
+  return src.slice(i, i + 4000).split('\n').slice(0, n).join('\n');
+};
+const closeBody = regionAfter(html, 'async function closeBook(){', 45);
+check('closeBook purges per-book caches and deferred work',
+  /pageCache\.clear\(\)/.test(closeBody) && /clearTimeout\(_relocColdTimer\)/.test(closeBody),
+  'stale chapter HTML and a pending cold-path pass leak into the next book');
+check('closeBook parks gestures, flags, and the turn queue',
+  /turnGesture\.cancel\(\)/.test(closeBody) && /state\.turning\s*=\s*false/.test(closeBody) &&
+  /turnQueue\s*=\s*0/.test(closeBody),
+  'a mid-turn close leaves a capture overlay, stuck flags, or queued turns');
+check('per-book navigation resets on open', /NavHistory\.clear\(\)/.test(html),
+  'return-anchors hold CFIs into the previous book after a switch');
+check('turns never continue on a swapped rendition',
+  /state\.rendition\s*!==\s*rGen/.test(html),
+  'an in-flight turn queue keeps advancing the newly opened book');
+check('speech timeouts are generation-gated', /this\.gen/.test(html),
+  'a pre-stop speak timeout can fire into the next book or session');
 
 process.exit(failures ? 1 : 0);
