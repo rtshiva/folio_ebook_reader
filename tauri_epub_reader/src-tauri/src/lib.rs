@@ -364,14 +364,19 @@ fn percent_decode(s: &str) -> String {
     let mut chars = s.bytes();
     while let Some(b) = chars.next() {
         if b == b'%' {
-            if let (Some(h1), Some(h2)) = (chars.next(), chars.next()) {
-                if let Ok(val) = u8::from_str_radix(std::str::from_utf8(&[h1, h2]).unwrap_or(""), 16) {
-                    bytes.push(val);
+            if let Some(h1) = chars.next() {
+                if let Some(h2) = chars.next() {
+                    if let Ok(val) = u8::from_str_radix(std::str::from_utf8(&[h1, h2]).unwrap_or(""), 16) {
+                        bytes.push(val);
+                        continue;
+                    }
+                    bytes.push(b'%');
+                    bytes.push(h1);
+                    bytes.push(h2);
                     continue;
                 }
                 bytes.push(b'%');
                 bytes.push(h1);
-                bytes.push(h2);
                 continue;
             }
             bytes.push(b'%');
@@ -961,5 +966,13 @@ mod tests {
         let fixed = fix_entities(chapter);
         assert!(fixed.contains("Word\u{a0}joined \u{2014} ok"));
         assert!(fixed.contains("if (s &amp;&amp; t) {}"));
+    }
+
+    #[test]
+    fn test_u8_percent_decode() {
+        assert_eq!(percent_decode("hello%20world"), "hello world");
+        assert_eq!(percent_decode("hello%2"), "hello%2");
+        assert_eq!(percent_decode("hello%"), "hello%");
+        assert_eq!(percent_decode("hello%2Gworld"), "hello%2Gworld");
     }
 }
