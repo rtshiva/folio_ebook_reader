@@ -1719,6 +1719,7 @@ async function closeBook(){
   if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
   lastStatCfi = null;
   LocEngine.data = null;
+  SearchIndex.clear();
   Ribbon.clear();
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
@@ -3781,6 +3782,7 @@ function toggleSearch(){
 const SearchIndex = {
   mem: null, // {title, spineLen, chapters:[{href, text}]}
   _building: null, // {title, promise, cbs:[]} — one build per title at a time
+  clear(){ this.mem = null; this._building = null; },
   fire(cbs, done, total){ (cbs || []).forEach((cb) => { try{ cb(done, total); }catch(e){} }); },
   async ensure(book, title, onProgress, job){
     const spineLen = book && book.spine ? book.spine.length : 0;
@@ -7127,7 +7129,7 @@ function updateRailPreview(f){
   }
   if(!chTitle) chTitle = state.currentTitle || 'Reading';
 
-  if(SearchIndex.mem && SearchIndex.mem.chapters && state.book && state.book.spine){
+  if(SearchIndex.mem && SearchIndex.mem.title === (state.currentTitle || getActiveTitle()) && SearchIndex.mem.chapters && state.book && state.book.spine){
     const total = state.book.spine.length;
     const secIdx = clamp(Math.floor(f * total), 0, total - 1);
     const sec = state.book.spine.get(secIdx);
