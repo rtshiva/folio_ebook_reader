@@ -1715,6 +1715,8 @@ function showLoader(msg){ el('loaderMsg').textContent=msg||'Typesetting…'; el(
 function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('loader').classList.add('hide'), Math.max(0,450-d)); }
 
 async function closeBook(){
+  if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
+  if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
   lastStatCfi = null;
   LocEngine.data = null;
   Ribbon.clear();
@@ -1725,6 +1727,14 @@ async function closeBook(){
   el('viewer').innerHTML='';
   updateLandingUI();
 }
+
+function flushPendingPersist(){
+  if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
+  if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
+  if(saveT) { clearTimeout(saveT); try{ localStorage.setItem('folio-settings', JSON.stringify(settings)); }catch(e){} }
+}
+window.addEventListener('beforeunload', flushPendingPersist);
+window.addEventListener('pagehide', flushPendingPersist);
 
 /* ---------------- reading stats (landing) ---------------- */
 let statsCache = null, lastStatCfi = null, statsSaveT = null;
