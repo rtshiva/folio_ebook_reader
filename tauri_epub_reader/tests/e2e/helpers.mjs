@@ -254,6 +254,12 @@ export async function spreadInfo(page) {
 // verified), while in-doc PointerEvents drive the identical
 // TurnGestureController handler chain deterministically. Mouse stays up.
 //
+// In spread mode #viewer scrolls a 2x-wide chapter iframe between its halves,
+// so the drag geometry (x0, dx) is expressed in MAIN-DOC coordinates and
+// mapped into the frame's viewport through its own frameElement rect before
+// dispatch: a point aimed at the right page must not land on the scrolled-off
+// left half, where the engine's spread direction rules refuse the gesture.
+//
 // slowDrag: paced moves + settle bleed, so release velocity ~0 (a hold at
 // ~frac either cancels (<0.38) or commits (>0.38) on displacement alone).
 // fastFling: spaced moves build real velocity so release commits from ~0.12.
@@ -268,14 +274,20 @@ export async function slowDrag(page, dirn, frac) {
   const { y, x0, dx } = dragGeom(info, dirn, frac);
   const frame = await viewerFrame(page);
   await frame.evaluate(({ x0, y, dx }) => {
+    let fr = { left: 0, top: 0 };
+    try { fr = window.frameElement.getBoundingClientRect(); } catch (e) {}
     const n = 6;
     const mk = (type, x, buttons) => new PointerEvent(type, {
       bubbles: true, cancelable: true, clientX: x, clientY: y,
       button: 0, buttons, pointerId: 7, pointerType: 'mouse', isPrimary: true,
     });
     const tgt = (x) => document.elementFromPoint(x, y) || document.body;
-    tgt(x0).dispatchEvent(mk('pointerdown', x0, 1));
-    for (let i = 1; i <= n; i++) tgt(x0 + (dx * i) / n).dispatchEvent(mk('pointermove', x0 + (dx * i) / n, 1));
+    const sx = x0 - fr.left;
+    tgt(sx).dispatchEvent(mk('pointerdown', sx, 1));
+    for (let i = 1; i <= n; i++) {
+      const mx = sx + (dx * i) / n;
+      tgt(mx).dispatchEvent(mk('pointermove', mx, 1));
+    }
   }, { x0, y, dx });
   await page.waitForTimeout(200);
   return { ...info, endX: x0 + dx, endY: y };
@@ -286,9 +298,12 @@ export async function fastFling(page, dirn, frac) {
   const { y, x0, dx } = dragGeom(info, dirn, frac);
   const frame = await viewerFrame(page);
   const step = async (x, buttons, type) => frame.evaluate(({ x, y, buttons, type }) => {
-    const tgt = document.elementFromPoint(x, y) || document.body;
+    let fr = { left: 0, top: 0 };
+    try { fr = window.frameElement.getBoundingClientRect(); } catch (e) {}
+    const lx = x - fr.left;
+    const tgt = document.elementFromPoint(lx, y) || document.body;
     tgt.dispatchEvent(new PointerEvent(type, {
-      bubbles: true, cancelable: true, clientX: x, clientY: y,
+      bubbles: true, cancelable: true, clientX: lx, clientY: y,
       button: 0, buttons, pointerId: 7, pointerType: 'mouse', isPrimary: true,
     }));
   }, { x, y, buttons, type });
@@ -303,9 +318,12 @@ export async function fastFling(page, dirn, frac) {
 export async function synUp(page, end) {
   const pt = end || { x: 680, y: 430 };
   const up = (p) => {
-    const tgt = document.elementFromPoint(p.x, p.y) || document.body;
+    let fr = { left: 0, top: 0 };
+    try { fr = window.frameElement.getBoundingClientRect(); } catch (e) {}
+    const lx = p.x - fr.left, ly = p.y - fr.top;
+    const tgt = document.elementFromPoint(lx, ly) || document.body;
     tgt.dispatchEvent(new PointerEvent('pointerup', {
-      bubbles: true, cancelable: true, clientX: p.x, clientY: p.y,
+      bubbles: true, cancelable: true, clientX: lx, clientY: ly,
       button: 0, buttons: 0, pointerId: 7, pointerType: 'mouse', isPrimary: true,
     }));
   };

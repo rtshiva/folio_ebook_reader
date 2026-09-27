@@ -166,6 +166,12 @@ body:not(.spread) #runHeadRight{max-width:90%;}
 .ch-nav-panel{position:absolute;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;}
 .ch-nav-left{left:10px;}
 .ch-nav-right{right:10px;}
+/* Pills live on the desk ONLY (UX_V2 plan: "empty margin space between the
+   page and screen edges"). When the desk margin is too narrow to hold the
+   label, layoutChNavPills() adds .no-desk so the pill can never cover the
+   book and steal page-flip clicks at mid-height. */
+.ch-nav-panel.no-desk{pointer-events:none;}
+.ch-nav-panel.no-desk .ch-nav-label{visibility:hidden;}
 .ch-nav-label{pointer-events:auto;display:block;width:176px;text-align:right;
   font:600 13px/1.4 var(--sans);color:var(--desk);background:transparent;
   padding:9px 14px;border:none;border-radius:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -603,7 +609,7 @@ body.guide-on #guide{opacity:1}
 
 /* Center book gutter / spine valley shadow */
 .pt-spine-valley{
-  position:absolute;top:0;bottom:0;width:36px;margin-left:-18px;z-index:3;pointer-events:none;
+  position:absolute;top:0;bottom:0;width:36px;margin-left:-18px;z-index:10;pointer-events:none;
   background:linear-gradient(to right,
     rgba(15,10,5,0) 0%,
     rgba(15,10,5,0.08) 25%,
@@ -614,7 +620,7 @@ body.guide-on #guide{opacity:1}
 
 /* Ambient shadow cast on stationary pages */
 .pt-ambient-shadow{
-  position:absolute;top:0;bottom:0;z-index:4;pointer-events:none;
+  position:absolute;top:0;bottom:0;z-index:10;pointer-events:none;
   will-change:opacity;
 }
 
@@ -623,7 +629,7 @@ body.guide-on #guide{opacity:1}
    Live iframes are NEVER 3D-rotated (Chromium flattens them -> mirrored /
    upside-down text), so the flap is plain paper. ---- */
 .pt-sheet{
-  position:absolute;top:0;bottom:0;overflow:hidden;z-index:10;background:var(--page);
+  position:absolute;top:0;bottom:0;overflow:hidden;z-index:5;background:var(--page);
   will-change:clip-path;
 }
 .pt-flap{
@@ -653,9 +659,9 @@ body.guide-on #guide{opacity:1}
 /* paper grain wash over compositor leaves: shared tile, multiply blend */
 .pt-grain{position:absolute;inset:0;pointer-events:none;background-image:var(--grain);
   opacity:.05;mix-blend-mode:multiply}
-/* A-S phase-2 back sheet: plain paper overlapping the opposite page.
-   Never live text, so mirroring is impossible by construction. */
-.pt-back-sheet{position:absolute;top:0;bottom:0;overflow:hidden;z-index:9;pointer-events:auto;
+/* A-S phase-2 back sheet: shows the incoming page (verso/recto) overlapping
+   the opposite side. Paper gradient serves as fallback while content loads. */
+.pt-back-sheet{position:absolute;top:0;bottom:0;overflow:hidden;z-index:6;pointer-events:none;
   background:linear-gradient(105deg,
     color-mix(in srgb,var(--page) 88%,#6b5b3e),var(--page) 14%,
     var(--page) 86%,color-mix(in srgb,var(--page) 80%,#6b5b3e));
@@ -1404,6 +1410,7 @@ function applyFit(){
   syncWsSlider();
   syncPresetUI();
   el('stage').classList.toggle('no-arrows', innerWidth - mw < 150);
+  layoutChNavPills();
 }
 
 /* ---------------- CSS injected into the book iframes ---------------- */
@@ -1909,6 +1916,37 @@ function ensureEpubUrlPatched(){
     }
     return res;
   };
+
+  // Patch Book and Spine unpack so all spine items (including cover, frontmatter,
+  // illustrations, notes, and auxiliary pages with linear="no") are treated as
+  // linear and fully navigable sequentially.
+  const origBookUnpack = ePub.Book.prototype.unpack;
+  if(origBookUnpack && !ePub.Book.prototype.__linearPatched){
+    ePub.Book.prototype.__linearPatched = true;
+    ePub.Book.prototype.unpack = function(t){
+      if(t && Array.isArray(t.spine)){
+        t.spine.forEach(item => { if(item) item.linear = 'yes'; });
+      }
+      return origBookUnpack.call(this, t);
+    };
+  }
+
+  try{
+    const dummy = new ePub.Book();
+    const SpineProto = Object.getPrototypeOf(dummy.spine);
+    if(SpineProto && SpineProto.unpack && !SpineProto.__linearPatched){
+      SpineProto.__linearPatched = true;
+      const origSpineUnpack = SpineProto.unpack;
+      SpineProto.unpack = function(packaging, resolver, canonical){
+        if(packaging && Array.isArray(packaging.spine)){
+          packaging.spine.forEach(item => { if(item) item.linear = 'yes'; });
+        }
+        return origSpineUnpack.call(this, packaging, resolver, canonical);
+      };
+    }
+  }catch(e){
+    console.warn('Failed to patch Spine.prototype.unpack:', e);
+  }
 }
 
 /* Named HTML entities (&nbsp; &mdash; &rsquo; …) are not defined in XML:
@@ -2064,6 +2102,20 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
           });
         }catch(e){}
         updateLandingUI();
+      }
+    }).catch(()=>{});
+
+    book.loaded.spine.then(spine => {
+      if(spine && Array.isArray(spine.spineItems)){
+        spine.spineItems.forEach((sec, idx) => {
+          sec.linear = true;
+          sec.next = function(){
+            return (idx < spine.spineItems.length - 1) ? spine.get(idx + 1) : undefined;
+          };
+          sec.prev = function(){
+            return (idx > 0) ? spine.get(idx - 1) : undefined;
+          };
+        });
       }
     }).catch(()=>{});
 
@@ -3412,6 +3464,29 @@ function updateChapterNav(){
       ? 'Next: ' + (tocItems[idx + 1].label || `Chapter ${idx + 2}`)
       : 'End of book';
   }
+  layoutChNavPills();
+}
+/* Keep the chapter pills on the desk: their clickable label is clamped to
+   the margin between the screen edge and the book page. Without this the
+   fixed 176px label overlaps the page's left/right border at mid-height and
+   silently converts page-flip clicks into chapter jumps. */
+function layoutChNavPills(){
+  const L = el('chNavLeft'), R = el('chNavRight');
+  if(!L || !R) return;
+  const v = el('viewer');
+  const vr = v ? v.getBoundingClientRect() : null;
+  const deskL = vr ? Math.floor(vr.left) - 12 : 176;
+  const deskR = vr ? Math.floor(innerWidth - vr.right) - 12 : 176;
+  const setPill = (panel, desk) => {
+    if(!panel) return;
+    const label = panel.querySelector('.ch-nav-label');
+    if(!label) return;
+    const fit = desk >= 40;
+    panel.classList.toggle('no-desk', !fit);
+    if(fit) label.style.width = Math.min(176, Math.max(40, desk)) + 'px';
+  };
+  setPill(L, deskL);
+  setPill(R, deskR);
 }
 async function toggleBookmark(){
   if(!state.rendition) return;
@@ -4313,25 +4388,27 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
   return { box, snap };
 }
 function blankSnap(snap){
+  snap.__pageCSS = null;
   try{ snap.removeAttribute('srcdoc'); }catch(e){}
   try{
     const d = snap.contentDocument;
     if(d){ d.open(); d.write('<!DOCTYPE html><html><head></head><body></body></html>'); d.close(); }
   }catch(e){}
+  try{ snap.src = 'about:blank'; }catch(e){}
 }
 function releaseSnaps(root){
   if(!root || !root.querySelectorAll) return;
   let host = null;
   root.querySelectorAll('.snap-box').forEach(box => {
     const snap = box.querySelector('.snap-iframe');
+    if(snap){
+      blankSnap(snap);
+    }
     box.remove();
     if(snap && snapPool.length < SNAP_POOL_MAX){
       if(!host) host = snapPoolHost();
-      blankSnap(snap);
       host.appendChild(box);
       snapPool.push({ box, snap });
-    } else if(snap){
-      blankSnap(snap);
     }
   });
 }
@@ -4358,9 +4435,10 @@ function applyPageCSS(doc, pc){
 }
 
 function populateSnap(snap, html, pageCSS){
+  if(!html || typeof html !== 'string') return;
   try{
     const sDoc = snap.contentDocument;
-    if(sDoc){
+    if(sDoc && sDoc.readyState !== 'uninitialized'){
       sDoc.open();
       sDoc.write(html);
       sDoc.close();
@@ -4520,6 +4598,13 @@ class PageSurfacePool {
   }
 }
 
+function addGrain(parent){
+  if(!parent) return;
+  const g = document.createElement('div');
+  g.className = 'pt-grain';
+  parent.appendChild(g);
+}
+
 class PageTurnCompositor {
   constructor(dir, snapInfo, adjacentInfo) {
     this.dir = dir; // +1 = forward, -1 = backward
@@ -4533,6 +4618,7 @@ class PageTurnCompositor {
     this.stationaryLeaf = null;
     this.underneathLeaf = null;
     this.pendingSnaps = [];     // populated on a timer (flushSnaps) after init
+    this.flushTimer = null;
     this.underSnap = null;      // incoming-page iframe (measured for backward crosses)
     this.underCropLeft = 0;
     this.flipReady = false;     // true once snaps are flushed (and seat measured)
@@ -4549,7 +4635,7 @@ class PageTurnCompositor {
     this.spineValley = null;
     this.quality = PageTurnConfig.quality || 'premium';
     this.playedMid = false;
-    this.backSheet = null;      // A-S phase-2 paper back overlapping the opposite page
+    this.backSheet = null;      // A-S phase-2 back: incoming page overlapping the opposite side
     // Full-spread two-phase fold: spread mode + flag on + above basic quality.
     this.fullFold = !!(this.isSpread && PageTurnConfig.fullSpreadFold !== false && this.quality !== 'basic');
 
@@ -4683,13 +4769,19 @@ class PageTurnCompositor {
         // (adjHtml) is already visible on the underneath layer.
         if(this.fullFold) this.buildFoldLeaf(root, 0, VW, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
         else this.buildFoldLeaf(root, WL, WR, snap, snap.docHtml, snap.relLeft, underWrap, 'End of Book', hasAdj);
-        // 6. Back sheet: plain paper overlapping the opposite (left) page in
-        // phase 2. Skipped at book boundaries (no ghost sheet).
+        // 6. Back sheet: overlapping the opposite (left) page in phase 2,
+        // populated with the incoming left page so the back isn't blank.
+        // Skipped at book boundaries (no ghost sheet).
         if(this.fullFold && !this.isBoundary){
           const back = document.createElement('div');
           back.className = 'pt-back-sheet';
           back.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
-          addGrain(back);
+          if(hasAdj) {
+            const { box: bBox, snap: bSnap } = createSnapBox(snap, 0, WL, adjRelLeft);
+            back.appendChild(bBox);
+            this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+          }
+          if(this.quality !== 'basic') addGrain(back);
           root.appendChild(back);
           this.backSheet = back;
         }
@@ -4739,13 +4831,19 @@ class PageTurnCompositor {
         // 5. Turning sheet: full-spread sheet in full-fold mode, else left leaf.
         if(this.fullFold) this.buildFoldLeaf(root, 0, VW, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
         else this.buildFoldLeaf(root, 0, WL, snap, snap.docHtml, snap.relLeft, underWrap, 'Beginning of Book', hasAdj);
-        // 6. Back sheet over the opposite (right) page in phase 2 (no ghosts
-        // at book boundaries).
+        // 6. Back sheet over the opposite (right) page in phase 2,
+        // populated with the incoming right page so the back isn't blank.
+        // No ghosts at book boundaries.
         if(this.fullFold && !this.isBoundary){
           const back = document.createElement('div');
           back.className = 'pt-back-sheet';
           back.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
-          addGrain(back);
+          if(hasAdj) {
+            const { box: bBox, snap: bSnap } = createSnapBox(snap, WL, WR, adjRelLeft);
+            back.appendChild(bBox);
+            this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+          }
+          if(this.quality !== 'basic') addGrain(back);
           root.appendChild(back);
           this.backSheet = back;
         }
@@ -4790,11 +4888,12 @@ class PageTurnCompositor {
     // velocity window. Until then the live page shows through unchanged, so
     // the compositor is visually indistinguishable at p≈0.
     this.render(0);
-    setTimeout(() => this.flushSnaps(), 0);
+    this.flushTimer = setTimeout(() => this.flushSnaps(), 0);
   }
 
   flushSnaps(){
     if(this.destroyed || !this.root) return;
+    this.flushTimer = null;
     // Populate only after the root is connected: a detached iframe has no
     // contentDocument, so writing earlier would silently fall back to async
     // srcdoc and the first turns of a session would show blank leaves.
@@ -4825,12 +4924,12 @@ class PageTurnCompositor {
     const apply = () => {
       try{
         const d = snap.contentDocument;
-        if(!d || !d.documentElement || d.readyState !== 'complete') return false;
+        if(!d || !d.body) return false;
         // Body width only: documentElement.scrollWidth is floored at the
         // iframe viewport, which over-seats chapters narrower than the
         // current viewer (their window would land past the content).
-        const w = d.body ? d.body.scrollWidth : 0;
-        if(!w) return false;
+        const w = d.body.scrollWidth;
+        if(!w || w <= 0) return false;
         // Seat the doc's final spread: window [w-VW, w) — exactly where the
         // live renderer parks the previous chapter's last page.
         const rel = -Math.max(0, Math.round(w) - this.vRect.width);
@@ -4851,7 +4950,7 @@ class PageTurnCompositor {
     const tick = () => {
       if(!this.root) return;            // compositor destroyed mid-wait
       if(apply()){ this.flipReady = true; return; }
-      if(performance.now() - t0 < 1200) requestAnimationFrame(tick);
+      if(performance.now() - t0 < 180) requestAnimationFrame(tick);
       else this.flipReady = true;       // give up: seat as predicted
     };
     requestAnimationFrame(tick);
@@ -4881,8 +4980,7 @@ class PageTurnCompositor {
         this.sheet.style.visibility = 'hidden';
       }
     }
-    // 2. Back sheet: paper over the opposite page in phase 2 (destroy swaps
-    // to the live spread, as in the legacy path — no live text ever mirrors).
+    // 2. Back sheet: incoming page content over the opposite page in phase 2.
     if(this.backSheet && this.populated){
       if(pc < 0.5 || this.isBoundary){
         this.backSheet.style.opacity = '0';
@@ -4926,9 +5024,9 @@ class PageTurnCompositor {
       this.ambientShadow.style.opacity =
         premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
     }
-    // 6. Spine valley fades while the book is mid-air (phase 2).
+    // 6. Spine valley fades naturally as page passes midpoint and restores.
     if(this.spineValley){
-      this.spineValley.style.opacity = pc < 0.5 ? '1' : Math.max(0, 1 - (pc - 0.5) * 4).toFixed(3);
+      this.spineValley.style.opacity = (1 - 0.45 * Math.sin(Math.PI * pc)).toFixed(3);
     }
     // 7. Fore-edge depth hint on the underneath page (F10).
     if(this.underneathLeaf){
@@ -5006,6 +5104,10 @@ class PageTurnCompositor {
         premium ? (PageTurnConfig.ambientShadowOpacity * C).toFixed(3) : '0';
     }
 
+    if(this.spineValley){
+      this.spineValley.style.opacity = (1 - 0.45 * Math.sin(Math.PI * pc)).toFixed(3);
+    }
+
     // 6. Fore-edge depth hint on the underneath page (F10): shadow scales
     //    with turn progress so the page stack reads as a physical volume.
     if(this.underneathLeaf) {
@@ -5017,11 +5119,26 @@ class PageTurnCompositor {
 
   destroy() {
     this.destroyed = true;
+    if(this.flushTimer){
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.pendingSnaps.length = 0;
     if(this.root) {
       releaseSnaps(this.root);
       this.root.remove();
       this.root = null;
     }
+    this.sheet = null;
+    this.flap = null;
+    this.foldShadow = null;
+    this.edgeHighlight = null;
+    this.ambientShadow = null;
+    this.spineValley = null;
+    this.backSheet = null;
+    this.stationaryLeaf = null;
+    this.underneathLeaf = null;
+    this.underSnap = null;
   }
 }
 
@@ -5080,24 +5197,64 @@ class TurnGestureController {
     this.pointerId = null;
     this.currentP = 0;
     this.boundTargets = new WeakSet();
+    this.gestureRect = null;   // chapter frame rect frozen at pointerdown
     this.downDoc = null;   // document the gesture started in (for epub-swipe guard)
     this.dragDoc = null;   // document owning the active drag, if any
   }
 
+  getEventPoint(e, fixedRect) {
+    let x = e.clientX, y = e.clientY;
+    let usedRect = null;
+    const evtDoc = (e.target && e.target.ownerDocument) || document;
+    if(evtDoc !== document) {
+      let frame = null;
+      try { frame = evtDoc.defaultView && evtDoc.defaultView.frameElement; } catch(err) {}
+      if(!frame) {
+        // Resolve by document identity: a blind querySelector('iframe') could
+        // grab a warm/snap frame whose rect would mis-translate the point and
+        // misroute the click into the wrong flip zone.
+        const v = el('viewer');
+        if(v) {
+          for(const f of v.querySelectorAll('iframe')){
+            try { if(f.contentDocument === evtDoc){ frame = f; break; } } catch(err) {}
+          }
+        }
+      }
+      if(frame) {
+        try {
+          const r = fixedRect || frame.getBoundingClientRect();
+          usedRect = r;
+          x += r.left;
+          y += r.top;
+        } catch(err) {}
+      }
+    }
+    return { x, y, rect: usedRect };
+  }
+
   onPointerDown(e) {
-    if(!state.rendition || state.recreating || state.turning) return;
+    // state.turning is intentionally NOT a guard here: clicks landing mid-turn
+    // must still reach handleClick so turn() queues them (turnQueue), matching
+    // the button/keyboard paths. Drags are blocked separately in onPointerMove.
+    if(!state.rendition || state.recreating || this.active || this.pointerId !== null) return;
     if(e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
     const tag = (e.target && e.target.tagName) || '';
     if(/BUTTON|A|INPUT|SELECT|TEXTAREA/.test(tag)) return;
     if(e.target && e.target.closest && e.target.closest('button, a, .arrow, header, footer, aside')) return;
 
-    this.startX = e.clientX;
-    this.startY = e.clientY;
+    const pt = this.getEventPoint(e);
+    // Freeze the chapter frame's rect for the whole gesture: epub.js parks
+    // and re-parks the iframe around relocations, and a rect sampled fresh
+    // per event would make dx (and therefore the drag DIRECTION) flip
+    // mid-gesture when the frame moves between pointerdown and a move.
+    this.gestureRect = pt.rect;
+    this.startX = pt.x;
+    this.startY = pt.y;
     this.downDoc = (e.target && e.target.ownerDocument) || document;
     this.startTime = performance.now();
-    this.lastX = e.clientX;
+    this.lastX = pt.x;
     this.lastTime = this.startTime;
-    this.recentMoves = [{ x: e.clientX, t: this.startTime }];
+    this.recentMoves = [{ x: pt.x, t: this.startTime }];
     this.active = false;
     this.pointerId = e.pointerId;
     this.dir = 0;
@@ -5107,11 +5264,12 @@ class TurnGestureController {
     if(this.pointerId !== null && e.pointerId !== this.pointerId) return;
     if(!this.startTime) return;
 
-    const dx = e.clientX - this.startX;
-    const dy = e.clientY - this.startY;
+    const pt = this.getEventPoint(e, this.gestureRect);
+    const dx = pt.x - this.startX;
+    const dy = pt.y - this.startY;
     const now = performance.now();
 
-    this.recentMoves.push({ x: e.clientX, t: now });
+    this.recentMoves.push({ x: pt.x, t: now });
     while(this.recentMoves.length > 1 && (now - this.recentMoves[0].t) > 120) {
       this.recentMoves.shift();
     }
@@ -5119,8 +5277,17 @@ class TurnGestureController {
     if(!this.active) {
       const absDx = Math.abs(dx);
       const absDy = Math.abs(dy);
-      if(absDx >= PageTurnConfig.activationDistance && absDx >= PageTurnConfig.verticalToleranceRatio * absDy) {
+      // A fold owns the screen while state.turning: never start a second
+      // compositor mid-animation (clicks still queue via handleClick on up).
+      if(!state.turning && absDx >= PageTurnConfig.activationDistance && absDx >= PageTurnConfig.verticalToleranceRatio * absDy) {
         const proposedDir = dx < 0 ? 1 : -1;
+        // In spread mode, left page only turns backward (dx > 0); right page only turns forward (dx < 0)
+        if(state.spreadOn && el('viewer')) {
+          const vr = el('viewer').getBoundingClientRect();
+          const midX = vr.left + vr.width / 2;
+          if(this.startX < midX && proposedDir === 1) return;
+          if(this.startX >= midX && proposedDir === -1) return;
+        }
         this.startDrag(proposedDir, e);
       }
     }
@@ -5151,7 +5318,8 @@ class TurnGestureController {
     if(!PageTurnConfig.allowFullPageDrag && el('viewer')) {
       try {
         const vr = el('viewer').getBoundingClientRect();
-        const zx = vr.width * PageTurnConfig.edgeZoneWidthRatio;
+        const leafW = state.spreadOn ? vr.width / 2 : vr.width;
+        const zx = leafW * PageTurnConfig.edgeZoneWidthRatio;
         const inZone = dir > 0
           ? (this.startX >= vr.right - zx)
           : (this.startX <= vr.left + zx);
@@ -5207,83 +5375,111 @@ class TurnGestureController {
     this.startTime = 0;
 
     if(!wasActive) {
-      const totalDx = Math.abs(e.clientX - sX);
-      const totalDy = Math.abs(e.clientY - sY);
+      const pt = this.getEventPoint(e, this.gestureRect);
+      const totalDx = Math.abs(pt.x - sX);
+      const totalDy = Math.abs(pt.y - sY);
       const dt = performance.now() - startT;
       if(totalDx < 8 && totalDy < 8 && dt < 450) {
-        this.handleClick(e);
+        this.handleClick(e, pt);
       }
+      this.gestureRect = null;
       return;
     }
 
     let v0 = 0;
+    const now = performance.now();
     if(this.recentMoves.length >= 2) {
-      const first = this.recentMoves[0];
       const last = this.recentMoves[this.recentMoves.length - 1];
-      const dtSec = (last.t - first.t) / 1000;
-      if(dtSec > 0.01) {
-        const deltaX = (this.dir > 0) ? (first.x - last.x) : (last.x - first.x);
-        const W = (this.compositor && (this.compositor.fullFold ? this.compositor.vRect.width : this.compositor.leafW)) || 600;
-        v0 = (deltaX / W) / dtSec;
+      if(now - last.t <= 70) {
+        const first = this.recentMoves[0];
+        const dtSec = (last.t - first.t) / 1000;
+        if(dtSec > 0.01) {
+          const deltaX = (this.dir > 0) ? (first.x - last.x) : (last.x - first.x);
+          const W = (this.compositor && (this.compositor.fullFold ? this.compositor.vRect.width : this.compositor.leafW)) || 600;
+          v0 = (deltaX / W) / dtSec;
+        }
       }
     }
 
     const p = this.currentP;
     const isBoundary = this.compositor && this.compositor.isBoundary;
     const commitScore = p + PageTurnConfig.velocityWeight * v0;
-    const shouldCommit = !isBoundary && (commitScore >= PageTurnConfig.commitThreshold || v0 > PageTurnConfig.commitVelocity);
+    const isReversing = v0 < -0.6 && p < 0.85;
+    const shouldCommit = !isBoundary && !isReversing && (commitScore >= PageTurnConfig.commitThreshold || v0 > PageTurnConfig.commitVelocity);
 
     const targetP = shouldCommit ? 1 : 0;
     const dir = this.dir;
     const comp = this.compositor;
 
-    await PageTurnPhysics.animate({
-      fromP: p,
-      toP: targetP,
-      initialVelocity: v0,
-      onProgress: curP => {
-        if(comp) comp.render(curP);
-      }
-    });
+    try {
+      await PageTurnPhysics.animate({
+        fromP: p,
+        toP: targetP,
+        initialVelocity: v0,
+        onProgress: curP => {
+          if(comp) comp.render(curP);
+        }
+      });
 
-    if(shouldCommit) {
-      try {
-        // Logical commit AFTER the physical animation (spec §31): the
-        // underneath surface already shows the destination, so hold the
-        // compositor until EPUB.js has relocated AND painted (no gap, §30).
-        const arrived = nextRelocated(2500);
-        const moveP = (dir > 0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-        await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-        await moveP;
-      } catch(err) {
-      } finally {
-        if(comp) comp.destroy();
-        state.turning = false;
-        body.classList.remove('turning');
-        if(state.spreadPending) { state.spreadPending = false; applySpread(); }
+      if(shouldCommit) {
+        try {
+          const arrived = nextRelocated(2500);
+          const moveP = (dir > 0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+          await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          await moveP;
+        } catch(err) {}
       }
-    } else {
+    } finally {
       if(comp) comp.destroy();
       state.turning = false;
       body.classList.remove('turning');
+      turnQueue = 0;
+      if(state.spreadPending) { state.spreadPending = false; applySpread(); }
+      this.active = false;
+      this.compositor = null;
+      this.dragDoc = null;
+      this.gestureRect = null;
     }
-
-    this.active = false;
-    this.compositor = null;
-    this.dragDoc = null;
   }
 
-  handleClick(e) {
-    const sel = window.getSelection ? window.getSelection() : null;
+  handleClick(e, pt) {
+    const doc = (e.target && e.target.ownerDocument) || document;
+    const sel = (doc.getSelection && doc.getSelection()) || (window.getSelection && window.getSelection());
     if(sel && sel.toString().length) return;
     // clicks on images / footnote refs have their own handlers
     if(e.target && e.target.closest && e.target.closest('img, a[href^="#"]')) return;
-    const w = innerWidth || 1;
-    const x = e.clientX / w;
-    if(x < 0.25) turn(-1);
-    else if(x > 0.75) turn(1);
-    else if(matchMedia('(hover: none)').matches) toggleChrome();
+
+    const p = pt || this.getEventPoint(e);
+    const clickX = p.x;
+    const v = el('viewer');
+    const vr = v ? v.getBoundingClientRect() : null;
+
+    if(vr && vr.width > 0) {
+      if(clickX < vr.left) { turn(-1); return; }
+      if(clickX > vr.right) { turn(1); return; }
+
+      const relX = (clickX - vr.left) / vr.width;
+
+      if(state.spreadOn) {
+        // Spread Mode: left page (0 to 0.44) -> prev, right page (0.56 to 1.0) -> next
+        // Center spine gutter (0.44 to 0.56) -> toggle chrome / neutral
+        if(relX < 0.44) turn(-1);
+        else if(relX > 0.56) turn(1);
+        else if(matchMedia('(hover: none)').matches) toggleChrome();
+      } else {
+        // Single Page Mode: left 28% -> prev, right 28% -> next, middle 44% -> menu
+        if(relX < 0.28) turn(-1);
+        else if(relX > 0.72) turn(1);
+        else if(matchMedia('(hover: none)').matches) toggleChrome();
+      }
+    } else {
+      const w = innerWidth || 1;
+      const x = clickX / w;
+      if(x < 0.3) turn(-1);
+      else if(x > 0.7) turn(1);
+      else if(matchMedia('(hover: none)').matches) toggleChrome();
+    }
   }
 
   bind(target) {
@@ -5310,48 +5506,42 @@ async function playTurnFx(dir, fx){
     (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
     return;
   }
-  state.turning = true; body.classList.add('turning');
   PageSound.play();
-  try{
-    if(fx === 'crossfade') {
-      const arrived = nextRelocated(600);
-      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-      await fxCrossfade(dir, snapInfo);
-      await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
-    } else if(fx === 'slide') {
-      const arrived = nextRelocated(600);
-      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-      await fxSlide(dir, snapInfo);
-      await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
-    } else {
-      // Physical Paper Flip with Moving Fold, Curvature, Perspective & Shadows
-      const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
-      const compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
-      // Backward chapter-cross: hold p=0 (front leaf still covers everything)
-      // until the previous chapter's last spread is measured and seated.
-      if(compositor.flipReady === false){
-        const t0 = performance.now();
-        while(compositor.flipReady === false && performance.now() - t0 < 900){
-          await new Promise(r => requestAnimationFrame(r));
-        }
+  if(fx === 'crossfade') {
+    const arrived = nextRelocated(600);
+    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+    await fxCrossfade(dir, snapInfo);
+    await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
+  } else if(fx === 'slide') {
+    const arrived = nextRelocated(600);
+    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+    await fxSlide(dir, snapInfo);
+    await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
+  } else {
+    // Physical Paper Flip with Moving Fold, Curvature, Perspective & Shadows
+    const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
+    const compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
+    // Backward chapter-cross: hold p=0 (front leaf still covers everything)
+    // until the previous chapter's last spread is measured and seated.
+    if(compositor.flipReady === false){
+      const t0 = performance.now();
+      while(compositor.flipReady === false && performance.now() - t0 < 180){
+        await new Promise(r => requestAnimationFrame(r));
       }
-      await PageTurnPhysics.animate({
-        fromP: 0,
-        toP: 1,
-        initialVelocity: 1.2,
-        maxDuration: PageTurnConfig.clickTurnDuration,
-        onProgress: curP => compositor.render(curP)
-      });
-      const arrived = nextRelocated(2500);
-      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-      await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-      await moveP;
-      compositor.destroy();
     }
-  } finally {
-    state.turning = false; body.classList.remove('turning');
-    if(state.spreadPending){ state.spreadPending=false; applySpread(); }
+    await PageTurnPhysics.animate({
+      fromP: 0,
+      toP: 1,
+      initialVelocity: 1.2,
+      maxDuration: PageTurnConfig.clickTurnDuration,
+      onProgress: curP => compositor.render(curP)
+    });
+    const arrived = nextRelocated(2500);
+    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+    await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await moveP;
+    compositor.destroy();
   }
 }
 
@@ -5359,18 +5549,33 @@ async function turn(dir, opts = {}){
   if(!state.rendition || state.recreating) return;
   hideChrome(); // page turns never summon the bars
   hideSelBar();
+  if(typeof TTS !== 'undefined' && TTS.active && !TTS.paused){
+    try{ speechSynthesis.cancel(); }catch(e){}
+    TTS.clearHighlight();
+    clearTimeout(TTS.relocT);
+  }
   if(atEdge(dir)) return;
   const fx = effectiveFx();
-  if(fx === 'none'){
-    (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-    return;
-  }
   if(state.turning){
     if(Math.abs(turnQueue) < 3){
       turnQueue += dir;
     }
     return;
   }
+  if(fx === 'none'){
+    state.turning = true;
+    try {
+      const arrived = nextRelocated(800);
+      (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+      await arrived;
+    } finally {
+      state.turning = false;
+      if(state.spreadPending){ state.spreadPending = false; await applySpread(); }
+    }
+    return;
+  }
+  state.turning = true;
+  body.classList.add('turning');
   try{
     await playTurnFx(dir, fx);
     while(turnQueue !== 0){
@@ -5383,8 +5588,12 @@ async function turn(dir, opts = {}){
       }
     }
   } catch(e){
-    state.turning = false; body.classList.remove('turning'); turnQueue = 0;
+    turnQueue = 0;
     (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+  } finally {
+    state.turning = false;
+    body.classList.remove('turning');
+    if(state.spreadPending){ state.spreadPending = false; await applySpread(); }
   }
 }
 
@@ -5428,9 +5637,14 @@ function nextRelocated(timeout){
   });
 }
 function isLastPage(loc){
-  if(!loc||!loc.start)return false;
-  if(loc.start.index!==state.book.spine.length-1)return false;
-  const d=loc.start.displayed; return !d||d.page>=d.total;
+  if(!loc || !loc.start || !state.book || !state.book.spine) return false;
+  if(loc.start.index !== state.book.spine.length - 1) return false;
+  if(loc.end && loc.end.displayed && loc.end.displayed.total){
+    return loc.end.displayed.page >= loc.end.displayed.total;
+  }
+  const d = loc.start.displayed;
+  if(!d || !d.total) return false;
+  return state.spreadOn ? (d.page >= d.total - 1) : (d.page >= d.total);
 }
 /* ---------------- reading guide ---------------- */
 function setGuide(on){
@@ -5661,6 +5875,7 @@ const PageSound = {
     if(!settings.pageSound) return;
     try{
       this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if(this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
       const ctx = this.ctx, dur = 0.22;
       const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
       const d = buf.getChannelData(0);
@@ -5680,6 +5895,7 @@ const PageSound = {
     if(!settings.pageSound) return;
     try{
       this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if(this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
       const ctx = this.ctx, dur = 0.12;
       const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
       const d = buf.getChannelData(0);
@@ -6100,6 +6316,7 @@ function onKey(e){
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
   const tag=(e.target&&e.target.tagName)||'';
   if(/INPUT|SELECT|TEXTAREA/.test(tag))return;
+  if(e.target && e.target.isContentEditable)return;
   if(e.key==='Escape'){ AutoScroll.stop(); Lightbox.close(); Footnotes.close(); CmdPalette.close(); closePanels(); return; }
   if(e.key==='?'){ toggleHelp(); return; }
   if(e.key==='f'||e.key==='F'){ toggleFullscreen(); return; }
@@ -6111,6 +6328,10 @@ function onKey(e){
   if(e.key==='-'||e.key==='_'){ if(TTS.active) TTS.nudgeRate(-0.1); return; }
   if(e.key==='='||e.key==='+'){ if(TTS.active) TTS.nudgeRate(0.1); return; }
   if(!state.rendition)return;
+  if(!body.classList.contains('state-reading')) return;
+  if(panelsOpen()) return;
+  if((typeof CmdPalette !== 'undefined' && CmdPalette.open) || (typeof Lightbox !== 'undefined' && Lightbox.el && Lightbox.el() && Lightbox.el().classList.contains('show'))) return;
+  if(tag === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
   switch(e.key){
     case 'ArrowRight': case 'PageDown': turn(1); e.preventDefault(); break;
     case 'ArrowLeft':  case 'PageUp':   turn(-1); e.preventDefault(); break;
@@ -6141,11 +6362,11 @@ function onKey(e){
       break;
     }
     case '[': {
-      if(chNavIdx > 0) jumpToTocIndex(chNavIdx - 1);
+      if(!state.turning && !state.recreating && chNavIdx > 0) jumpToTocIndex(chNavIdx - 1);
       break;
     }
     case ']': {
-      if(tocItems && chNavIdx >= 0 && chNavIdx < tocItems.length - 1) jumpToTocIndex(chNavIdx + 1);
+      if(!state.turning && !state.recreating && tocItems && chNavIdx >= 0 && chNavIdx < tocItems.length - 1) jumpToTocIndex(chNavIdx + 1);
       break;
     }
   }
@@ -6156,6 +6377,7 @@ addEventListener('keydown',onKey);
 async function relayout(){
   await applySpread();
   applyFit(); refreshCSS();
+  layoutChNavPills();
   if(state.rendition && !state.recreating && !state.turning){
     const w=el('wrap');
     try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
@@ -6994,6 +7216,10 @@ addEventListener('touchstart',e=>{
 },{passive:true});
 addEventListener('touchend',e=>{
   if(!psw)return;
+  if(state.turning || (typeof turnGesture !== 'undefined' && turnGesture.active)){
+    psw = null;
+    return;
+  }
   const t=e.changedTouches[0];
   const dx=t.clientX-psw.x, dy=t.clientY-psw.y, dt=Date.now()-psw.t; psw=null;
   if(dt<800 && Math.abs(dx)>56 && Math.abs(dx)>2.2*Math.abs(dy)) turn(dx<0?1:-1);
@@ -7077,10 +7303,12 @@ function curlUpdate(e){
       v.classList.remove('curl-right','curl-left');
       return;
     }
+    const pt = (typeof turnGesture !== 'undefined' && turnGesture && turnGesture.getEventPoint)
+      ? turnGesture.getEventPoint(e) : { x: e.clientX, y: e.clientY };
     const r = v.getBoundingClientRect();
-    const inBand = e.clientY >= r.top && e.clientY <= r.bottom;
-    const nearR = inBand && e.clientX >= r.right - 60 && e.clientX <= r.right + 40;
-    const nearL = inBand && e.clientX <= r.left + 60 && e.clientX >= r.left - 40;
+    const inBand = pt.y >= r.top && pt.y <= r.bottom;
+    const nearR = inBand && pt.x >= r.right - 60 && pt.x <= r.right + 40;
+    const nearL = inBand && pt.x <= r.left + 60 && pt.x >= r.left - 40;
     v.classList.toggle('curl-right', nearR);
     v.classList.toggle('curl-left', nearL);
   });
@@ -7346,13 +7574,17 @@ if(window.__TAURI_INTERNALS__){
 }
 
 // Margin chapter pills (F0): one click, one chapter. The labels blend with
-// the desk at rest and reveal on hover; clicks jump one chapter.
+// the desk at rest and reveal on hover; clicks jump one chapter. Jumps are
+// dropped while a turn is in flight — a mid-fold display() races the queued
+// page change and can land forward of the page the fold is animating to.
 const chLabelPrevBtn = el('chLabelPrev');
 if(chLabelPrevBtn) chLabelPrevBtn.addEventListener('click', () => {
+  if(state.turning || state.recreating) return;
   if(chNavIdx > 0) jumpToTocIndex(chNavIdx - 1);
 });
 const chLabelNextBtn = el('chLabelNext');
 if(chLabelNextBtn) chLabelNextBtn.addEventListener('click', () => {
+  if(state.turning || state.recreating) return;
   if(tocItems && chNavIdx >= 0 && chNavIdx < tocItems.length - 1) jumpToTocIndex(chNavIdx + 1);
 });
 </script>

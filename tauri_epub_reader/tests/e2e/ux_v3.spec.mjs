@@ -115,6 +115,9 @@ test('X4 Words tab lists lookups with definitions and jumps back', async ({ page
   // Jump back: navigate away first, then click the entry — the safety anchor
   // appears and the reader returns to the stored CFI.
   const b0 = await badge(page);
+  // Keys never turn pages while a panel is open — dismiss the drawer first.
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.body.classList.contains('toc-open'), null, { timeout: 5000 });
   await page.keyboard.press('ArrowRight');
   await badgeWait(page, b0);
   // The drawer may still be open from the lookup above — toggle only opens.

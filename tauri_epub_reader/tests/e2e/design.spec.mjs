@@ -306,11 +306,16 @@ test('D7 phase 2 overlap: back sheet covers opposite page', async ({ page }) => 
     });
     if (cap) cap.style.display = '';
     window.__hitStack = stack;
+    const backCS = getComputedStyle(back);
     return {
       present: true,
       rectLeft: r.left, rectRight: r.right, clip,
       valleyOpacity: valley ? parseFloat(getComputedStyle(valley).opacity || '1') : null,
-      probeInBack: !!(probe && probe.closest && probe.closest('.pt-back-sheet')),
+      // The back sheet is a pure paint layer now (pointer-events:none — it
+      // carries the incoming page, it must not steal interactions), so
+      // "covers the opposite page" is asserted on paint state, not hit test.
+      coversOpposite: backCS.opacity === '1' && backCS.visibility === 'visible',
+      hasContent: !!back.querySelector('.snap-iframe'),
       stack: window.__hitStack,
     };
   }, { fx: foldX, sx: spineX, vx: info.left });
@@ -321,8 +326,11 @@ test('D7 phase 2 overlap: back sheet covers opposite page', async ({ page }) => 
   expect(m).toBeTruthy();
   expect(Math.abs(parseFloat(m[4]) - foldX)).toBeLessThan(45);
   console.log('HITSTACK: ' + JSON.stringify(st.stack));
-  expect(st.probeInBack).toBe(true);
-  expect(st.valleyOpacity).toBeLessThan(0.35);
+  expect(st.coversOpposite).toBe(true);
+  // Spine valley now fades naturally (1 - 0.45*sin(pi*p)): relaxed but still
+  // visible at p=0.7 (~0.64) instead of the old near-full fade.
+  expect(st.valleyOpacity).toBeGreaterThan(0.4);
+  expect(st.valleyOpacity).toBeLessThan(0.8);
   const before = await page.evaluate(() => state.rendition.currentLocation().start.cfi);
   await synUp(page);
   await page.waitForFunction((p) => {
