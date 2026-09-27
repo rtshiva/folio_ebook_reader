@@ -2814,8 +2814,9 @@ function onRelocatedCold(loc, frac, chTitle, d){
 let _fpPending = false;
 function nudgeToFingerprint(){
   try{
+    if(!state.posKey || !state.rendition) return;
     const fp = localStorage.getItem(state.posKey + ':fp');
-    if(!fp || fp.length < 20 || !state.rendition) return;
+    if(!fp || fp.length < 20) return;
     const pc = (typeof pageCache !== 'undefined') ? pageCache : null;
     if(!pc || !pc.getPage) return;
     const probe = fp.slice(0, 40);
@@ -2823,11 +2824,11 @@ function nudgeToFingerprint(){
     if(has(pc.getPage(0))) return; // CFI landed right
     for(let off = 1; off <= 3; off++){
       if(has(pc.getPage(off))){
-        for(let k = 0; k < off; k++) state.rendition.next();
+        for(let k = 0; k < off; k++) turn(1);
         return;
       }
       if(has(pc.getPage(-off))){
-        for(let k = 0; k < off; k++) state.rendition.prev();
+        for(let k = 0; k < off; k++) turn(-1);
         return;
       }
     }
