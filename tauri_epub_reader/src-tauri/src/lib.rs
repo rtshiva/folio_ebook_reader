@@ -183,6 +183,12 @@ pub fn compute_book_key(path: &str, meta: &fs::Metadata) -> (String, u64, u128) 
     (hash, meta.len(), mtime_ms)
 }
 
+pub fn is_valid_cache_hash(hash: &str) -> bool {
+    !hash.is_empty()
+        && hash.len() <= 128
+        && hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 pub fn unzip_epub(
     epub_path: &Path,
     target_dir: &Path,
@@ -710,6 +716,14 @@ pub fn run() {
                 }
             };
 
+            if !is_valid_cache_hash(&hash) {
+                return tauri::http::Response::builder()
+                    .status(400)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(vec![])
+                    .unwrap();
+            }
+
             let decoded_rel = percent_decode(&rel_path);
             let clean_rel = match sanitize_entry(&decoded_rel) {
                 Some(p) => p,
@@ -984,5 +998,17 @@ mod tests {
         assert_eq!(percent_decode("hello%2"), "hello%2");
         assert_eq!(percent_decode("hello%"), "hello%");
         assert_eq!(percent_decode("hello%2Gworld"), "hello%2Gworld");
+    }
+
+    #[test]
+    fn test_u9_is_valid_cache_hash() {
+        assert!(is_valid_cache_hash("a1b2c3d4e5f6_12345_67890"));
+        assert!(is_valid_cache_hash("abc-123_XYZ"));
+        assert!(!is_valid_cache_hash(""));
+        assert!(!is_valid_cache_hash("../traversal"));
+        assert!(!is_valid_cache_hash("foo/bar"));
+        assert!(!is_valid_cache_hash("foo\\bar"));
+        assert!(!is_valid_cache_hash("C:"));
+        assert!(!is_valid_cache_hash("has space"));
     }
 }
