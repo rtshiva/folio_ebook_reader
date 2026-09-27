@@ -1752,6 +1752,7 @@ async function closeBook(){
   Ribbon.clear();
   Highlights.hidePop();
   hideSelBar();
+  if(typeof AutoScroll !== 'undefined') AutoScroll.stop();
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -7323,7 +7324,7 @@ const AutoScroll = {
     toast('Auto-scroll: move the mouse · click to stop');
   },
   move(e){
-    if(!this.active) return;
+    if(!this.active || !state.rendition) return;
     const dy = e.clientY - this.y;
     this.y = e.clientY;
     this.acc += dy;
@@ -7332,10 +7333,11 @@ const AutoScroll = {
       const dir = this.acc > 0 ? 1 : -1;
       this.acc = 0; this.last = now;
       try{
-        const p = state.rendition.currentLocation();
-        if(dir > 0 ? !isLastPage(p) : !(p.start.index === 0 && (!p.start.displayed || p.start.displayed.page <= 1))){
-          (dir > 0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-        } else this.stop();
+        if(!atEdge(dir)){
+          turn(dir, { noAnim: true });
+        } else {
+          this.stop();
+        }
       }catch(err){}
     }
   },
