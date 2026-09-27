@@ -3515,19 +3515,20 @@ function updateChapterNav(){
    fixed 176px label overlaps the page's left/right border at mid-height and
    silently converts page-flip clicks into chapter jumps. */
 function layoutChNavPills(){
+  if(document.body.classList.contains('state-landing')) return;
   const L = el('chNavLeft'), R = el('chNavRight');
   if(!L || !R) return;
   const v = el('viewer');
-  const vr = v ? v.getBoundingClientRect() : null;
-  const deskL = vr ? Math.floor(vr.left) - 12 : 176;
-  const deskR = vr ? Math.floor(innerWidth - vr.right) - 12 : 176;
+  const vr = (v && v.getBoundingClientRect) ? v.getBoundingClientRect() : null;
+  const deskL = (vr && vr.width > 0) ? Math.floor(vr.left) - 12 : 176;
+  const deskR = (vr && vr.width > 0) ? Math.floor(window.innerWidth - vr.right) - 12 : 176;
   const setPill = (panel, desk) => {
     if(!panel) return;
     const label = panel.querySelector('.ch-nav-label');
     if(!label) return;
-    const fit = desk >= 40;
+    const fit = typeof desk === 'number' && !isNaN(desk) && desk >= 40;
     panel.classList.toggle('no-desk', !fit);
-    if(fit) label.style.width = Math.min(176, Math.max(40, desk)) + 'px';
+    label.style.width = fit ? (Math.min(176, Math.max(40, Math.floor(desk))) + 'px') : '';
   };
   setPill(L, deskL);
   setPill(R, deskR);
