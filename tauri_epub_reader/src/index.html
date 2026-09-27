@@ -1721,6 +1721,8 @@ async function closeBook(){
   LocEngine.data = null;
   SearchIndex.clear();
   Ribbon.clear();
+  Highlights.hidePop();
+  hideSelBar();
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -3699,7 +3701,9 @@ const Highlights = {
     const r = state.rendition;
     if(!r || !r.annotations) return;
     this.forBook().forEach(h => {
+      if(!h || !h.cfi || typeof h.cfi !== 'string') return;
       try{
+        try{ r.annotations.remove(h.cfi, 'highlight'); }catch(_){}
         r.annotations.add('highlight', h.cfi, { fioId: h.id },
           (e) => this.openPop(h.id, e),
           'fio-hl', { fill: this.COLOR_FILL[h.color] || this.COLOR_FILL.yellow, 'mix-blend-mode': 'multiply' });
