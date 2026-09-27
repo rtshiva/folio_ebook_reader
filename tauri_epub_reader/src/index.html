@@ -1754,6 +1754,7 @@ async function closeBook(){
   Highlights.hidePop();
   hideSelBar();
   if(typeof AutoScroll !== 'undefined') AutoScroll.stop();
+  if(typeof TTS !== 'undefined' && TTS.active) TTS.stop(true);
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
   try{ state.book && state.book.destroy(); }catch(e){}
   state.rendition=null; state.book=null;
@@ -5779,6 +5780,12 @@ const TTS = {
   },
   stop(silent){
     this.stopped = true; this.active = false; this.paused = false;
+    clearTimeout(this.relocT);
+    if(this.utt){
+      this.utt.onend = null;
+      this.utt.onerror = null;
+      this.utt = null;
+    }
     try{ speechSynthesis.cancel(); }catch(e){}
     this.clearHighlight();
     body.classList.remove('tts-on');
