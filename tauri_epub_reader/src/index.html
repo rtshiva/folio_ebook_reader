@@ -4611,11 +4611,11 @@ class PageSurfacePool {
   }
 
   static getAdjacentSurfaceInfo(dir, snapInfo) {
-    if(!snapInfo || !state.rendition) return null;
+    if(!snapInfo || !snapInfo.vRect || !state.rendition) return null;
     const loc = state.rendition.currentLocation();
     const d = loc && loc.start ? loc.start.displayed : null;
     const isSpread = !!state.spreadOn;
-    const stepW = snapInfo.vRect.width;
+    const stepW = snapInfo.vRect.width || 0;
 
     let inSameChapter = false;
     if(d && d.total) {
@@ -4627,24 +4627,24 @@ class PageSurfacePool {
       if(dir > 0 && d.page + stepPages <= d.total) inSameChapter = true;
       if(dir < 0 && d.page - stepPages >= 1) inSameChapter = true;
     } else {
-      const fWidth = snapInfo.fRect.width;
-      if(dir > 0 && Math.abs(snapInfo.relLeft) + stepW + 10 < fWidth) inSameChapter = true;
-      if(dir < 0 && snapInfo.relLeft < -10) inSameChapter = true;
+      const fWidth = snapInfo.fRect ? snapInfo.fRect.width : 0;
+      if(dir > 0 && Math.abs(snapInfo.relLeft || 0) + stepW + 10 < fWidth) inSameChapter = true;
+      if(dir < 0 && (snapInfo.relLeft || 0) < -10) inSameChapter = true;
     }
 
     if(inSameChapter) {
-      const adjacentRelLeft = snapInfo.relLeft - (dir * stepW);
+      const adjacentRelLeft = (snapInfo.relLeft || 0) - (dir * stepW);
       return {
         html: snapInfo.docHtml,
         relLeft: adjacentRelLeft,
         isBoundary: false,
-        spineIndex: (loc && loc.start) ? loc.start.index : 0
+        spineIndex: (loc && loc.start && typeof loc.start.index === 'number') ? loc.start.index : 0
       };
     }
 
-    const currentSpine = (loc && loc.start) ? loc.start.index : 0;
+    const currentSpine = (loc && loc.start && typeof loc.start.index === 'number') ? loc.start.index : 0;
     const targetSpine = currentSpine + dir;
-    if(targetSpine < 0 || (state.book && state.book.spine && targetSpine >= state.book.spine.length)) {
+    if(!state.book || !state.book.spine || targetSpine < 0 || targetSpine >= state.book.spine.length) {
       return { isBoundary: true, html: null, relLeft: 0, spineIndex: -1 };
     }
 
@@ -4652,7 +4652,8 @@ class PageSurfacePool {
     if(!adjacentHtml) {
       adjacentHtml = snapInfo.docHtml;
     }
-    const adjacentRelLeft = dir > 0 ? 0 : -(snapInfo.fRect.width - stepW);
+    const fWidth = snapInfo.fRect ? snapInfo.fRect.width : stepW;
+    const adjacentRelLeft = dir > 0 ? 0 : -(fWidth - stepW);
     return {
       html: adjacentHtml,
       relLeft: adjacentRelLeft,
