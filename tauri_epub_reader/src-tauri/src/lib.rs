@@ -1200,4 +1200,81 @@ mod tests {
         assert!(!book2.exists());
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn test_u15_first_epub_arg() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_arg_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let upper = tmp.join("BOOK.EPUB");
+        let txt = tmp.join("note.txt");
+        fs::write(&upper, b"fake epub").unwrap();
+        fs::write(&txt, b"not a book").unwrap();
+        let missing = tmp.join("ghost.epub");
+
+        // argv[0] is the exe itself; picks the first *existing* .epub,
+        // case-insensitively, skipping text files and missing paths.
+        let args = vec![
+            "folio.exe".to_string(),
+            txt.to_string_lossy().to_string(),
+            missing.to_string_lossy().to_string(),
+            upper.to_string_lossy().to_string(),
+        ];
+        assert_eq!(first_epub_arg(args), Some(upper.to_string_lossy().to_string()));
+
+        // No existing epub at all -> None (never a bogus path).
+        let args_none = vec![
+            "folio.exe".to_string(),
+            txt.to_string_lossy().to_string(),
+            missing.to_string_lossy().to_string(),
+        ];
+        assert_eq!(first_epub_arg(args_none), None);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u16_percent_encoded_traversal_never_sanitizes() {
+        // Single decoding turns %2E%2E%2F into ../evil.txt, which the
+        // sanitizer must reject — this is the traversal the scheme handler
+        // would otherwise serve from outside the book's cache dir.
+        let decoded = percent_decode("%2E%2e%2Fevil.txt");
+        assert_eq!(decoded, "../evil.txt");
+        assert!(sanitize_entry(&decoded).is_none());
+        // Mixed-case hex and absolute-path forms decode-then-reject too.
+        assert!(sanitize_entry(&percent_decode("%2e%2E%5cevil.txt")).is_none());
+        assert!(sanitize_entry(&percent_decode("%2Fabs.txt")).is_none());
+        // Double-encoded input decodes only once, so it stays a harmless
+        // single filename that can never escape (lookup yields 404).
+        let once = percent_decode("%252E%252E%2Fevil.txt");
+        assert_eq!(once, "%2E%2E/evil.txt");
+        assert!(!once.starts_with("../"));
+    }
+
+    #[test]
+    fn test_u17_unzip_rejects_entry_count_bomb() {
+        use std::io::Write;
+        let tmp = std::env::temp_dir().join(format!("folio_test_bomb_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let epub_path = tmp.join("bomb.epub");
+        {
+            let f = fs::File::create(&epub_path).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            let opts = zip::write::SimpleFileOptions::default();
+            for i in 0..20001 {
+                w.start_file(format!("f{}.txt", i), opts).unwrap();
+                w.write_all(b"x").unwrap();
+            }
+            w.finish().unwrap();
+        }
+        let meta = fs::metadata(&epub_path).unwrap();
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+        let err = unzip_epub(&epub_path, &target, "bomb.epub", &meta, 1).unwrap_err();
+        assert!(err.contains("too many entries"), "unexpected error: {}", err);
+        // Nothing extracted on rejection.
+        assert_eq!(fs::read_dir(&target).unwrap().count(), 0);
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

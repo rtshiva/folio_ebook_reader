@@ -6443,7 +6443,7 @@ function onKey(e){
   const isCtrl = e.ctrlKey || e.metaKey;
   if(isCtrl && (e.key==='o' || e.key==='O')){
     e.preventDefault();
-    el('file').click();
+    openBookDialog();
     return;
   }
   if(isCtrl && (e.key==='k' || e.key==='K')){
@@ -6773,11 +6773,11 @@ function syncControls(){
   syncEnvCards();
 }
 
-/* ---------------- wiring ---------------- */
-el('btnHome').addEventListener('click',goHome);
-el('btnResume').addEventListener('click',resumeReading);
-el('curBookBadge').addEventListener('click',resumeReading);
-el('btnOpen').addEventListener('click', async ()=>{
+/* Single entry point for "open a file": the Tauri native dialog returns a
+   disk path (book streams via folio-cache), the browser falls back to the
+   hidden file input. Ctrl+O and the Open button share it so neither path
+   silently bypasses the native picker. */
+async function openBookDialog(){
   // In the Tauri desktop app prefer the native file dialog: it returns a
   // disk path, so the book streams through the folio-cache backend instead
   // of being buffered whole into the WebView's memory via <input type=file>.
@@ -6790,7 +6790,12 @@ el('btnOpen').addEventListener('click', async ()=>{
     }catch(e){ console.warn('native picker failed, falling back to file input:', e); }
   }
   el('file').click();
-});
+}
+/* ---------------- wiring ---------------- */
+el('btnHome').addEventListener('click',goHome);
+el('btnResume').addEventListener('click',resumeReading);
+el('curBookBadge').addEventListener('click',resumeReading);
+el('btnOpen').addEventListener('click', ()=>{ openBookDialog(); });
 el('file').addEventListener('change',e=>{ loadFile(e.target.files[0]); e.target.value=''; });
 el('btnDemo').addEventListener('click',loadDemo);
 
@@ -7527,7 +7532,9 @@ addEventListener('dragleave',e=>{ if(hasFiles(e)&&--depth<=0){depth=0;body.class
 addEventListener('drop',e=>{
   if(!hasFiles(e))return;
   e.preventDefault(); depth=0; body.classList.remove('dropping');
-  loadFile(e.dataTransfer.files[0]);
+  const files = e.dataTransfer.files || [];
+  if(files.length > 1) toast(`Opening the first of ${files.length} dropped files`);
+  loadFile(files[0]);
 });
 
 /* =====================================================================
@@ -7541,6 +7548,7 @@ const XHTML=(title,inner)=>`<?xml version="1.0" encoding="utf-8"?>
 </body></html>`;
 
 async function loadDemo(){
+  if(state.loading){ toast('Still opening a book — try again in a moment'); return; }
   showLoader('Setting the sample…');
   try{
     const zip=new JSZip();
