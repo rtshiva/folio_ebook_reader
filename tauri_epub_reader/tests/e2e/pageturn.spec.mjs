@@ -20,10 +20,12 @@ async function geo(page) {
     return { left: v.left, right: v.right, top: v.top, w: v.width, h: v.height };
   });
 }
-async function clickFlip(page, dir, offset = 300) {
+async function clickFlip(page, dir) {
+  // Edge-only zones: flip taps must land inside the fore-edge band
+  // (TurnGestureController.clickEdgePx, >=72px). 60px is inside at any width.
   const g = await geo(page);
   const y = g.top + g.h / 2;
-  const x = dir > 0 ? g.right - offset : g.left + offset;
+  const x = dir > 0 ? g.right - 60 : g.left + 60;
   await page.mouse.click(x, y);
 }
 const chapter = (page) => page.locator('#chapter').textContent();
@@ -82,9 +84,10 @@ test.describe('page-turn triggers', () => {
     await settlePos(page, ref);
     expect(posKey(await pos(page))).toBe(posKey(p));
     // Suspect: the page's LEFT BORDER at mid page height — the exact spot
-    // where the invisible chapter pill used to intercept clicks.
+    // where the invisible chapter pill used to intercept clicks. All offsets
+    // sit inside the edge flip band (>=72px wide at any viewer width).
     const g = await geo(page);
-    for (const off of [2, 20, 60, 100, 150]) {
+    for (const off of [2, 20, 40, 60]) {
       await page.mouse.click(g.left + off, g.top + g.h / 2);
       await settlePos(page, p);
       const landing = await pos(page);
@@ -111,7 +114,7 @@ test.describe('page-turn triggers', () => {
     expect(posKey(await pos(page)), 'left-page click returns to the start spread').toBe(posKey(p0));
   });
 
-  test('PT3 single-page mode: left 28% back, right 72% forward', async ({ page }) => {
+  test('PT3 single-page mode: edge taps flip, body taps do not', async ({ page }) => {
     await fresh(page);
     await openDemoReady(page);
     // Navigation recorder for failure diagnostics
@@ -413,6 +416,41 @@ test.describe('page-turn triggers', () => {
     await settlePos(page, p1, 6000);
     expect(posKey(await pos(page)), 'instant fx returns to the start spread').toBe(posKey(p0));
     await page.evaluate(() => { settings.turnFx = 'paper'; save(); });
+  });
+
+  test('PT15 body-of-page taps never flip (edge-only zones)', async ({ page }) => {
+    await fresh(page);
+    await openDemoReady(page);
+    const g = await geo(page);
+    const y = g.top + g.h / 2;
+    // Spread mode: left-page body, spine gutter, right-page body all neutral.
+    const p0 = await pos(page);
+    for (const x of [g.left + g.w * 0.25, g.left + g.w * 0.5, g.left + g.w * 0.75]) {
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(900);
+      await page.waitForFunction(() => !document.body.classList.contains('turning'), null, { timeout: 5000 });
+      expect(posKey(await pos(page)), `spread body tap at ${Math.round(x)} must not flip`).toBe(posKey(p0));
+    }
+    // Single-page mode: center 50% neutral.
+    await page.evaluate(() => { settings.spread = 'none'; save(); relayout(); });
+    await page.waitForFunction(() => !document.body.classList.contains('spread'), null, { timeout: 9000 });
+    await page.waitForFunction(() => !document.body.classList.contains('turning'), null, { timeout: 9000 });
+    // The relayout recreates the rendition — wait for a valid location
+    // before capturing p1, or a late first relocation reads as a "flip".
+    await page.waitForFunction(() => {
+      try {
+        const l = state.rendition.currentLocation();
+        return !!(l && l.start && l.start.index >= 0);
+      } catch (e) { return false; }
+    }, null, { timeout: 9000 });
+    const g1 = await geo(page);
+    const p1 = await pos(page);
+    for (const x of [g1.left + g1.w * 0.4, g1.left + g1.w * 0.5, g1.left + g1.w * 0.6]) {
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(900);
+      await page.waitForFunction(() => !document.body.classList.contains('turning'), null, { timeout: 5000 });
+      expect(posKey(await pos(page)), `single-page body tap at ${Math.round(x)} must not flip`).toBe(posKey(p1));
+    }
   });
 
 });

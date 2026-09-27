@@ -5548,6 +5548,17 @@ class TurnGestureController {
     }
   }
 
+  // Edge-only click zones: a tap flips a page only when it lands inside a
+  // narrow band along the fore-edges of the book (the page-curl affordance
+  // lives there too). Taps anywhere in the body of the page are neutral on
+  // desktop so selecting text, clicking with the mouse, or resting the
+  // pointer never turns the page by accident; on touch screens a middle tap
+  // still toggles the chrome. Clicks outside the page (desk margins, where
+  // the arrow buttons live) keep their old meaning.
+  clickEdgePx(vrWidth){
+    return Math.round(Math.min(150, Math.max(72, vrWidth * 0.15)));
+  }
+
   handleClick(e, pt) {
     const doc = (e.target && e.target.ownerDocument) || document;
     const sel = (doc.getSelection && doc.getSelection()) || (window.getSelection && window.getSelection());
@@ -5564,25 +5575,16 @@ class TurnGestureController {
       if(clickX < vr.left) { turn(-1); return; }
       if(clickX > vr.right) { turn(1); return; }
 
-      const relX = (clickX - vr.left) / vr.width;
-
-      if(state.spreadOn) {
-        // Spread Mode: left page (0 to 0.44) -> prev, right page (0.56 to 1.0) -> next
-        // Center spine gutter (0.44 to 0.56) -> toggle chrome / neutral
-        if(relX < 0.44) turn(-1);
-        else if(relX > 0.56) turn(1);
-        else if(matchMedia('(hover: none)').matches) toggleChrome();
-      } else {
-        // Single Page Mode: left 28% -> prev, right 28% -> next, middle 44% -> menu
-        if(relX < 0.28) turn(-1);
-        else if(relX > 0.72) turn(1);
-        else if(matchMedia('(hover: none)').matches) toggleChrome();
-      }
+      const edge = this.clickEdgePx(vr.width);
+      const touch = matchMedia('(hover: none)').matches;
+      if(clickX <= vr.left + edge) { turn(-1); return; }
+      if(clickX >= vr.right - edge) { turn(1); return; }
+      if(touch) toggleChrome();
     } else {
       const w = innerWidth || 1;
-      const x = clickX / w;
-      if(x < 0.3) turn(-1);
-      else if(x > 0.7) turn(1);
+      const edge = this.clickEdgePx(w);
+      if(clickX <= edge) turn(-1);
+      else if(clickX >= w - edge) turn(1);
       else if(matchMedia('(hover: none)').matches) toggleChrome();
     }
   }
@@ -7500,20 +7502,15 @@ function curlUpdate(e){
   });
 }
 
-/* Desk dimming on idle (F6): after 10s without input the backdrop deepens;
-   any pointer move or key restores it. Overlay sits under the page. */
+/* Desk dimming on idle (F6) is retired as an always-on behavior: it repainted
+   the whole surround every idle/input cycle with no way to turn it off, so
+   the backdrop never sat still while reading. The overlay stays in the DOM
+   (harmless) and this entry point keeps clearing it, but no timer re-arms. */
 let deskDimTimer = 0;
 function resetDeskDim(){
   clearTimeout(deskDimTimer);
   const dim = el('deskDim');
   if(dim) dim.classList.remove('dim');
-  if(body.classList.contains('state-reading') && !panelsOpen()){
-    deskDimTimer = setTimeout(() => {
-      if(dim && body.classList.contains('state-reading') && !panelsOpen()){
-        dim.classList.add('dim');
-      }
-    }, 10000);
-  }
 }
 /* Pointer moves over the open book land in the chapter iframe document, so
    the F1/F6 tracking must be bound there too (wireContents); mousemove is a
