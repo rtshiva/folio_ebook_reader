@@ -6227,8 +6227,13 @@ const CmdPalette = {
     let cmds = COMMANDS.filter(c => this.matches(c.label, q));
     if(state.rendition && tocItems && tocItems.length){
       const tocCmds = tocItems
-        .map((it, i) => ({ id: 'toc' + i, jump: true, href: it.href,
-          label: 'Jump to: ' + (it.label || ('Chapter ' + (i + 1))) }))
+        .map((it, i) => ({
+          id: 'toc' + i,
+          jump: true,
+          href: it.href,
+          label: 'Jump to: ' + (it.label || ('Chapter ' + (i + 1))),
+          action: () => jumpToTocIndex(i)
+        }))
         .filter(c => this.matches(c.label, q))
         .slice(0, 30);
       cmds = cmds.concat(tocCmds);
@@ -6267,7 +6272,10 @@ const CmdPalette = {
   },
   exec(c){
     this.close();
-    try{ c.action(); }catch(e){}
+    try{
+      if(c.action) c.action();
+      else if(c.href && state.rendition) state.rendition.display(c.href);
+    }catch(e){}
   }
 };
 // P6: the palette DOM is created on first Ctrl+K — power-user surface,
