@@ -662,6 +662,14 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
+pub fn is_xml_mime(mime: &str) -> bool {
+    mime == "application/xhtml+xml"
+        || mime == "application/xml"
+        || mime == "application/oebps-package+xml"
+        || mime == "application/x-dtbncx+xml"
+        || mime.ends_with("+xml")
+}
+
 pub fn merge_gpu_flags(existing: &str) -> String {
     let gpu_flags = "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist";
     let trimmed = existing.trim();
@@ -747,7 +755,7 @@ pub fn run() {
                         // and sessions without any invalidation risk.
                         // Chapters are parsed as strict XML: repair bare
                         // '&' and named/unknown entities before serving.
-                        let body: Vec<u8> = if mime == "application/xhtml+xml" { fix_entities(&String::from_utf8_lossy(&bytes)).into_bytes() } else { bytes };
+                        let body: Vec<u8> = if is_xml_mime(mime) { fix_entities(&String::from_utf8_lossy(&bytes)).into_bytes() } else { bytes };
                         tauri::http::Response::builder()
                             .status(200)
                             .header("Content-Type", mime)
@@ -1010,5 +1018,17 @@ mod tests {
         assert!(!is_valid_cache_hash("foo\\bar"));
         assert!(!is_valid_cache_hash("C:"));
         assert!(!is_valid_cache_hash("has space"));
+    }
+
+    #[test]
+    fn test_u10_is_xml_mime() {
+        assert!(is_xml_mime("application/xhtml+xml"));
+        assert!(is_xml_mime("application/xml"));
+        assert!(is_xml_mime("application/oebps-package+xml"));
+        assert!(is_xml_mime("application/x-dtbncx+xml"));
+        assert!(is_xml_mime("image/svg+xml"));
+        assert!(!is_xml_mime("text/css; charset=utf-8"));
+        assert!(!is_xml_mime("application/javascript"));
+        assert!(!is_xml_mime("image/png"));
     }
 }
