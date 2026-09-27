@@ -1525,25 +1525,54 @@ const BookStorage = {
   },
 
   async saveBook(record){
+    if(!record || !record.title) return false;
     try{
       const db = await this.getDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(this.STORE_NAME, 'readwrite');
-        const store = tx.objectStore(this.STORE_NAME);
-        const req = store.put({
-          title: record.title,
-          author: record.author || 'Unknown Author',
-          buffer: record.buffer,
-          filePath: record.filePath || null,
-          cfi: record.cfi || null,
-          pct: record.pct !== undefined ? record.pct : 0,
-          timestamp: Date.now()
-        });
-        req.onsuccess = () => resolve(true);
-        req.onerror = e => reject(e.target.error);
+      return new Promise((resolve) => {
+        try{
+          const tx = db.transaction(this.STORE_NAME, 'readwrite');
+          tx.onabort = () => resolve(false);
+          tx.onerror = () => resolve(false);
+          const store = tx.objectStore(this.STORE_NAME);
+          const item = {
+            title: record.title,
+            author: record.author || 'Unknown Author',
+            buffer: record.buffer || null,
+            filePath: record.filePath || null,
+            cfi: record.cfi || null,
+            pct: record.pct !== undefined ? record.pct : 0,
+            timestamp: Date.now()
+          };
+          try{
+            const req = store.put(item);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => {
+              if(item.buffer){
+                try{
+                  item.buffer = null;
+                  const req2 = store.put(item);
+                  req2.onsuccess = () => resolve(true);
+                  req2.onerror = () => resolve(false);
+                }catch(e2){ resolve(false); }
+              } else {
+                resolve(false);
+              }
+            };
+          }catch(putErr){
+            if(item.buffer){
+              try{
+                item.buffer = null;
+                const req2 = store.put(item);
+                req2.onsuccess = () => resolve(true);
+                req2.onerror = () => resolve(false);
+              }catch(e2){ resolve(false); }
+            } else {
+              resolve(false);
+            }
+          }
+        }catch(txErr){ resolve(false); }
       });
     }catch(err){
-      console.warn('BookStorage.saveBook error:', err);
       return false;
     }
   },
