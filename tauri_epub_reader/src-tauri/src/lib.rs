@@ -404,13 +404,19 @@ fn entity_replacement(name: &str) -> Option<char> {
         "macr" => '\u{af}',
         "deg" => '\u{b0}',
         "plusmn" => '\u{b1}',
+        "sup2" => '\u{b2}',
+        "sup3" => '\u{b3}',
         "acute" => '\u{b4}',
         "micro" => '\u{b5}',
         "para" => '\u{b6}',
         "middot" => '\u{b7}',
         "cedil" => '\u{b8}',
+        "sup1" => '\u{b9}',
         "ordm" => '\u{ba}',
         "raquo" => '\u{bb}',
+        "frac14" => '\u{bc}',
+        "frac12" => '\u{bd}',
+        "frac34" => '\u{be}',
         "iquest" => '\u{bf}',
         "Agrave" => '\u{c0}',
         "Aacute" => '\u{c1}',
@@ -911,6 +917,9 @@ mod tests {
         // Known named entities decode to their literal characters
         assert_eq!(fix_entities("a&nbsp;b"), "a\u{a0}b");
         assert_eq!(fix_entities("x&mdash;y"), "x\u{2014}y");
+        assert_eq!(fix_entities("1&frac12;"), "1\u{bd}");
+        assert_eq!(fix_entities("m&sup2;"), "m\u{b2}");
+        assert_eq!(fix_entities("m&sup3;"), "m\u{b3}");
         // Bare ampersands (JS &&, prose "Tom & Jerry") get escaped so the
         // strict XML parser accepts them
         assert_eq!(fix_entities("if (a && b) {}"), "if (a &amp;&amp; b) {}");
