@@ -532,10 +532,6 @@ fn entity_replacement(name: &str) -> Option<char> {
     })
 }
 
-fn utf8_seq_len(b: u8) -> usize {
-    if b < 0x80 { 1 } else if b >> 5 == 0b110 { 2 } else if b >> 4 == 0b1110 { 3 } else if b >> 3 == 0b11110 { 4 } else { 1 }
-}
-
 /// Repair bare ampersands and named/unknown entities so a chapter parses
 /// as strict XML: known named entities become their literal characters,
 /// unknown names and stray '&' are escaped, numeric references pass
@@ -545,10 +541,9 @@ fn fix_entities(text: &str) -> String {
         return text.to_string();
     }
     let mut out = String::with_capacity(text.len() + 64);
-    let bytes = text.as_bytes();
     let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == b'<' && text[i..].starts_with("<![CDATA[") {
+    while i < text.len() {
+        if text[i..].starts_with("<![CDATA[") {
             match text[i..].find("]]>") {
                 Some(p) => {
                     let end = i + p + 3;
@@ -562,11 +557,26 @@ fn fix_entities(text: &str) -> String {
             }
             continue;
         }
-        if bytes[i] != b'&' {
-            let len = utf8_seq_len(bytes[i]);
-            out.push_str(&text[i..i + len]);
-            i += len;
-            continue;
+        if !text[i..].starts_with('&') {
+            let remaining = &text[i..];
+            let next_pos = match (remaining.find('&'), remaining.find("<![CDATA[")) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (Some(a), None) => Some(a),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            };
+            match next_pos {
+                Some(offset) if offset > 0 => {
+                    out.push_str(&text[i..i + offset]);
+                    i += offset;
+                    continue;
+                }
+                Some(_) => {} // at '&' or '<![CDATA['
+                None => {
+                    out.push_str(&text[i..]);
+                    break;
+                }
+            }
         }
         let rest = &text[i + 1..];
         let mut replaced: Option<String> = None;
