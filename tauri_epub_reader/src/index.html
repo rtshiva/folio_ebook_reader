@@ -3816,6 +3816,8 @@ function openSearch(){
   poke();
 }
 function closeSearch(){
+  const inp = el('searchInput');
+  if(inp && document.activeElement === inp) inp.blur();
   body.classList.remove('search-open');
   syncScrim();
   poke();
@@ -6115,6 +6117,9 @@ function closePanels(){
   body.classList.remove('search-open');
   body.classList.remove('help-open');
   if(typeof CmdPalette !== 'undefined' && CmdPalette.open) CmdPalette.close();
+  if(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)){
+    try{ document.activeElement.blur(); }catch(e){}
+  }
   syncScrim();
   if(body.classList.contains('state-reading')) scheduleHide(1200);
 }
@@ -6268,6 +6273,8 @@ const CmdPalette = {
     requestAnimationFrame(() => inp.focus());
   },
   close(){
+    const inp = el('cmdInput');
+    if(inp && document.activeElement === inp) inp.blur();
     const p = el('cmdPalette');
     if(p) p.classList.add('hide');
     this.open = false;
