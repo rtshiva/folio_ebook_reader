@@ -250,7 +250,12 @@ pub fn unzip_epub(
 const DISK_CACHE_MAX_BYTES: u64 = 600 * 1024 * 1024; // 600 MB
 const DISK_CACHE_MAX_BOOKS: usize = 30;
 
-pub fn evict_disk_cache(cache_root: &Path, max_bytes: u64, max_books: usize) {
+pub fn evict_disk_cache(
+    cache_root: &Path,
+    max_bytes: u64,
+    max_books: usize,
+    protect_dir_name: Option<&str>,
+) {
     let entries = match fs::read_dir(cache_root) {
         Ok(e) => e,
         Err(_) => return,
@@ -279,9 +284,16 @@ pub fn evict_disk_cache(cache_root: &Path, max_bytes: u64, max_books: usize) {
     }
 
     let mut dirs: Vec<DirEntryInfo> = Vec::new();
+    let mut total_books = 0usize;
     for entry in entries.flatten() {
         let p = entry.path();
         if p.is_dir() {
+            total_books += 1;
+            if let Some(protect) = protect_dir_name {
+                if p.file_name().and_then(|n| n.to_str()) == Some(protect) {
+                    continue;
+                }
+            }
             let atime = fs::read_to_string(p.join("atime"))
                 .ok()
                 .and_then(|s| s.trim().parse::<u128>().ok())
@@ -302,7 +314,6 @@ pub fn evict_disk_cache(cache_root: &Path, max_bytes: u64, max_books: usize) {
     dirs.sort_by_key(|d| d.atime);
 
     let mut total_bytes: u64 = dirs.iter().map(|d| d.bytes).sum();
-    let mut total_books = dirs.len();
 
     for d in dirs {
         if total_books <= max_books && total_bytes <= max_bytes {
@@ -354,8 +365,9 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
 
     // Spawn background eviction
     let evict_root = cache_root.clone();
+    let protect_hash = hash.clone();
     std::thread::spawn(move || {
-        evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS);
+        evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
     });
 
     Ok(BookHandle {
@@ -1047,5 +1059,29 @@ mod tests {
         assert!(!is_xml_mime("text/css; charset=utf-8"));
         assert!(!is_xml_mime("application/javascript"));
         assert!(!is_xml_mime("image/png"));
+    }
+
+    #[test]
+    fn test_u11_evict_disk_cache_protect() {
+        let tmp = std::env::temp_dir().join("folio_test_evict");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let book1 = tmp.join("book1");
+        let book2 = tmp.join("book2");
+        fs::create_dir_all(&book1).unwrap();
+        fs::create_dir_all(&book2).unwrap();
+
+        fs::write(book1.join("atime"), "100").unwrap();
+        fs::write(book2.join("atime"), "200").unwrap();
+
+        // Evict with max 1 book, but protecting book1
+        evict_disk_cache(&tmp, 1000000, 1, Some("book1"));
+
+        // book1 was protected, so book2 was evicted
+        assert!(book1.exists());
+        assert!(!book2.exists());
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
