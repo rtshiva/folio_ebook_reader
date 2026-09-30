@@ -99,4 +99,49 @@ check('turns never continue on a swapped rendition',
 check('speech timeouts are generation-gated', /this\.gen/.test(html),
   'a pre-stop speak timeout can fire into the next book or session');
 
+// 15-16. Bespoke themes keep one palette: the [data-theme] first-paint block
+// and the JS THEMES runtime map must agree on the core vars, and every var
+// the themes set must exist as a :root default (no unresolved var()).
+const BESPOKE = ['aizome', 'ember', 'velvet', 'emerald'];
+const CORE = ['desk', 'page', 'ink', 'muted', 'accent'];
+let themeDrift = '';
+for (const name of BESPOKE) {
+  const cssBlock = html.match(new RegExp(`\\[data-theme="${name}"\\]\\{([\\s\\S]*?)\\n\\}`, '')) || [];
+  const jsLine = (html.match(new RegExp(`^\\s*${name}:\\s*\\{label.*$`, 'm')) || [''])[0];
+  for (const v of CORE) {
+    const cssVal = (cssBlock[1] || '').match(new RegExp(`--${v}:\\s*(#[0-9a-fA-F]{6})`));
+    const jsVal = jsLine.match(new RegExp(`${v}:'(#[0-9a-fA-F]{6})'`));
+    if (!cssVal || !jsVal || cssVal[1].toLowerCase() !== jsVal[1].toLowerCase()) {
+      themeDrift += `${name}.${v}: css=${cssVal && cssVal[1]} js=${jsVal && jsVal[1]}; `;
+    }
+  }
+}
+check('bespoke theme CSS/JS palettes agree', themeDrift === '',
+  `first-paint vs runtime drift: ${themeDrift || 'n/a'}`);
+const rootBlock = (html.match(/:root\{([\s\S]*?)\n\}/) || [])[1] || '';
+const rootVars = new Set([...rootBlock.matchAll(/--([\w-]+)\s*:/g)].map((m) => m[1]));
+const usedVars = new Set([...html.matchAll(/var\(--([\w-]+)\)/g)].map((m) => m[1]));
+// JS-owned vars (set at runtime, never in :root): layout fit vars, slider
+// fills, and --grain (pre-existing dead reference kept for compatibility).
+const jsOwned = new Set(['fit-font', 'mw', 'pad-y', 'fill', 'grain']);
+const missing = [...usedVars].filter((v) => !rootVars.has(v) && !jsOwned.has(v));
+check('every themed var() resolves to a :root default', missing.length === 0,
+  `unresolved tokens: ${missing.join(', ') || 'n/a'}`);
+
+// 17-19. Cloth-chrome legibility: cloth topbars must carry a chalk
+// foreground (wordmark/icons inherit it), the loader status must not sit in
+// paper-muted on cloth, and the theme row must wrap its ten buttons.
+const topbarBlock = (name) => html.match(new RegExp(`\\[data-theme="${name}"\\] #topbar\\{([\\s\\S]*?)\\n\\}`, '')) || [];
+check('cloth topbars carry chalk foreground',
+  ['velvet', 'emerald'].every((n) => /color:\s*var\(--on-desk\)/.test((topbarBlock(n)[1] || ''))) &&
+  /\[data-theme="velvet"\] \.wm-btn\{color:var\(--on-desk\)\}/.test(html) &&
+  /\[data-theme="emerald"\] \.wm-btn\{color:var\(--on-desk\)\}/.test(html),
+  'dark ink wordmark/icons on the dark cloth topbar are unreadable');
+check('loader status readable on cloth',
+  ['aizome', 'velvet', 'emerald'].every((n) => html.includes(`[data-theme="${n}"] #loader .kicker`)),
+  'loader kicker falls back to paper-muted, invisible on dark cloth');
+check('theme row wraps its buttons',
+  /\.theme-row\{[^}]*flex-wrap:\s*wrap/.test(html),
+  'nine theme buttons + auto overflow the 352px sheet');
+
 process.exit(failures ? 1 : 0);

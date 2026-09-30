@@ -14,6 +14,21 @@
   --desk:#e8dfca; --page:#f7f1e3; --ink:#26211a; --muted:#7a6c56;
   --accent:#b23c17; --hair:rgba(38,33,26,.15); --hairS:rgba(38,33,26,.34);
   --dim:rgba(31,24,14,.14); --sel:rgba(178,60,23,.25);
+  /* material tokens: every baked-in shadow tint, paper edge, sheen, stand,
+     and desk-dwelling surface keys off these so a theme is a value swap */
+  --shadow-rgb:30,20,8;
+  --paper-edge:#6b5b3e;
+  --sheen-rgb:255,252,244;
+  --stand-a:#b0855a; --stand-b:#8f6238; --stand-c:#7c5330;
+  --stand-hi:rgba(255,240,210,.4);
+  --ghost:var(--ink);
+  --on-desk:var(--ink);
+  --desk-meta:var(--muted);
+  --grain-opacity:.55; --grain-blend:multiply;
+  /* cloth swatch: patterned-desk themes point --deco at a tile (inline SVG
+     or assets/*.png) and size it with --deco-size; plain desks leave none */
+  --deco:none;
+  --deco-size:auto;
   --sans:'Space Grotesk',ui-sans-serif,sans-serif;
   --serif:'Literata',Georgia,serif;
   --fit-fs:19.5px; --fit-lh:1.65; --fit-mw:660px; --gut:64px;
@@ -50,7 +65,7 @@ svg{display:block}
 body.state-landing #landing{opacity:1;visibility:visible}
 body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:none}
 #ghost{position:absolute;right:-6vw;top:50%;transform:translateY(-52%);font:600 56vh/1 var(--serif);
-  color:var(--ink);opacity:.05;pointer-events:none;user-select:none;letter-spacing:-.06em}
+  color:var(--ghost);opacity:.05;pointer-events:none;user-select:none;letter-spacing:-.06em}
 .landing-card{position:relative;max-width:680px;animation:rise .8s cubic-bezier(.22,.7,.25,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(16px)}}
 .wordmark{font:600 clamp(70px,13vw,140px)/.95 var(--serif);letter-spacing:-.035em;margin:.12em 0 .18em}
@@ -84,8 +99,8 @@ body.chrome-hidden #bottombar{transform:translateY(101%)}
 /* slim edge shadows hinting at the hidden bars (desktop clue) */
 #topHint,#botHint{position:fixed;left:0;right:0;height:5px;z-index:29;pointer-events:none;
   opacity:0;transition:opacity .45s ease}
-#topHint{top:0;background:linear-gradient(to bottom,rgba(38,33,26,.30),transparent)}
-#botHint{bottom:0;background:linear-gradient(to top,rgba(38,33,26,.30),transparent)}
+#topHint{top:0;background:linear-gradient(to bottom,rgba(var(--shadow-rgb),.30),transparent)}
+#botHint{bottom:0;background:linear-gradient(to top,rgba(var(--shadow-rgb),.30),transparent)}
 /* chapter progress ribbon: hairline structural map, always visible */
 #chRibbon{position:fixed;top:0;left:0;right:0;height:3px;z-index:40;display:flex;
   cursor:pointer;opacity:1;transition:opacity .3s}
@@ -220,7 +235,7 @@ body.state-landing #deskDim{display:none;}
 /* ---------- command palette (F9) ---------- */
 .cmd-palette{position:fixed;top:18%;left:50%;transform:translateX(-50%);z-index:110;width:min(480px,90vw);
   background:var(--page);border:1px solid var(--hairS);border-radius:14px;
-  box-shadow:0 24px 64px -12px rgba(20,12,4,.5);overflow:hidden;
+  box-shadow:0 24px 64px -12px rgba(var(--shadow-rgb),.5);overflow:hidden;
   transition:opacity .15s ease;}
 .cmd-palette.hide{opacity:0;visibility:hidden;pointer-events:none;}
 #cmdInput{width:100%;border:none;outline:none;background:transparent;color:var(--ink);
@@ -252,7 +267,7 @@ body.state-landing #deskDim{display:none;}
   border-color:color-mix(in srgb,var(--page) 95%,var(--ink)) transparent transparent transparent;}
 .rp-ch{font:600 11px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
 .rp-meta{font:500 10.5px var(--sans);color:var(--muted);margin-bottom:3px;}
-.rp-snip{font:400 11px/1.35 var(--serif);color:var(--inkM);font-style:italic;max-height:2.7em;overflow:hidden;
+.rp-snip{font:400 11px/1.35 var(--serif);color:var(--muted);font-style:italic;max-height:2.7em;overflow:hidden;
   text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
 
 /* ---------- floating safety anchor (return pill) ---------- */
@@ -279,7 +294,7 @@ body.state-landing .jump-anchor{display:none!important;}
 
 /* ---------- optical reading environments ---------- */
 .env-section{margin-bottom:8px;}
-.env-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:7px;}
+.env-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:9px;margin-top:7px;}
 .env-card{display:flex;flex-direction:column;align-items:center;padding:10px 6px;border-radius:10px;
   border:1.5px solid var(--hairS);background:var(--desk);cursor:pointer;
   transition:border-color .2s,transform .15s,box-shadow .2s;text-align:center;}
@@ -291,12 +306,18 @@ body.state-landing .jump-anchor{display:none!important;}
 .env-prev-paper{background:#f7f3e8;color:#2a251e;font-family:'Literata',serif;}
 .env-prev-clean{background:#ffffff;color:#1a1a1a;font-family:'Lexend',sans-serif;}
 .env-prev-night{background:#141414;color:#dfd7c5;font-family:'Literata',serif;}
+.env-prev-aizome{background:linear-gradient(to right,#012d31 0 15%,#f7f2e3 15% 85%,#012d31 85% 100%);color:#262a31;font-family:'Literata',serif;}
+.env-prev-ember{background:linear-gradient(to right,#0b0a08 0 15%,#1a1510 15% 85%,#0b0a08 85% 100%);color:#e6d8b8;font-family:'Literata',serif;}
+.env-prev-velvet{background:linear-gradient(to right,#5c222e 0 15%,#f5eedc 15% 85%,#5c222e 85% 100%);
+  color:#2b2318;font-family:'Literata',serif;border-bottom:3px solid #c29b3e}
+.env-prev-emerald{background:linear-gradient(to right,#073614 0 15%,#f5eedc 15% 85%,#073614 85% 100%);
+  color:#2b2318;font-family:'Literata',serif;border-bottom:3px solid #c29b3e}
 .env-sample-text{font-size:17px;font-weight:600;}
 .env-name{font:600 12px var(--sans);color:var(--ink);margin-bottom:2px;}
 .env-sub{font:400 9.5px var(--sans);color:var(--muted);line-height:1.2;}
 
 .arrow{grid-row:1;align-self:center;justify-self:center;z-index:25;width:46px;height:46px;border-radius:50%;
-  display:grid;place-items:center;border:1px solid var(--hair);color:var(--ink);
+  display:grid;place-items:center;border:1px solid var(--hair);color:var(--on-desk);
   background:color-mix(in srgb,var(--page) 92%,transparent);opacity:0;transition:opacity .3s,border-color .2s,transform .15s}
 #stage:hover .arrow{opacity:1}
 .arrow:hover{border-color:var(--ink)}
@@ -310,45 +331,46 @@ body:not(.state-reading) .arrow{opacity:0!important;pointer-events:none}
   width:min(var(--mw,640px),calc(100vw - 32px));left:50%;transform:translateX(-50%)}
 body.chrome-hidden #bottombar{transform:translate(-50%,101%)}
 .bb-meta{display:flex;align-items:center;gap:7px;min-width:0;flex:0 1 auto;max-width:44%;overflow:hidden;}
-.bb-chapter{font:600 10.5px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+.bb-chapter{font:600 10.5px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--desk-meta);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.bb-pages{font:600 11px var(--sans);color:var(--muted);white-space:nowrap;}
-.bb-time{font:400 11px var(--sans);color:var(--muted);opacity:.85;white-space:nowrap;}
+.bb-pages{font:600 11px var(--sans);color:var(--desk-meta);white-space:nowrap;}
+.bb-time{font:400 11px var(--sans);color:var(--desk-meta);opacity:.85;white-space:nowrap;}
 .bb-dot{color:var(--hairS);font-size:10px;}
 #rail{flex:1;position:relative;height:22px;cursor:pointer}
 #rail::before{content:'';position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-1px;background:var(--hair)}
 #railFill{position:absolute;left:0;top:50%;height:2px;margin-top:-1px;background:var(--accent);width:0}
 #railKnob{position:absolute;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;
   background:var(--accent);box-shadow:0 0 0 3px var(--page)}
-#pct{font:500 11.5px var(--sans);font-variant-numeric:tabular-nums;color:var(--muted);width:40px;text-align:right}
+#pct{font:500 11.5px var(--sans);font-variant-numeric:tabular-nums;color:var(--desk-meta);width:40px;text-align:right}
 
 /* ---------- book spread dressing ---------- */
 body.spread #wrap{border-radius:8px;
-  box-shadow:0 2px 6px rgba(30,20,8,.18),0 26px 54px -26px rgba(30,20,8,.42),0 70px 110px -70px rgba(30,20,8,.38)}
+  box-shadow:0 2px 6px rgba(var(--shadow-rgb),.18),0 26px 54px -26px rgba(var(--shadow-rgb),.42),0 70px 110px -70px rgba(var(--shadow-rgb),.38)}
 body.spread #viewer{border-radius:8px}
 body.spread #wrap::after{content:'';position:absolute;inset:0;border-radius:8px;pointer-events:none;z-index:6;
-  box-shadow:inset 0 0 0 1px var(--hair),inset 0 0 26px rgba(30,20,8,.06)}
+  box-shadow:inset 0 0 0 1px var(--hair),inset 0 0 26px rgba(var(--shadow-rgb),.06)}
 /* subtle paper grain + vignette over the page (non-interactive) */
-#pageFx{position:absolute;inset:0;pointer-events:none;z-index:4;opacity:.55;mix-blend-mode:multiply;
+#pageFx{position:absolute;inset:0;pointer-events:none;z-index:4;opacity:var(--grain-opacity);mix-blend-mode:var(--grain-blend);
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E"),
-    radial-gradient(120% 95% at 50% 42%, transparent 64%, rgba(30,20,8,.10) 100%)}
+    radial-gradient(120% 95% at 50% 42%, transparent 64%, rgba(var(--shadow-rgb),.10) 100%)}
 body.spread #pageFx{border-radius:8px}
 #gutter{display:none}
 body.spread #gutter{display:block;position:absolute;top:0;bottom:0;left:50%;width:var(--gut,64px);
   transform:translateX(-50%);z-index:5;pointer-events:none;
-  background:linear-gradient(to right,rgba(30,20,8,0),rgba(30,20,8,.10) 34%,rgba(30,20,8,.24) 50%,rgba(30,20,8,.10) 66%,rgba(30,20,8,0))}
+  background:linear-gradient(to right,rgba(var(--shadow-rgb),0),rgba(var(--shadow-rgb),.10) 34%,rgba(var(--shadow-rgb),.24) 50%,rgba(var(--shadow-rgb),.10) 66%,rgba(var(--shadow-rgb),0))}
 #stand{display:none}
 body.spread #stand{display:block;position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);
   width:calc(100% + 64px);height:16px;border-radius:4px;z-index:-1;
-  background:linear-gradient(to bottom,#b0855a,#8f6238 55%,#7c5330);
-  box-shadow:0 10px 18px -8px rgba(30,18,6,.5),inset 0 1px 0 rgba(255,240,210,.4)}
+  background:linear-gradient(to bottom,var(--stand-a),var(--stand-b) 55%,var(--stand-c));
+  box-shadow:0 10px 18px -8px rgba(var(--shadow-rgb),.5),inset 0 1px 0 var(--stand-hi)}
 body.spread #stand::before{content:'';position:absolute;left:50%;top:-9px;transform:translateX(-50%);
   width:34%;height:9px;border-radius:3px 3px 0 0;
-  background:linear-gradient(to bottom,#9a7148,#8a6240);box-shadow:inset 0 1px 0 rgba(255,240,210,.35)}
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--stand-a) 55%,var(--stand-b)),var(--stand-b));
+  box-shadow:inset 0 1px 0 var(--stand-hi)}
 
 /* ---------- typography sheet ---------- */
 #sheet{position:fixed;top:0;right:0;bottom:0;width:352px;max-width:92vw;z-index:46;background:var(--page);
-  border-left:1px solid var(--hair);box-shadow:0 18px 50px -18px rgba(30,24,14,.35);
+  border-left:1px solid var(--hair);box-shadow:0 18px 50px -18px rgba(var(--shadow-rgb),.35);
   transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1),visibility .4s;visibility:hidden;display:flex;flex-direction:column}
 body.sheet-open #sheet{transform:translateX(0);visibility:visible}
 .sh-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--hair)}
@@ -393,7 +415,7 @@ input[type=range]:disabled{opacity:.35}
 .seg button{flex:1;padding:9px 0;border-radius:8px;font:500 13px var(--sans);color:var(--muted);transition:background .2s,color .2s}
 .seg button:hover{color:var(--ink)}
 .seg button.sel{background:var(--ink);color:var(--page)}
-.theme-row{display:flex;gap:14px}
+.theme-row{display:flex;gap:14px;flex-wrap:wrap}
 .t-btn{display:flex;flex-direction:column;gap:7px;align-items:center;font:500 10.5px var(--sans);color:var(--muted)}
 .t-btn i{display:block;width:30px;height:30px;border-radius:9px;border:1px solid var(--hairS)}
 .t-btn.sel i{outline:2px solid var(--accent);outline-offset:2px}
@@ -442,7 +464,7 @@ body.toc-open #toc{transform:translateX(0);visibility:visible}
 .hl-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;padding:0}
 .hl-dot:hover,.hl-dot.sel{border-color:var(--page)}
 #hlPop{position:fixed;z-index:70;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
-  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:12px;width:280px}
+  box-shadow:0 18px 40px -12px rgba(var(--shadow-rgb),.45);padding:12px;width:280px}
 #hlPop .hl-pop-dots{display:flex;gap:8px;margin-bottom:10px}
 #hlPop textarea{width:100%;min-height:56px;resize:vertical;border:1px solid var(--hairS);border-radius:8px;
   background:color-mix(in srgb,var(--ink) 4%,transparent);color:var(--ink);font:400 13px/1.5 var(--serif);
@@ -460,7 +482,7 @@ body.toc-open #toc{transform:translateX(0);visibility:visible}
 #lightbox img{max-width:92vw;max-height:92vh;border-radius:6px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7)}
 /* footnote popup */
 #fnPop{position:fixed;z-index:70;width:300px;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
-  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:14px;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
+  box-shadow:0 18px 40px -12px rgba(var(--shadow-rgb),.45);padding:14px;opacity:0;visibility:hidden;transition:opacity .2s,visibility .2s}
 #fnPop.show{opacity:1;visibility:visible}
 #fnPop .fn-close{position:absolute;top:6px;right:8px;color:var(--muted);font-size:13px;padding:2px 6px;border-radius:4px}
 #fnPop .fn-close:hover{color:var(--ink)}
@@ -470,7 +492,7 @@ body.toc-open #toc{transform:translateX(0);visibility:visible}
 .hl-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent}
 .hl-dot:hover,.hl-dot.sel{border-color:var(--page)}
 #hlPop{position:fixed;z-index:70;background:var(--page);border:1px solid var(--hairS);border-radius:12px;
-  box-shadow:0 18px 40px -12px rgba(20,12,4,.45);padding:12px;width:280px}
+  box-shadow:0 18px 40px -12px rgba(var(--shadow-rgb),.45);padding:12px;width:280px}
 #hlPop .hl-pop-dots{display:flex;gap:8px;justify-content:center;margin-bottom:10px}
 #hlPop .hl-dot:hover,#hlPop .hl-dot.sel{border-color:var(--ink)}
 #hlPop textarea{width:100%;height:60px;resize:none;border:1px solid var(--hair);border-radius:8px;
@@ -484,7 +506,7 @@ body.toc-open #toc{transform:translateX(0);visibility:visible}
 
 /* ---------- search drawer ---------- */
 #searchDrawer{position:fixed;top:0;right:0;bottom:0;width:min(380px,92vw);background:var(--page);
-  border-left:1px solid var(--hair);box-shadow:-20px 0 45px rgba(25,18,8,.18);z-index:46;
+  border-left:1px solid var(--hair);box-shadow:-20px 0 45px rgba(var(--shadow-rgb),.18);z-index:46;
   display:flex;flex-direction:column;transform:translateX(106%);transition:transform .4s cubic-bezier(.32,.72,.24,1),visibility .4s;visibility:hidden;}
 body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 .search-input-wrap{display:flex;align-items:center;gap:10px;margin:14px 18px 8px;padding:8px 14px;
@@ -523,7 +545,7 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 #scrim.clear{background:transparent}
 /* selection lookup toolbar */
 #selBar{position:fixed;z-index:65;min-width:236px;max-width:300px;background:var(--ink);color:var(--page);
-  border-radius:12px;padding:6px;box-shadow:0 14px 34px -10px rgba(20,12,4,.55);
+  border-radius:12px;padding:6px;box-shadow:0 14px 34px -10px rgba(var(--shadow-rgb),.55);
   opacity:0;visibility:hidden;transform:translate(-50%,4px);transition:opacity .18s,transform .18s,visibility .18s}
 #selBar.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
 .sel-row{display:flex;gap:2px}
@@ -538,7 +560,7 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
   opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s,visibility .3s}
 body.help-open #helpOverlay{opacity:1;visibility:visible;pointer-events:auto}
 .help-card{width:min(430px,94vw);max-height:84dvh;overflow-y:auto;background:var(--page);
-  border:1px solid var(--hair);border-radius:16px;box-shadow:0 30px 70px -20px rgba(30,20,8,.5)}
+  border:1px solid var(--hair);border-radius:16px;box-shadow:0 30px 70px -20px rgba(var(--shadow-rgb),.5)}
 .help-list{margin:0;padding:4px 20px 18px}
 .help-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:8px 0;border-bottom:1px solid var(--hair)}
@@ -611,11 +633,11 @@ body.guide-on #guide{opacity:1}
 .pt-spine-valley{
   position:absolute;top:0;bottom:0;width:36px;margin-left:-18px;z-index:10;pointer-events:none;
   background:linear-gradient(to right,
-    rgba(15,10,5,0) 0%,
-    rgba(15,10,5,0.08) 25%,
-    rgba(15,10,5,0.22) 50%,
-    rgba(15,10,5,0.08) 75%,
-    rgba(15,10,5,0) 100%);
+    rgba(var(--shadow-rgb),0) 0%,
+    rgba(var(--shadow-rgb),.08) 25%,
+    rgba(var(--shadow-rgb),.22) 50%,
+    rgba(var(--shadow-rgb),.08) 75%,
+    rgba(var(--shadow-rgb),0) 100%);
 }
 
 /* Ambient shadow cast on stationary pages */
@@ -635,9 +657,9 @@ body.guide-on #guide{opacity:1}
 .pt-flap{
   position:absolute;top:0;bottom:0;z-index:11;pointer-events:none;
   background:linear-gradient(105deg,
-    color-mix(in srgb,var(--page) 86%,#6b5b3e),var(--page) 22%,
-    var(--page) 78%,color-mix(in srgb,var(--page) 78%,#6b5b3e));
-  box-shadow:inset 0 0 26px rgba(45,35,18,.12);
+    color-mix(in srgb,var(--page) 86%,var(--paper-edge)),var(--page) 22%,
+    var(--page) 78%,color-mix(in srgb,var(--page) 78%,var(--paper-edge)));
+  box-shadow:inset 0 0 26px rgba(var(--shadow-rgb),.12);
   transform-style:preserve-3d;-webkit-transform-style:preserve-3d;
   will-change:transform,opacity;
   backface-visibility:hidden;-webkit-backface-visibility:hidden;
@@ -645,15 +667,15 @@ body.guide-on #guide{opacity:1}
 /* Gaussian fold shadow S(d) = A·exp(-d²/2σ²), centred on the fold */
 .pt-fold-shadow{
   position:absolute;top:0;bottom:0;pointer-events:none;z-index:12;
-  background:radial-gradient(closest-side, rgba(38,24,10,.42), rgba(38,24,10,0) 72%);
+  background:radial-gradient(closest-side, rgba(var(--shadow-rgb),.42), rgba(var(--shadow-rgb),0) 72%);
   opacity:0;will-change:transform,opacity;transform:translateZ(0);
 }
 /* specular sheen riding the fold crease: main highlight plus a faint second
    band offset across it (paper crease catches two highlights) */
 .pt-curl-highlight{
   position:absolute;top:0;bottom:0;width:6px;pointer-events:none;z-index:13;
-  background:linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,252,244,.55) 32%,
-    rgba(255,255,255,0) 52%, rgba(255,252,244,.28) 66%, rgba(255,255,255,0) 100%);
+  background:linear-gradient(to right, rgba(var(--sheen-rgb),0) 0%, rgba(var(--sheen-rgb),.55) 32%,
+    rgba(var(--sheen-rgb),0) 52%, rgba(var(--sheen-rgb),.28) 66%, rgba(var(--sheen-rgb),0) 100%);
   opacity:0;will-change:transform,opacity;transform:translateZ(0);mix-blend-mode:soft-light;
 }
 /* paper grain wash over compositor leaves: shared tile, multiply blend */
@@ -663,9 +685,9 @@ body.guide-on #guide{opacity:1}
    the opposite side. Paper gradient serves as fallback while content loads. */
 .pt-back-sheet{position:absolute;top:0;bottom:0;overflow:hidden;z-index:6;pointer-events:none;
   background:linear-gradient(105deg,
-    color-mix(in srgb,var(--page) 88%,#6b5b3e),var(--page) 14%,
-    var(--page) 86%,color-mix(in srgb,var(--page) 80%,#6b5b3e));
-  box-shadow:inset 0 0 42px rgba(45,35,18,.10);will-change:clip-path,opacity}
+    color-mix(in srgb,var(--page) 88%,var(--paper-edge)),var(--page) 14%,
+    var(--page) 86%,color-mix(in srgb,var(--page) 80%,var(--paper-edge)));
+  box-shadow:inset 0 0 42px rgba(var(--shadow-rgb),.10);will-change:clip-path,opacity}
 /* page-edge stack hints: hairlines at the book's outer edges (pure CSS) */
 .edge-stack{position:absolute;top:2px;bottom:2px;width:3px;pointer-events:none;z-index:4;opacity:.4;
   background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px)}
@@ -686,7 +708,333 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   border:2px solid var(--ink);border-radius:50%;z-index:130;pointer-events:none;opacity:.7}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
+
+/* ============ app themes: Aizome & Ember ============
+   First-paint values mirroring the JS THEMES map (applyTheme() owns the
+   runtime values and the book iframes from the same source). The scan script
+   asserts the desk/page/ink/muted/accent values never drift between the two.
+   Everything after the var blocks is structural: surfaces that live on the
+   desk rather than the page, and therefore can't inherit page colors. */
+
+/* ---- AIZOME — indigo cloth · cream paper · vermilion seal ---- */
+[data-theme="aizome"]{
+  --desk:#012d31; --page:#f7f2e3; --ink:#262a31; --muted:#7d8290;
+  --accent:#c33d2b;
+  --hair:rgba(38,42,49,.15); --hairS:rgba(38,42,49,.34);
+  --sel:rgba(195,61,43,.22); --dim:rgba(12,18,34,.32);
+  --shadow-rgb:16,24,40; --paper-edge:#6b5f4a; --sheen-rgb:255,252,244;
+  --stand-a:#d8c8a2; --stand-b:#b9a67d; --stand-c:#a08c63;
+  --stand-hi:rgba(255,250,230,.5);
+  --ghost:var(--page);
+  --on-desk:#e9e5d8; --desk-meta:#a3aec0;
+  --grain-opacity:.55; --grain-blend:multiply;
+  /* the cloth: the teal stage-curtain reference (assets/aizome-tile.webp,
+     1920x640 deepened for chalk text and mirror-extended to 1280px tall;
+     its left/right edges already tile within ~3%) */
+  --deco:url("assets/aizome-tile.webp");
+  --deco-size:1920px 1280px;
+}
+/* controls that live on the cloth, not the paper */
+/* the cloth: moonlight pool above, edge falloff, drape texture below the
+   notice-me threshold */
+[data-theme="aizome"] body,
+[data-theme="aizome"] #landing,
+[data-theme="aizome"] #loader{
+  background-color:var(--desk);
+  background-image:
+    radial-gradient(120% 85% at 50% 24%, rgba(170,225,230,.10), transparent 55%),
+    linear-gradient(180deg, rgba(3,10,14,.30), transparent 26%, transparent 72%, rgba(3,10,14,.38)),
+    var(--deco);
+  background-size:auto,auto,var(--deco-size);
+}
+/* page-turn compositor: same cloth so there's no flat flash mid-turn */
+[data-theme="aizome"] .pt-compositor{
+  background-color:var(--desk);
+  background-image:var(--deco);
+  background-size:var(--deco-size);
+}
+[data-theme="aizome"] .arrow{
+  color:var(--on-desk);
+  background:color-mix(in srgb,var(--on-desk) 9%,transparent);
+  border-color:rgba(233,229,216,.26);
+}
+[data-theme="aizome"] .arrow:hover{border-color:rgba(233,229,216,.6)}
+[data-theme="aizome"] #rail::before{background:rgba(233,229,216,.22)}
+[data-theme="aizome"] .ch-seg{border-color:rgba(233,229,216,.18)}
+[data-theme="aizome"] .ch-seg:hover{background:rgba(233,229,216,.14)}
+[data-theme="aizome"] .bb-dot{color:rgba(233,229,216,.35)}
+[data-theme="aizome"] #topHint{background:linear-gradient(to bottom,rgba(5,9,20,.55),transparent)}
+[data-theme="aizome"] #botHint{background:linear-gradient(to top,rgba(5,9,20,.55),transparent)}
+[data-theme="aizome"] #scrim{background:rgba(8,12,24,.45)}
+/* landing + loader: chalk on cloth */
+[data-theme="aizome"] #landing,
+[data-theme="aizome"] #loader{color:var(--on-desk)}
+[data-theme="aizome"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
+[data-theme="aizome"] #loader .kicker,
+[data-theme="aizome"] .recent-title,
+[data-theme="aizome"] .recent-book-author,
+[data-theme="aizome"] .recent-meta{color:var(--desk-meta)}
+[data-theme="aizome"] .rule-double{border-color:rgba(233,229,216,.38)}
+[data-theme="aizome"] .loader-rule{background:rgba(233,229,216,.2)}
+[data-theme="aizome"] .btn{color:var(--on-desk);border-color:rgba(233,229,216,.4)}
+[data-theme="aizome"] .btn-ghost:hover{border-color:var(--on-desk)}
+[data-theme="aizome"] .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+[data-theme="aizome"] .btn-primary:hover{background:#d4492f;border-color:#d4492f}
+[data-theme="aizome"] .recent-card{background:rgba(233,229,216,.06);border-color:rgba(233,229,216,.22)}
+[data-theme="aizome"] .recent-book-title{color:var(--on-desk)}
+[data-theme="aizome"] .recent-progress-bar{background:rgba(233,229,216,.18)}
+/* picker cards stay legible on the cream sheet */
+[data-theme="aizome"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+
+/* ---- LIGHT — champagne satin · modern clean ---- */
+[data-theme="light"]{
+  /* the cloth: the champagne silk reference (assets/clean-tile.webp,
+     1920x960 mirror-extended to 3840x1920 — the raw edges don't tile) */
+  --deco:url("assets/clean-tile.webp");
+  --deco-size:3840px 1920px;
+}
+[data-theme="light"] body,
+[data-theme="light"] #landing,
+[data-theme="light"] #loader{
+  background-color:var(--desk);
+  background-image:
+    radial-gradient(120% 85% at 50% 20%, rgba(255,255,255,.35), transparent 60%),
+    linear-gradient(180deg, rgba(120,100,70,.10), transparent 26%, transparent 74%, rgba(120,100,70,.16)),
+    var(--deco);
+  background-size:auto,auto,var(--deco-size);
+}
+/* page-turn compositor: same cloth so there's no flat flash mid-turn */
+[data-theme="light"] .pt-compositor{
+  background-color:var(--desk);
+  background-image:var(--deco);
+  background-size:var(--deco-size);
+}
+
+/* ---- EMBER — kraft-dark night · amber ---- */
+[data-theme="ember"]{
+  --desk:#0b0a08; --page:#1a1510; --ink:#e6d8b8; --muted:#8d7d5f;
+  --accent:#e08a3a;
+  --hair:rgba(230,216,184,.13); --hairS:rgba(230,216,184,.28);
+  --sel:rgba(224,138,58,.25); --dim:rgba(0,0,0,.6);
+  --shadow-rgb:0,0,0; --paper-edge:#3a3120; --sheen-rgb:255,244,220;
+  --stand-a:#241d13; --stand-b:#171208; --stand-c:#100b06;
+  --stand-hi:rgba(255,214,150,.16);
+  --ghost:var(--ink);
+  --on-desk:var(--ink); --desk-meta:var(--muted);
+  --grain-opacity:.4; --grain-blend:soft-light;
+}
+/* a near-black desk needs a light rim, not just shadow, to hold the page */
+[data-theme="ember"] #wrap{box-shadow:0 0 0 1px rgba(230,216,184,.07)}
+[data-theme="ember"] body.spread #wrap{box-shadow:0 0 0 1px rgba(230,216,184,.09),
+  0 2px 6px rgba(0,0,0,.2),0 26px 54px -26px rgba(0,0,0,.55),0 70px 110px -70px rgba(0,0,0,.5)}
+[data-theme="ember"] .arrow{border-color:rgba(230,216,184,.25)}
+/* amber wants dark text, not white, at small sizes */
+[data-theme="ember"] :is(.chip.on,.coach-btn,.bm-badge,.btn-primary:hover){color:#201204}
+/* warmth is baked into the palette — retire the multiply overlay */
+[data-theme="ember"] #warm{display:none}
+[data-theme="ember"] .pt-grain{mix-blend-mode:soft-light;opacity:.08}
+/* faint warm edge where the hidden bars sit */
+[data-theme="ember"] #topHint{background:linear-gradient(to bottom,rgba(226,192,138,.12),transparent)}
+[data-theme="ember"] #botHint{background:linear-gradient(to top,rgba(226,192,138,.12),transparent)}
+[data-theme="ember"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+/* muted highlighter dots so they don't glare on dark paper */
+[data-theme="ember"] .hl-dot[data-hl="yellow"]{background:#c79a3f!important}
+[data-theme="ember"] .hl-dot[data-hl="green"]{background:#7fa25b!important}
+[data-theme="ember"] .hl-dot[data-hl="blue"]{background:#5d87a6!important}
+[data-theme="ember"] .hl-dot[data-hl="pink"]{background:#b37386!important}
+/* light-on-dark linework reads thinner — stroke the chrome icons a touch heavier */
+[data-theme="aizome"] .icon-btn svg,[data-theme="ember"] .icon-btn svg,[data-theme="velvet"] .icon-btn svg,[data-theme="emerald"] .icon-btn svg,
+[data-theme="aizome"] .arrow svg,[data-theme="ember"] .arrow svg,[data-theme="velvet"] .arrow svg,[data-theme="emerald"] .arrow svg{stroke-width:1.7}
+
+/* ============ EMERALD — green salon · candlelight · gilt ============
+   Same salon architecture as Velvet, dressed in green. The cloth is the
+   real reference tile (assets/emerald-tile.webp, 1402x1122 mirror-extended
+   to 2244px so it tiles seamlessly at any desk height; sampled cloth green
+   ~#073614 feeds --desk and the derived blends). */
+[data-theme="emerald"]{
+  --desk:#073614; --page:#f5eedc; --ink:#2b2318; --muted:#857356;
+  --accent:#8f6a28;
+  --hair:rgba(43,35,24,.16); --hairS:rgba(43,35,24,.34);
+  --sel:rgba(198,158,68,.30); --dim:rgba(4,12,9,.5);
+  --shadow-rgb:6,16,12; --paper-edge:#b09758; --sheen-rgb:255,244,210;
+  --stand-a:#e6c15e; --stand-b:#c29b3e; --stand-c:#93702a;
+  --stand-hi:rgba(255,244,200,.85);
+  --ghost:var(--page);
+  --on-desk:#f3e9d6; --desk-meta:#a9c3b4;
+  --grain-opacity:.55; --grain-blend:multiply;
+  --deco:url("assets/emerald-tile.webp");
+  --deco-size:1402px 2244px;
+}
+[data-theme="emerald"] body,
+[data-theme="emerald"] #landing,
+[data-theme="emerald"] #loader{
+  background-color:var(--desk);
+  background-image:
+    radial-gradient(120% 85% at 50% 24%, rgba(255,235,190,.09), transparent 55%),
+    linear-gradient(180deg, rgba(4,12,9,.24), transparent 26%, transparent 72%, rgba(4,12,9,.34)),
+    var(--deco);
+  background-size:auto,auto,var(--deco-size);
+}
+[data-theme="emerald"] .pt-compositor{
+  background-color:var(--desk);
+  background-image:var(--deco);
+  background-size:var(--deco-size);
+}
+[data-theme="emerald"] body.spread #stand{
+  height:18px; bottom:-18px;
+  box-shadow:0 12px 22px -10px rgba(4,10,8,.6),
+             0 16px 34px -12px rgba(180,120,40,.38),
+             inset 0 1px 0 var(--stand-hi);
+}
+[data-theme="emerald"] #topbar{
+  background:color-mix(in srgb,var(--desk) 86%,transparent);
+  border-bottom:1px solid rgba(243,233,214,.18);
+  color:var(--on-desk);
+}
+[data-theme="emerald"] #bookTitle{color:var(--desk-meta)}
+[data-theme="emerald"] .pos-pill{color:var(--desk-meta);border-color:rgba(243,233,214,.24)}
+[data-theme="emerald"] .pos-pill:hover{color:var(--on-desk);border-color:rgba(243,233,214,.5)}
+[data-theme="emerald"] #topbar :is(.icon-btn,.aa-btn,.wm-btn):hover{background:color-mix(in srgb,#f3e9d6 10%,transparent)}
+[data-theme="emerald"] .wm-btn{color:var(--on-desk)}
+[data-theme="emerald"] .tb-sep{background:rgba(243,233,214,.2)}
+[data-theme="emerald"] .arrow{
+  color:var(--on-desk);
+  background:color-mix(in srgb,#f3e9d6 8%,transparent);
+  border-color:rgba(212,171,85,.4);
+}
+[data-theme="emerald"] .arrow:hover{border-color:rgba(226,189,99,.9)}
+[data-theme="emerald"] #rail::before{background:rgba(243,233,214,.25)}
+[data-theme="emerald"] .ch-seg{border-color:rgba(243,233,214,.18)}
+[data-theme="emerald"] .ch-seg:hover{background:rgba(243,233,214,.14)}
+[data-theme="emerald"] #railFill,[data-theme="emerald"] #railKnob,
+[data-theme="emerald"] #chPlay{background:#d4ab55}
+[data-theme="emerald"] .bb-dot{color:rgba(243,233,214,.35)}
+[data-theme="emerald"] #topbar .icon-btn[aria-pressed="true"],
+[data-theme="emerald"] #btnSpeak.active{color:#d4ab55}
+[data-theme="emerald"] #scrim{background:rgba(3,10,8,.5)}
+[data-theme="emerald"] #landing{color:var(--on-desk)}
+[data-theme="emerald"] .wordmark .dot,[data-theme="emerald"] .wm .dot{color:#d4ab55}
+[data-theme="emerald"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
+[data-theme="emerald"] #loader .kicker,
+[data-theme="emerald"] .recent-title,
+[data-theme="emerald"] .recent-book-author,
+[data-theme="emerald"] .recent-meta{color:var(--desk-meta)}
+[data-theme="emerald"] .rule-double{border-color:rgba(243,233,214,.35)}
+[data-theme="emerald"] .loader-rule{background:rgba(243,233,214,.2)}
+[data-theme="emerald"] .btn{color:var(--on-desk);border-color:rgba(243,233,214,.38)}
+[data-theme="emerald"] .btn-ghost:hover{border-color:var(--on-desk)}
+[data-theme="emerald"] .btn-primary{
+  background:linear-gradient(180deg,#e0ba62,#c29b3e);
+  border-color:#a8823c;color:#241703;
+}
+[data-theme="emerald"] .btn-primary:hover{background:linear-gradient(180deg,#eec874,#d0a848);border-color:#a8823c}
+[data-theme="emerald"] .recent-card{background:rgba(243,233,214,.07);border-color:rgba(243,233,214,.22)}
+[data-theme="emerald"] .recent-book-title{color:var(--on-desk)}
+[data-theme="emerald"] .recent-progress-fill{background:#d4ab55}
+[data-theme="emerald"] .coach-btn{background:#c29b3e;color:#241703}
+[data-theme="emerald"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+
+/* ============ VELVET — claret salon · candlelight · gilt ============ */
+[data-theme="velvet"]{
+  --desk:#5c222e; --page:#f5eedc; --ink:#2b2318; --muted:#857356;
+  --accent:#8f6a28;
+  --hair:rgba(43,35,24,.16); --hairS:rgba(43,35,24,.34);
+  --sel:rgba(198,158,68,.30); --dim:rgba(24,5,12,.45);
+  --shadow-rgb:26,6,14; --paper-edge:#b09758; --sheen-rgb:255,246,214;
+  --stand-a:#e6c15e; --stand-b:#c29b3e; --stand-c:#93702a;
+  --stand-hi:rgba(255,244,200,.85);
+  --ghost:var(--page);
+  --on-desk:#f3e9d6; --desk-meta:#c9a8a5;
+  --grain-opacity:.55; --grain-blend:multiply;
+  /* the cloth: the real damask reference tile (assets/velvet-tile.webp,
+     627x627 multiply-tinted into the claret palette and mirror-extended to
+     1254px — the raw image's edges don't tile), ground #5c222e feeds --desk */
+  --deco:url("assets/velvet-tile.webp");
+  --deco-size:1254px 1254px;
+}
+/* the cloth: candle pool above, edge falloff, gold embroidery below the
+   notice-me threshold — velvet first, brocade only when you look */
+[data-theme="velvet"] body,
+[data-theme="velvet"] #landing,
+[data-theme="velvet"] #loader{
+  background-color:var(--desk);
+  background-image:
+    radial-gradient(120% 85% at 50% 24%, rgba(255,233,196,.10), transparent 55%),
+    linear-gradient(180deg, rgba(15,2,8,.22), transparent 26%, transparent 72%, rgba(15,2,8,.32)),
+    var(--deco);
+  background-size:auto,auto,var(--deco-size);
+}
+/* page-turn compositor: same cloth so there's no flat flash mid-turn */
+[data-theme="velvet"] .pt-compositor{
+  background-color:var(--desk);
+  background-image:var(--deco);
+  background-size:var(--deco-size);
+}
+/* the gilt book holder — slightly taller, with a warm under-glow:
+   gold throwing light back onto the velvet */
+[data-theme="velvet"] body.spread #stand{
+  height:18px; bottom:-18px;
+  box-shadow:0 12px 22px -10px rgba(20,4,10,.6),
+             0 16px 34px -12px rgba(180,120,40,.38),
+             inset 0 1px 0 var(--stand-hi);
+}
+/* chrome joins the cloth (no cream band slicing the velvet) — foreground
+   joins it too, so the wordmark, icons and Aa inherit chalk, not ink */
+[data-theme="velvet"] #topbar{
+  background:color-mix(in srgb,var(--desk) 86%,transparent);
+  border-bottom:1px solid rgba(243,233,214,.18);
+  color:var(--on-desk);
+}
+[data-theme="velvet"] #bookTitle{color:var(--desk-meta)}
+[data-theme="velvet"] .pos-pill{color:var(--desk-meta);border-color:rgba(243,233,214,.24)}
+[data-theme="velvet"] .pos-pill:hover{color:var(--on-desk);border-color:rgba(243,233,214,.5)}
+[data-theme="velvet"] #topbar :is(.icon-btn,.aa-btn,.wm-btn):hover{background:color-mix(in srgb,#f3e9d6 10%,transparent)}
+[data-theme="velvet"] .wm-btn{color:var(--on-desk)}
+[data-theme="velvet"] .tb-sep{background:rgba(243,233,214,.2)}
+/* gilded arrows + bright gold marks on the cloth (deep gold is for paper) */
+[data-theme="velvet"] .arrow{
+  color:var(--on-desk);
+  background:color-mix(in srgb,#f3e9d6 8%,transparent);
+  border-color:rgba(212,171,85,.4);
+}
+[data-theme="velvet"] .arrow:hover{border-color:rgba(226,189,99,.9)}
+[data-theme="velvet"] #rail::before{background:rgba(243,233,214,.25)}
+[data-theme="velvet"] .ch-seg{border-color:rgba(243,233,214,.18)}
+[data-theme="velvet"] .ch-seg:hover{background:rgba(243,233,214,.14)}
+[data-theme="velvet"] #railFill,[data-theme="velvet"] #railKnob,
+[data-theme="velvet"] #chPlay{background:#d4ab55}
+[data-theme="velvet"] .bb-dot{color:rgba(243,233,214,.35)}
+[data-theme="velvet"] #topbar .icon-btn[aria-pressed="true"],
+[data-theme="velvet"] #btnSpeak.active{color:#d4ab55}
+[data-theme="velvet"] #scrim{background:rgba(16,3,9,.5)}
+/* landing: chalk on velvet, gold button */
+[data-theme="velvet"] #landing{color:var(--on-desk)}
+[data-theme="velvet"] .wordmark .dot,[data-theme="velvet"] .wm .dot{color:#d4ab55}
+[data-theme="velvet"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
+[data-theme="velvet"] #loader .kicker,
+[data-theme="velvet"] .recent-title,
+[data-theme="velvet"] .recent-book-author,
+[data-theme="velvet"] .recent-meta{color:var(--desk-meta)}
+[data-theme="velvet"] .rule-double{border-color:rgba(243,233,214,.35)}
+[data-theme="velvet"] .loader-rule{background:rgba(243,233,214,.2)}
+[data-theme="velvet"] .btn{color:var(--on-desk);border-color:rgba(243,233,214,.38)}
+[data-theme="velvet"] .btn-ghost:hover{border-color:var(--on-desk)}
+[data-theme="velvet"] .btn-primary{
+  background:linear-gradient(180deg,#e0ba62,#c29b3e);
+  border-color:#a8823c;color:#241703;
+}
+[data-theme="velvet"] .btn-primary:hover{background:linear-gradient(180deg,#eec874,#d0a848);border-color:#a8823c}
+[data-theme="velvet"] .recent-card{background:rgba(243,233,214,.07);border-color:rgba(243,233,214,.22)}
+[data-theme="velvet"] .recent-book-title{color:var(--on-desk)}
+[data-theme="velvet"] .recent-progress-fill{background:#d4ab55}
+[data-theme="velvet"] .coach-btn{background:#c29b3e;color:#241703}
+[data-theme="velvet"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
 </style>
+<script>/* FOUC guard: paint the saved bespoke theme on first paint. Reads the
+   same folio-settings the app persists (no second key); applyTheme() re-sets
+   the identical values from THEMES once the app boots. */
+try{var __fs=JSON.parse(localStorage.getItem('folio-settings')||'{}');
+if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='ember'||__fs.theme==='velvet'||__fs.theme==='emerald'))document.documentElement.dataset.theme=__fs.theme;}catch(e){}</script>
 </head>
 <body class="state-landing">
 <div id="deskDim" aria-hidden="true"></div>
@@ -851,6 +1199,26 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
           <span class="env-preview env-prev-night"><span class="env-sample-text">Aa</span></span>
           <span class="env-name">Velvet Night</span>
           <span class="env-sub">Soft amber · No blue-light</span>
+        </button>
+        <button type="button" class="env-card" data-env="aizome" id="envAizome" title="Indigo book-cloth, cream paper, vermilion accent">
+          <span class="env-preview env-prev-aizome"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Aizome</span>
+          <span class="env-sub">Indigo · vermilion</span>
+        </button>
+        <button type="button" class="env-card" data-env="ember" id="envEmber" title="Kraft-dark night paper with amber accents">
+          <span class="env-preview env-prev-ember"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Ember</span>
+          <span class="env-sub">Night · amber</span>
+        </button>
+        <button type="button" class="env-card" data-env="velvet" id="envVelvet" title="Claret velvet salon with a gilt book holder">
+          <span class="env-preview env-prev-velvet"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Velvet</span>
+          <span class="env-sub">Claret · gilt</span>
+        </button>
+        <button type="button" class="env-card" data-env="emerald" id="envEmerald" title="Emerald salon with gilt embroidery">
+          <span class="env-preview env-prev-emerald"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Emerald</span>
+          <span class="env-sub">Green · gold</span>
         </button>
       </div>
     </section>
@@ -1129,14 +1497,34 @@ function syncWarm(){
   applyWarmth();
 }
 
-/* ---------------- themes ---------------- */
+/* ---------------- themes ----------------
+   Each entry carries the full material: base palette + shadow tint, paper
+   edge, fold sheen, stand wood, desk-dwelling surfaces, and grain. The
+   [data-theme] CSS blocks mirror desk/page/ink/muted/accent for first paint;
+   applyTheme() owns the runtime values (and the book iframes) from here. */
 const THEMES = {
-  paper:   {label:'Paper',    desk:'#e8dfca', page:'#f7f1e3', ink:'#26211a', muted:'#7a6c56', accent:'#b23c17', hair:'rgba(38,33,26,.15)',  hairS:'rgba(38,33,26,.34)', dim:'rgba(31,24,14,.14)',  sel:'rgba(178,60,23,.25)'},
-  sepia:   {label:'Sepia',    desk:'#dfcfae', page:'#f1e4c8', ink:'#4a3a22', muted:'#8a7452', accent:'#8c4a18', hair:'rgba(74,58,34,.18)',  hairS:'rgba(74,58,34,.42)', dim:'rgba(60,45,20,.12)',  sel:'rgba(140,74,24,.25)'},
-  matcha:  {label:'Matcha',   desk:'#dce6dd', page:'#eef4ef', ink:'#1c2b21', muted:'#587060', accent:'#2e6b46', hair:'rgba(28,43,33,.14)',  hairS:'rgba(28,43,33,.35)', dim:'rgba(28,43,33,.12)',  sel:'rgba(46,107,70,.22)'},
-  noir:    {label:'Noir',     desk:'#0f0d0a', page:'#171410', ink:'#e8ddc7', muted:'#a08f74', accent:'#e0764a', hair:'rgba(232,221,199,.14)',hairS:'rgba(232,221,199,.36)',dim:'rgba(0,0,0,.4)',   sel:'rgba(224,118,74,.32)'},
-  oled:    {label:'OLED',     desk:'#000000', page:'#050505', ink:'#e0e0e0', muted:'#888888', accent:'#4da3ff', hair:'rgba(255,255,255,.12)',hairS:'rgba(255,255,255,.32)',dim:'rgba(0,0,0,.8)',   sel:'rgba(77,163,255,.35)'},
-  contrast:{label:'Contrast', desk:'#d9d9d9', page:'#ffffff', ink:'#000000', muted:'#333333', accent:'#9c2f00', hair:'rgba(0,0,0,.42)',     hairS:'rgba(0,0,0,.68)',    dim:'rgba(0,0,0,.22)',     sel:'rgba(156,47,0,.22)'}
+  paper:   {label:'Paper',    desk:'#e8dfca', page:'#f7f1e3', ink:'#26211a', muted:'#7a6c56', accent:'#b23c17', hair:'rgba(38,33,26,.15)',  hairS:'rgba(38,33,26,.34)', dim:'rgba(31,24,14,.14)',  sel:'rgba(178,60,23,.25)',
+    shadowRgb:'30,20,8', paperEdge:'#6b5b3e', sheenRgb:'255,252,244', standA:'#b0855a', standB:'#8f6238', standC:'#7c5330', standHi:'rgba(255,240,210,.4)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  sepia:   {label:'Sepia',    desk:'#dfcfae', page:'#f1e4c8', ink:'#4a3a22', muted:'#8a7452', accent:'#8c4a18', hair:'rgba(74,58,34,.18)',  hairS:'rgba(74,58,34,.42)', dim:'rgba(60,45,20,.12)',  sel:'rgba(140,74,24,.25)',
+    shadowRgb:'30,20,8', paperEdge:'#6b5b3e', sheenRgb:'255,252,244', standA:'#b0855a', standB:'#8f6238', standC:'#7c5330', standHi:'rgba(255,240,210,.4)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  matcha:  {label:'Matcha',   desk:'#dce6dd', page:'#eef4ef', ink:'#1c2b21', muted:'#587060', accent:'#2e6b46', hair:'rgba(28,43,33,.14)',  hairS:'rgba(28,43,33,.35)', dim:'rgba(28,43,33,.12)',  sel:'rgba(46,107,70,.22)',
+    shadowRgb:'28,36,24', paperEdge:'#6e6a52', sheenRgb:'255,252,244', standA:'#b0855a', standB:'#8f6238', standC:'#7c5330', standHi:'rgba(255,240,210,.4)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  light:   {label:'Light',    desk:'#dfd4c3', page:'#fbf9f4', ink:'#26211a', muted:'#7a6c56', accent:'#b23c17', hair:'rgba(38,33,26,.15)',  hairS:'rgba(38,33,26,.34)', dim:'rgba(31,24,14,.14)',  sel:'rgba(178,60,23,.25)',
+    shadowRgb:'30,20,8', paperEdge:'#6b5b3e', sheenRgb:'255,252,244', standA:'#b0855a', standB:'#8f6238', standC:'#7c5330', standHi:'rgba(255,240,210,.4)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.3, grainBlend:'multiply'},
+  noir:    {label:'Noir',     desk:'#0f0d0a', page:'#171410', ink:'#e8ddc7', muted:'#a08f74', accent:'#e0764a', hair:'rgba(232,221,199,.14)',hairS:'rgba(232,221,199,.36)',dim:'rgba(0,0,0,.4)',   sel:'rgba(224,118,74,.32)',
+    shadowRgb:'0,0,0', paperEdge:'#43392a', sheenRgb:'255,249,232', standA:'#2c251b', standB:'#1e1811', standC:'#151009', standHi:'rgba(255,255,255,.08)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  oled:    {label:'OLED',     desk:'#000000', page:'#050505', ink:'#e0e0e0', muted:'#888888', accent:'#4da3ff', hair:'rgba(255,255,255,.12)',hairS:'rgba(255,255,255,.32)',dim:'rgba(0,0,0,.8)',   sel:'rgba(77,163,255,.35)',
+    shadowRgb:'0,0,0', paperEdge:'#2a2a2a', sheenRgb:'255,255,255', standA:'#1a1a1a', standB:'#101010', standC:'#000000', standHi:'rgba(255,255,255,.08)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  contrast:{label:'Contrast', desk:'#d9d9d9', page:'#ffffff', ink:'#000000', muted:'#333333', accent:'#9c2f00', hair:'rgba(0,0,0,.42)',     hairS:'rgba(0,0,0,.68)',    dim:'rgba(0,0,0,.22)',     sel:'rgba(156,47,0,.22)',
+    shadowRgb:'0,0,0', paperEdge:'#6b5b3e', sheenRgb:'255,252,244', standA:'#b0855a', standB:'#8f6238', standC:'#7c5330', standHi:'rgba(255,240,210,.4)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.55, grainBlend:'multiply'},
+  aizome:  {label:'Aizome',   desk:'#012d31', page:'#f7f2e3', ink:'#262a31', muted:'#7d8290', accent:'#c33d2b', hair:'rgba(38,42,49,.15)',  hairS:'rgba(38,42,49,.34)', dim:'rgba(12,18,34,.32)',  sel:'rgba(195,61,43,.22)',
+    shadowRgb:'16,24,40', paperEdge:'#6b5f4a', sheenRgb:'255,252,244', standA:'#d8c8a2', standB:'#b9a67d', standC:'#a08c63', standHi:'rgba(255,250,230,.5)', ghost:'var(--page)', onDesk:'#e9e5d8', deskMeta:'#a3aec0', grainOp:.55, grainBlend:'multiply'},
+  ember:   {label:'Ember',    desk:'#0b0a08', page:'#1a1510', ink:'#e6d8b8', muted:'#8d7d5f', accent:'#e08a3a', hair:'rgba(230,216,184,.13)',hairS:'rgba(230,216,184,.28)',dim:'rgba(0,0,0,.6)',    sel:'rgba(224,138,58,.25)',
+    shadowRgb:'0,0,0', paperEdge:'#3a3120', sheenRgb:'255,244,220', standA:'#241d13', standB:'#171208', standC:'#100b06', standHi:'rgba(255,214,150,.16)', ghost:'var(--ink)', onDesk:'var(--ink)', deskMeta:'var(--muted)', grainOp:.4, grainBlend:'soft-light'},
+  velvet:  {label:'Velvet',   desk:'#5c222e', page:'#f5eedc', ink:'#2b2318', muted:'#857356', accent:'#8f6a28', hair:'rgba(43,35,24,.16)',  hairS:'rgba(43,35,24,.34)', dim:'rgba(24,5,12,.45)',   sel:'rgba(198,158,68,.30)',
+    shadowRgb:'26,6,14', paperEdge:'#b09758', sheenRgb:'255,246,214', standA:'#e6c15e', standB:'#c29b3e', standC:'#93702a', standHi:'rgba(255,244,200,.85)', ghost:'var(--page)', onDesk:'#f3e9d6', deskMeta:'#c9a8a5', grainOp:.55, grainBlend:'multiply'},
+  emerald: {label:'Emerald',  desk:'#073614', page:'#f5eedc', ink:'#2b2318', muted:'#857356', accent:'#8f6a28', hair:'rgba(43,35,24,.16)',  hairS:'rgba(43,35,24,.34)', dim:'rgba(4,12,9,.5)',      sel:'rgba(198,158,68,.30)',
+    shadowRgb:'6,16,12', paperEdge:'#b09758', sheenRgb:'255,244,210', standA:'#e6c15e', standB:'#c29b3e', standC:'#93702a', standHi:'rgba(255,244,200,.85)', ghost:'var(--page)', onDesk:'#f3e9d6', deskMeta:'#a9c3b4', grainOp:.55, grainBlend:'multiply'}
 };
 function rgba(hex,a){
   const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -1487,8 +1875,23 @@ function refreshCSS(){
   eachContent(c=>{
     const d=c.document; let s=d.getElementById('folio-dyn');
     if(!s){ s=d.createElement('style'); s.id='folio-dyn'; (d.head||d.documentElement).appendChild(s); }
-    s.textContent = css;
+    if(s.textContent !== css) s.textContent = css;
   });
+  // The live docs above are patched, but the turn compositor replays cached
+  // chapter HTML whose baked-in folio-dyn still holds the previous colors.
+  // Re-tint the cache and the warm neighbor frames, or the first paper-flip
+  // after a theme/font change flashes the old environment over the new one.
+  if(typeof pageCache !== 'undefined' && pageCache.retintHtml) pageCache.retintHtml(css);
+  if(typeof pageCache !== 'undefined' && pageCache.warm){
+    for(const [, fr] of pageCache.warm){
+      try{
+        const d = fr.contentDocument;
+        if(!d) continue;
+        const s = d.getElementById('folio-dyn');
+        if(s && s.textContent !== css) s.textContent = css;
+      }catch(e){}
+    }
+  }
 }
 
 /* ---------------- offline book storage (IndexedDB) ---------------- */
@@ -3236,7 +3639,7 @@ function flyCoverToReader(fromEl){
       const ghost = document.createElement('div');
       ghost.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;` +
         `z-index:94;border-radius:6px;overflow:hidden;pointer-events:none;background:var(--page);` +
-        `box-shadow:0 20px 60px -12px rgba(30,20,8,.5);`;
+        `box-shadow:0 20px 60px -12px rgba(var(--shadow-rgb),.5);`;
       const img = fromEl.querySelector('img');
       if(img){
         const c = img.cloneNode();
@@ -4153,6 +4556,7 @@ class PageCacheManager {
     this.chapterHtmls = new Map(); // spineIndex -> string (HTML)
     this.preloadingSpines = new Set();
     this.cachedChapterHtml = '';
+    this._cssMark = '';            // last folio-dyn CSS retinted into the cached HTML
   }
 
   /* Per-book reset: every cache is keyed by spine index, so without this a
@@ -4188,6 +4592,26 @@ class PageCacheManager {
       return this.chapterHtmls.get(spineIndex);
     }
     return this.cachedChapterHtml;
+  }
+
+  /* Turn-compositor surfaces replay these cached HTML snapshots, and each one
+     carries the folio-dyn style as it was at capture time — theme colors
+     baked in with !important. When buildCSS() changes (environment switch,
+     font, size…), swap the style contents in place or the next paper-flip
+     animates leaves in the previous theme's colors while the live page is
+     already on the new one (the flip-only "flicker after switching
+     environments" — slide/crossfade never surface the cached adjacent
+     chapter, so they masked it). */
+  retintHtml(css){
+    if(!css || this._cssMark === css) return;
+    this._cssMark = css;
+    // Replacement via function: css must never be read as a $-pattern.
+    const swap = html => html.replace(/(<style id="folio-dyn">)[\s\S]*?<\/style>/,
+      (m, open) => open + css + '</style>');
+    if(this.cachedChapterHtml) this.cachedChapterHtml = swap(this.cachedChapterHtml);
+    for(const [k, html] of this.chapterHtmls){
+      if(html) this.chapterHtmls.set(k, swap(html));
+    }
   }
 
   update(spineIndex, pageIndex, totalPages, cfi) {
@@ -4604,7 +5028,7 @@ async function fxSlide(dir, snapInfo){
 
   const wrap = document.createElement('div');
   wrap.className = 'snap-slider';
-  wrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;box-shadow:${dir > 0 ? '-16px' : '16px'} 0 28px rgba(25,18,8,.2);will-change:transform;`;
+  wrap.style.cssText = `position:fixed;left:${vRect.left}px;top:${vRect.top}px;width:${vRect.width}px;height:${vRect.height}px;overflow:hidden;pointer-events:none;z-index:61;box-shadow:${dir > 0 ? '-16px' : '16px'} 0 28px rgba(var(--shadow-rgb),.2);will-change:transform;`;
 
   const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
   wrap.appendChild(box);
@@ -4745,12 +5169,8 @@ class PageSurfacePool {
   }
 }
 
-function addGrain(parent){
-  if(!parent) return;
-  const g = document.createElement('div');
-  g.className = 'pt-grain';
-  parent.appendChild(g);
-}
+/* addGrain lives below next to GrainTile (its only definition); callers
+   here rely on function-declaration hoisting. */
 
 class PageTurnCompositor {
   constructor(dir, snapInfo, adjacentInfo) {
@@ -4807,7 +5227,7 @@ class PageTurnCompositor {
 
     if(!hasAdj && boundaryLabel && underWrap) {
       const paper = document.createElement('div');
-      paper.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:14px;background:transparent;`;
+      paper.style.cssText = `position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;background:transparent;`;
       paper.textContent = boundaryLabel;
       underWrap.appendChild(paper);
     }
@@ -4861,7 +5281,14 @@ class PageTurnCompositor {
 
     const root = document.createElement('div');
     root.className = 'pt-compositor';
-    root.style.cssText = `position:fixed;left:${this.vRect.left}px;top:${this.vRect.top}px;width:${VW}px;height:${VH}px;`;
+    root.style.cssText = `position:fixed;left:${this.vRect.left}px;top:${this.vRect.top}px;width:${VW}px;height:${VH}px;` +
+      `;background-position:${-this.vRect.left}px ${-this.vRect.top}px;`;  // keep patterned desks (emerald --deco) continuous through turns
+    // Mount must be a visual no-op: the root sits at z-index 62 over the live
+    // page, so its stylesheet desk background (and the valley/shadow layers)
+    // would paint a flat rectangle over the book for a frame until the leaves
+    // reveal — the flip-start flicker. Stay transparent until flushSnaps'
+    // reveal restores the stylesheet background (desk or themed pattern).
+    root.style.background = 'transparent';
     root.style.perspective = PageTurnConfig.perspective + 'px';
     root.style.webkitPerspective = PageTurnConfig.perspective + 'px';
 
@@ -4907,7 +5334,7 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to right, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to right, rgba(var(--shadow-rgb),0.45) 0%, rgba(var(--shadow-rgb),0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
@@ -4971,7 +5398,7 @@ class PageTurnCompositor {
         // 4. Ambient shadow on revealed underneath page
         const ambShadow = document.createElement('div');
         ambShadow.className = 'pt-ambient-shadow';
-        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to left, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%);opacity:0;`;
+        ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:linear-gradient(to left, rgba(var(--shadow-rgb),0.45) 0%, rgba(var(--shadow-rgb),0) 100%);opacity:0;`;
         root.appendChild(ambShadow);
         this.ambientShadow = ambShadow;
 
@@ -5017,8 +5444,8 @@ class PageTurnCompositor {
       const ambShadow = document.createElement('div');
       ambShadow.className = 'pt-ambient-shadow';
       const ambGrad = dir > 0
-        ? 'linear-gradient(to right, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%)'
-        : 'linear-gradient(to left, rgba(38,24,10,0.45) 0%, rgba(38,24,10,0) 100%)';
+        ? 'linear-gradient(to right, rgba(var(--shadow-rgb),0.45) 0%, rgba(var(--shadow-rgb),0) 100%)'
+        : 'linear-gradient(to left, rgba(var(--shadow-rgb),0.45) 0%, rgba(var(--shadow-rgb),0) 100%)';
       ambShadow.style.cssText = `left:0;top:0;width:260px;height:${VH}px;background:${ambGrad};opacity:0;`;
       root.appendChild(ambShadow);
       this.ambientShadow = ambShadow;
@@ -5050,14 +5477,28 @@ class PageTurnCompositor {
       populateSnap(item.snap, item.html, (item.html !== this.snapInfo.docHtml) ? pc : null);
     }
     this.pendingSnaps.length = 0;
-    this.populated = true;
-    if(this.sheet) this.sheet.style.opacity = '';
-    if(this.stationaryLeaf) this.stationaryLeaf.style.opacity = '';
-    if(this.underneathLeaf) this.underneathLeaf.style.opacity = '';
-    const adj = this.adjacentInfo;
-    if(adj && adj.measureLast && this.underSnap) this.fitUnderneath();
-    else this.flipReady = true;
-    this.render(this.lastP);
+    // Reveal only after the freshly-written iframes have rasterized. Revealing
+    // in the same task paints one to two frames of flat, textless paper at
+    // flip start (the page-area flicker): the iframe docs are committed but
+    // not yet drawn. Two rAFs in, the first revealed frame already carries
+    // content; until then the live page shows through the still-transparent
+    // leaves, which is indistinguishable at p≈0. flipReady — and with it the
+    // click turn's fold animation — waits for the reveal so the sheet is
+    // never expected mid-fold while still invisible.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if(this.destroyed || !this.root) return;
+      this.populated = true;
+      // Hand the desk (or themed pattern) back to the stylesheet now that the
+      // content surfaces cover the viewer.
+      this.root.style.background = '';
+      if(this.sheet) this.sheet.style.opacity = '';
+      if(this.stationaryLeaf) this.stationaryLeaf.style.opacity = '';
+      if(this.underneathLeaf) this.underneathLeaf.style.opacity = '';
+      const adj = this.adjacentInfo;
+      if(adj && adj.measureLast && this.underSnap) this.fitUnderneath();
+      else this.flipReady = true;
+      this.render(this.lastP);
+    }));
   }
 
   /* Backward cross-chapter: the previous chapter paginates to its own width,
@@ -5149,7 +5590,7 @@ class PageTurnCompositor {
         `translateX(${Math.round(flapLeft)}px) perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
       this.flap.style.opacity = C < 0.02 ? '0' : '1';
       this.flap.style.filter = C > 0.02
-        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(18,12,6,${(0.22 * C).toFixed(3)}))`
+        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(var(--shadow-rgb),${(0.22 * C).toFixed(3)}))`
         : 'none';
     }
     // 4. Fold shadow + edge highlight track the fold.
@@ -5190,6 +5631,10 @@ class PageTurnCompositor {
   render(p) {
     p = clamp(p, 0, 1.05);
     this.lastP = p;
+    // Until flushSnaps reveals, every layer is transparent and the root is
+    // see-through: writing fold/valley/shadow styles here would paint over
+    // the live page while the snapshot surfaces are still invisible.
+    if(!this.populated) return;
     const pc = clamp(p, 0, 1);
     const dir = this.dir;
     const bw = this.leafW || 1;
@@ -5223,7 +5668,7 @@ class PageTurnCompositor {
         `translateX(${Math.round(flapLeft)}px) perspective(${PageTurnConfig.perspective}px) rotateY(${flapAngle.toFixed(2)}deg) translateZ(${liftZ}px)`;
       this.flap.style.opacity = C < 0.02 ? '0' : '1';
       this.flap.style.filter = C > 0.02
-        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(18,12,6,${(0.22 * C).toFixed(3)}))`
+        ? `drop-shadow(${(dir > 0 ? -1 : 1) * Math.round(4 + 14 * C)}px 8px ${Math.round(6 + 18 * C)}px rgba(var(--shadow-rgb),${(0.22 * C).toFixed(3)}))`
         : 'none';
     }
 
@@ -6670,13 +7115,31 @@ function effectiveThemeKey(){
   return THEMES[settings.theme] ? settings.theme : 'paper';
 }
 function applyTheme(){
-  const t=THEMES[effectiveThemeKey()]||THEMES.paper;
+  const key = effectiveThemeKey();
+  const t=THEMES[key]||THEMES.paper;
   const rs=document.documentElement.style;
   rs.setProperty('--desk',t.desk); rs.setProperty('--page',t.page);
   rs.setProperty('--ink',t.ink);   rs.setProperty('--muted',t.muted);
   rs.setProperty('--accent',t.accent); rs.setProperty('--hair',t.hair);
   rs.setProperty('--hairS',t.hairS);   rs.setProperty('--dim',t.dim);
   rs.setProperty('--sel',t.sel);
+  rs.setProperty('--shadow-rgb',t.shadowRgb); rs.setProperty('--paper-edge',t.paperEdge);
+  rs.setProperty('--sheen-rgb',t.sheenRgb);
+  rs.setProperty('--stand-a',t.standA); rs.setProperty('--stand-b',t.standB); rs.setProperty('--stand-c',t.standC);
+  rs.setProperty('--stand-hi',t.standHi);
+  rs.setProperty('--ghost',t.ghost); rs.setProperty('--on-desk',t.onDesk); rs.setProperty('--desk-meta',t.deskMeta);
+  rs.setProperty('--grain-opacity',t.grainOp); rs.setProperty('--grain-blend',t.grainBlend);
+  // Structural overrides below key off the attribute; only the bespoke
+  // themes set it, everything else renders from the base stylesheet.
+  if(key === 'light' || key === 'aizome' || key === 'ember' || key === 'velvet' || key === 'emerald') document.documentElement.dataset.theme = key;
+  else delete document.documentElement.dataset.theme;
+  // The book lives in iframes with their own theme CSS (folio-dyn). Every
+  // caller used to be responsible for refreshing it via relayout() — any path
+  // that forgot (or errored before reaching it) left the book on the old
+  // theme's colors and typeface until a full app reload. Refresh here so the
+  // book can never lag the shell; refreshCSS() no-ops when buildCSS()'s hash
+  // didn't change.
+  if(state.rendition) refreshCSS();
   document.querySelectorAll('#themeRow .t-btn').forEach(b=>{
     const k=b.dataset.theme;
     b.classList.toggle('sel', k==='auto' ? !!settings.themeAuto : (!settings.themeAuto && k===settings.theme));
@@ -6792,6 +7255,34 @@ function applyEnvironment(envKey){
     settings.grain = false;
     settings.warmth = 40;
     settings.preset = 'classic';
+  } else if(envKey === 'aizome'){
+    settings.theme = 'aizome';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = true;
+    settings.warmth = 0;
+    settings.preset = 'classic';
+  } else if(envKey === 'ember'){
+    settings.theme = 'ember';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = true;
+    settings.warmth = 0;
+    settings.preset = 'classic';
+  } else if(envKey === 'velvet'){
+    settings.theme = 'velvet';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = true;
+    settings.warmth = 0;
+    settings.preset = 'classic';
+  } else if(envKey === 'emerald'){
+    settings.theme = 'emerald';
+    settings.themeAuto = false;
+    settings.font = 'Literata';
+    settings.grain = true;
+    settings.warmth = 0;
+    settings.preset = 'classic';
   }
   applyTheme();
   syncFontSel();
@@ -6807,13 +7298,25 @@ function syncEnvCards(){
   const p = el('envPaper');
   const c = el('envClean');
   const n = el('envNight');
+  const a = el('envAizome');
+  const e = el('envEmber');
+  const v = el('envVelvet');
+  const em = el('envEmerald');
   if(!p || !c || !n) return;
   const isPaper = settings.theme === 'paper' && settings.font === 'Literata' && !settings.warmth;
   const isClean = settings.theme === 'light' && settings.font === 'Lexend' && !settings.warmth;
   const isNight = settings.theme === 'noir' && (settings.warmth > 0 || settings.theme === 'noir');
+  const isAizome = settings.theme === 'aizome';
+  const isEmber = settings.theme === 'ember';
+  const isVelvet = settings.theme === 'velvet';
+  const isEmerald = settings.theme === 'emerald';
   p.classList.toggle('sel', isPaper);
   c.classList.toggle('sel', isClean);
   n.classList.toggle('sel', isNight && !isPaper && !isClean);
+  if(a) a.classList.toggle('sel', isAizome);
+  if(e) e.classList.toggle('sel', isEmber);
+  if(v) v.classList.toggle('sel', isVelvet);
+  if(em) em.classList.toggle('sel', isEmerald);
 }
 
 // Feature 3: time-aware auto theme. With the Auto chip on, the hour of day
@@ -7194,6 +7697,14 @@ const envClean = el('envClean');
 if(envClean) envClean.addEventListener('click', () => applyEnvironment('clean'));
 const envNight = el('envNight');
 if(envNight) envNight.addEventListener('click', () => applyEnvironment('night'));
+const envAizome = el('envAizome');
+if(envAizome) envAizome.addEventListener('click', () => applyEnvironment('aizome'));
+const envEmber = el('envEmber');
+if(envEmber) envEmber.addEventListener('click', () => applyEnvironment('ember'));
+const envVelvet = el('envVelvet');
+if(envVelvet) envVelvet.addEventListener('click', () => applyEnvironment('velvet'));
+const envEmerald = el('envEmerald');
+if(envEmerald) envEmerald.addEventListener('click', () => applyEnvironment('emerald'));
 // TOC drawer tabs: contents / bookmarks / highlights
 function setTocTab(which){
   const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl', voc:'tabVoc' };

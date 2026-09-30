@@ -274,30 +274,28 @@ test('F5-3 HUD auto-hides after ~1s', async ({ page }) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-//  F6: Desk Dimming on Idle
+//  F6: Desk Dimming on Idle — RETIRED as always-on behavior (cycle-32).
+//  The surround must sit still: no dim after 11s idle, and pointer
+//  movement never dims. The overlay stays in the DOM but never arms.
 // ═══════════════════════════════════════════════════════════
 
-test('F6-1 idle 11s → desk dim active', async ({ page }) => {
+test('F6-1 idle 11s → desk stays undimmed', async ({ page }) => {
   test.setTimeout(20000);
   await openDemoReady(page);
   const dim = page.locator('#deskDim');
   // Initially not dimmed
   const initDim = await dim.evaluate(el => el.classList.contains('dim'));
   expect(initDim).toBe(false);
-  // Wait 11s without interaction
+  // Wait 11s without interaction — still no dim
   await page.waitForTimeout(11000);
   const hasDim = await dim.evaluate(el => el.classList.contains('dim'));
-  expect(hasDim).toBe(true);
+  expect(hasDim).toBe(false);
 });
 
-test('F6-2 pointer move → dim clears', async ({ page }) => {
+test('F6-2 pointer move → still no dim', async ({ page }) => {
   test.setTimeout(20000);
   await openDemoReady(page);
   const dim = page.locator('#deskDim');
-  // Wait for dim to activate
-  await page.waitForTimeout(11000);
-  const hasDim = await dim.evaluate(el => el.classList.contains('dim'));
-  expect(hasDim).toBe(true);
   // Move mouse
   await page.mouse.move(400, 400);
   await page.waitForTimeout(100);
