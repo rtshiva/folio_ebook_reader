@@ -144,4 +144,13 @@ check('theme row wraps its buttons',
   /\.theme-row\{[^}]*flex-wrap:\s*wrap/.test(html),
   'nine theme buttons + auto overflow the 352px sheet');
 
+// 20. Packaged-exe cache URLs must use the fetchable http:// spelling.
+// WebView2 cannot fetch literal folio-cache:// URLs ("URL scheme not
+// supported"), which stranded the exe on "Loading contents…" while the
+// byte-path browser flow kept working. Book URLs must go through
+// folioCacheUrl(hash); the bare scheme is fine in comments/protocol checks.
+const literalCacheUrls = (html.match(/folio-cache:\/\/\$\{/g) || []).length;
+check('cache book URLs use the fetchable http form', literalCacheUrls === 0,
+  `${literalCacheUrls} template literal folio-cache:// URL(s) in code; use folioCacheUrl(hash)`);
+
 process.exit(failures ? 1 : 0);

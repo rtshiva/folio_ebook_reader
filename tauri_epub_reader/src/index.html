@@ -1288,6 +1288,18 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
       <label class="sw" style="margin-top:10px"><input type="checkbox" id="swPerBook"><span class="tr"></span>Remember typography per book</label>
     </section>
 
+    <section id="secTtsVoice"><h4 class="lbl">Read aloud voice</h4>
+      <div class="seg" id="voiceSeg">
+        <button data-voice="lessac" type="button" class="sel">👩 Female (Lessac High)</button>
+        <button data-voice="bryce" type="button">👨 Male (Ryan High)</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+        <span class="fine" id="voiceStatusBadge" style="margin:0;color:var(--accent)">● Natural Neural Voice</span>
+        <button class="chip" id="btnPreviewVoice" type="button">▶ Test voice</button>
+      </div>
+      <p class="fine" style="margin-top:6px">Press <kbd>V</kbd> while reading aloud to switch narrator anytime.</p>
+    </section>
+
     <section><h4 class="lbl">Help</h4>
       <button class="btn btn-ghost" id="btnHelp" type="button" style="width:100%;justify-content:center">Keyboard shortcuts <kbd>?</kbd></button>
     </section>
@@ -1390,7 +1402,7 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
       <div><dt><kbd>Ctrl</kbd>+<kbd>F</kbd></dt><dd>Search this book</dd></div>
       <div><dt><kbd>G</kbd></dt><dd>Reading guide</dd></div>
       <div><dt><kbd>D</kbd></dt><dd>One / two page layout</dd></div>
-      <div><dt><kbd>V</kbd></dt><dd>Page-turn effect</dd></div>
+      <div><dt><kbd>V</kbd></dt><dd>Page-turn effect (narrator voice during read aloud)</dd></div>
       <div><dt><kbd>F</kbd></dt><dd>Full screen</dd></div>
       <div><dt><kbd>H</kbd></dt><dd>Home / continue reading</dd></div>
       <div><dt><kbd>R</kbd> / <kbd>Shift</kbd>+<kbd>R</kbd></dt><dd>Read aloud: pause / stop</dd></div>
@@ -2155,6 +2167,7 @@ async function closeBook(){
   if(typeof pageCache !== 'undefined') pageCache.clear();
   SearchIndex.clear();
   Ribbon.clear();
+  try{ chNavAnchorSteps.clear(); chNavAnchorComputing.clear(); }catch(e){}
   Highlights.hidePop();
   hideSelBar();
   // Drop deferred work bound to the old book: a pending cold-path pass would
@@ -3121,8 +3134,13 @@ function onRelocated(loc){
   el('pct').textContent=Math.round(frac*100)+'%';
   Ribbon.move(frac);
 
-  const chTitle = chapterFor(loc.start.href);
-  el('chapter').textContent=chTitle;
+  // Chapter pills + chNavIdx resolve here (hot): the [ / ] keys fire right
+  // after a jump's badge flip, before the 80ms cold pass could update them.
+  // Resolving BEFORE the title lets the header reuse the anchor-aware index —
+  // chapterFor() matches on base file only, which would pin a multi-anchor
+  // file's header/posPill to its first TOC entry forever.
+  updateChapterNav();
+  const chTitle = refreshChapterTitle(loc);
 
   // Chapter-cross detection drives the F2 title flash and the F4 fade-in
   const spineChanged = loc.start.index !== state.lastSpineIdx;
@@ -3191,10 +3209,6 @@ function onRelocated(loc){
   if(el('runHeadLeft')) el('runHeadLeft').textContent = bTitle;
   if(el('runHeadRight')) el('runHeadRight').textContent = chTitle || bTitle;
 
-  // Chapter pills + chNavIdx resolve here (hot): the [ / ] keys fire right
-  // after a jump's badge flip, before the 80ms cold pass could update them.
-  updateChapterNav();
-
   // Feature 1: measure actual reading speed (adaptive pace calibration)
   const now = performance.now();
   if(d && d.page !== _lastTurnPage && _lastTurnTime > 0){
@@ -3214,13 +3228,7 @@ function onRelocated(loc){
 
   // ── COLD PATH: deferred by 80ms ──
   state.currentCfi = loc.start.cfi;
-  // posPill is instant visual feedback — hot path, never 80ms behind
-  const pillCh = el('posPillCh');
-  if(pillCh){
-    const short = chTitle.length > 28 ? chTitle.slice(0, 28).trimEnd() + '…' : chTitle;
-    pillCh.textContent = short || '—';
-    pillCh.setAttribute('title', chTitle);
-  }
+  // posPill chapter/pct were written by refreshChapterTitle() in the hot pass
   const pillPct = el('posPillPct');
   if(pillPct) pillPct.textContent = el('pct').textContent;
   clearTimeout(_relocColdTimer);
@@ -3407,16 +3415,26 @@ async function buildTOC(book){
   }
 }
 function markTocCurrent(href, cfi){
-  const base=x=>String(x||'').split('/').pop().split('#')[0];
-  // Anchor-aware: loc.start.href never carries the fragment, but the CFI
-  // asserts the target element id as a bracket (epubcfi(/6/2!/4/2[sec-a])).
-  // Without this, books that split one file into several TOC sections
-  // always resolve to the first entry.
-  const cfiFrag=(String(cfi||'').match(/\[([^\]]+)\]/)||[])[1]||'';
-  const frag=x=>{const h=String(x||'');const i=h.indexOf('#');return i>=0?h.slice(i+1):'';};
-  let idx=tocItems.findIndex(i=>base(i.href)===base(href)&&frag(i.href)===cfiFrag);
-  if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&!frag(i.href));
-  if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href));
+  // Prefer the shared anchor-aware resolver: relocated CFIs carry no id
+  // assertion on same-file fragment jumps, so the legacy CFI-bracket match
+  // below would pin every section of a multi-anchor file to its first entry.
+  let idx = -1;
+  const loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null;
+  const resolved = loc ? resolveTocIdx(loc) : -1;
+  if(resolved >= 0){
+    idx = resolved;
+  } else {
+    const base=x=>String(x||'').split('/').pop().split('#')[0];
+    // Anchor-aware: loc.start.href never carries the fragment, but the CFI
+    // asserts the target element id as a bracket (epubcfi(/6/2!/4/2[sec-a])).
+    // Without this, books that split one file into several TOC sections
+    // always resolve to the first entry.
+    const cfiFrag=(String(cfi||'').match(/\[([^\]]+)\]/)||[])[1]||'';
+    const frag=x=>{const h=String(x||'');const i=h.indexOf('#');return i>=0?h.slice(i+1):'';};
+    if(cfiFrag) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&frag(i.href)===cfiFrag);
+    if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&!frag(i.href));
+    if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href));
+  }
   tocCurIdx=idx;
   const list=el('tocList');
   if(!list) return;
@@ -3716,7 +3734,7 @@ function renderRecentShelf(){
           try{
             const handle = await invoke('book_open', { path: b.filePath });
             if(handle && handle.hash){
-              await openBuffer(null, b.title, b.filePath, b.cfi, { url: `folio-cache://${handle.hash}/` });
+              await openBuffer(null, b.title, b.filePath, b.cfi, { url: folioCacheUrl(handle.hash) });
               return;
             }
           }catch(errDisk){
@@ -3881,18 +3899,107 @@ function computeAnchorSteps(spineIndex, baseName){
         tocItems.forEach((it, i) => {
           const h = String(it.href || '');
           const hi = h.indexOf('#');
-          if(hi < 0) return;
           if(String(h).split('/').pop().split('#')[0] !== baseName) return;
+          if(hi < 0){
+            steps.set(i, 0);
+            return;
+          }
           const a = doc.getElementById(h.slice(hi + 1));
           if(!a) return;
           steps.set(i, cfiElementStep(sec.cfiFromElement(a)));
         });
       }
       chNavAnchorSteps.set(spineIndex, steps);
-      if(steps.size) updateChapterNav();
+      if(steps.size){
+        updateChapterNav();
+        // The hot pass already wrote the header with the curMatch fallback;
+        // now that the anchor steps disambiguate, refresh chapter-named UI.
+        try{
+          const l2 = state.rendition ? state.rendition.currentLocation() : null;
+          if(l2) refreshChapterTitle(l2);
+        }catch(e){}
+      }
     }catch(e){}
     finally{ chNavAnchorComputing.delete(spineIndex); }
   })();
+}
+
+/* Shared anchor-aware TOC resolver: returns the tocItems index for a
+   location. Relocated CFIs carry NO id assertion on same-file fragment
+   jumps (epubcfi(/6/2!/4/4/1:2851)), so CFI-bracket matching alone pins
+   every section of a multi-anchor file to its first TOC entry — the
+   element-step comparison against chNavAnchorSteps is what disambiguates
+   anchors. updateChapterNav, markTocCurrent and the running header all
+   resolve through this so chapter state can never disagree. */
+function resolveTocIdx(loc){
+  if(!tocItems || !tocItems.length) return -1;
+  const curHref = loc && loc.start ? loc.start.href : '';
+  const curIndex = loc && loc.start ? loc.start.index : -1;
+  // loc.start.href never carries the anchor; the CFI asserts it as a
+  // bracketed element id (epubcfi(/6/2!/4/2[sec-a]!/4/2)).
+  const cfiFrag = (String((loc && loc.start && loc.start.cfi) || '').match(/\[([^\]]+)\]/) || [])[1] || '';
+
+  const base = x => String(x||'').split('/').pop().split('#')[0];
+  const frag = x => { const h = String(x||''); const i = h.indexOf('#'); return i >= 0 ? h.slice(i+1) : ''; };
+
+  let idx = -1;
+  // 1. Exact match (base file + anchor id from the CFI)
+  if(cfiFrag){
+    idx = tocItems.findIndex(i =>
+      base(i.href) === base(curHref) && frag(i.href) === cfiFrag
+    );
+  }
+  // 2. Base-only. A single match is unambiguous. Several matches mean the
+  //    TOC splits one spine file into sections: resolve by comparing the
+  //    visible page's last CFI element step against each anchor's step.
+  if(idx === -1){
+    const baseMatches = tocItems
+      .map((item, i) => ({ item, i }))
+      .filter(x => base(x.item.href) === base(curHref));
+    if(baseMatches.length === 1){
+      idx = baseMatches[0].i;
+    } else if(baseMatches.length > 1){
+      const curMatch = baseMatches.find(x => x.i === tocCurIdx);
+      const endCfi = (loc && loc.end && loc.end.cfi) || (loc && loc.start && loc.start.cfi) || '';
+      const curStep = cfiElementStep(endCfi);
+      const steps = curIndex >= 0 ? chNavAnchorSteps.get(curIndex) : null;
+      if(steps && steps.size){
+        let best = -1, bestStep = -1;
+        for(const x of baseMatches){
+          const s = steps.get(x.i);
+          if(s !== undefined && s <= curStep && s > bestStep){ best = x.i; bestStep = s; }
+        }
+        idx = best >= 0 ? best : (curMatch ? curMatch.i : baseMatches[0].i);
+      } else {
+        idx = curMatch ? curMatch.i : baseMatches[0].i;
+        if(curIndex >= 0) computeAnchorSteps(curIndex, base(curHref));
+      }
+    }
+  }
+  // 3. Spine-index proximity fallback
+  if(idx === -1 && curIndex >= 0){
+    idx = tocCurIdx >= 0 ? tocCurIdx : 0;
+  }
+  return idx;
+}
+
+/* Chapter title for the current resolution, written to every chapter-named
+   surface (running header, pos pill, TOC drawer label). Called from the hot
+   relocated pass AND after chNavAnchorSteps lands async — the first jump in
+   a multi-anchor file resolves via the curMatch fallback, and the header
+   must follow once the element-step table disambiguates the anchor. */
+function refreshChapterTitle(loc){
+  const chTitle = (chNavIdx >= 0 && tocItems && tocItems[chNavIdx] && tocItems[chNavIdx].label)
+    || chapterFor(loc && loc.start ? loc.start.href : '');
+  if(el('chapter')) el('chapter').textContent = chTitle;
+  if(el('runHeadRight')) el('runHeadRight').textContent = chTitle || getActiveTitle();
+  const pillCh = el('posPillCh');
+  if(pillCh){
+    const short = chTitle.length > 28 ? chTitle.slice(0, 28).trimEnd() + '…' : chTitle;
+    pillCh.textContent = short || '—';
+    pillCh.setAttribute('title', chTitle);
+  }
+  return chTitle;
 }
 
 function updateChapterNav(){
@@ -3911,53 +4018,7 @@ function updateChapterNav(){
   }
 
   const loc = state.rendition ? state.rendition.currentLocation() : null;
-  const curHref = loc && loc.start ? loc.start.href : '';
-  const curIndex = loc && loc.start ? loc.start.index : -1;
-  // loc.start.href never carries the anchor; the CFI asserts it as a
-  // bracketed element id (epubcfi(/6/2!/4/2[sec-a]/1:0)).
-  const cfiFrag = (String((loc && loc.start && loc.start.cfi) || '').match(/\[([^\]]+)\]/) || [])[1] || '';
-
-  const base = x => String(x||'').split('/').pop().split('#')[0];
-  const frag = x => { const h = String(x||''); const i = h.indexOf('#'); return i >= 0 ? h.slice(i+1) : ''; };
-
-  let idx = -1;
-  if(tocItems && tocItems.length){
-    // 1. Exact match (base file + anchor id from the CFI)
-    idx = tocItems.findIndex(i =>
-      base(i.href) === base(curHref) && frag(i.href) === cfiFrag
-    );
-    // 2. Base-only. A single match is unambiguous. Several matches mean the
-    //    TOC splits one spine file into sections: resolve by comparing the
-    //    visible page's last CFI element step against each anchor's step.
-    if(idx === -1){
-      const baseMatches = tocItems
-        .map((item, i) => ({ item, i }))
-        .filter(x => base(x.item.href) === base(curHref));
-      if(baseMatches.length === 1){
-        idx = baseMatches[0].i;
-      } else if(baseMatches.length > 1){
-        const curMatch = baseMatches.find(x => x.i === tocCurIdx);
-        const endCfi = (loc && loc.end && loc.end.cfi) || (loc && loc.start && loc.start.cfi) || '';
-        const curStep = cfiElementStep(endCfi);
-        const steps = curIndex >= 0 ? chNavAnchorSteps.get(curIndex) : null;
-        if(steps && steps.size){
-          let best = -1, bestStep = -1;
-          for(const x of baseMatches){
-            const s = steps.get(x.i);
-            if(s !== undefined && s <= curStep && s > bestStep){ best = x.i; bestStep = s; }
-          }
-          idx = best >= 0 ? best : (curMatch ? curMatch.i : baseMatches[0].i);
-        } else {
-          idx = curMatch ? curMatch.i : baseMatches[0].i;
-          if(curIndex >= 0) computeAnchorSteps(curIndex, base(curHref));
-        }
-      }
-    }
-    // 3. Spine-index proximity fallback
-    if(idx === -1 && curIndex >= 0){
-      idx = tocCurIdx >= 0 ? tocCurIdx : 0;
-    }
-  }
+  const idx = resolveTocIdx(loc);
   chNavIdx = idx;
 
   // Label pills: fixed "Previous/Next Chapter" text, enabled per position
@@ -6220,12 +6281,29 @@ async function turn(dir, opts = {}){
 async function pageText(){
   const loc=state.rendition.currentLocation();
   if(!loc||!loc.start||!loc.end)return null;
-  const cr=loc.start.cfi+','+loc.end.cfi;
+  const cr=loc.start.cfi;
   try{
-    const range=await state.book.getRange(cr);
-    const txt=(range&&range.toString?range.toString():'').replace(/\s+/g,' ').trim();
-    if(txt) return {txt,cr};
+    const sr=await state.book.getRange(loc.start.cfi);
+    const er=await state.book.getRange(loc.end.cfi);
+    if(sr&&er&&sr.startContainer&&er.startContainer){
+      if(sr.startContainer.ownerDocument===er.startContainer.ownerDocument){
+        const doc=sr.startContainer.ownerDocument;
+        const r=doc.createRange();
+        r.setStart(sr.startContainer,sr.startOffset);
+        r.setEnd(er.startContainer,er.startOffset);
+        const txt=(r.toString?r.toString():'').replace(/\s+/g,' ').trim();
+        if(txt) return {txt,cr};
+      } else {
+        const txt=((sr.toString?sr.toString():'')+' '+(er.toString?er.toString():'')).replace(/\s+/g,' ').trim();
+        if(txt) return {txt,cr};
+      }
+    }
   }catch(e){}
+  const frame=document.querySelector('#viewer iframe');
+  if(frame&&frame.contentDocument&&frame.contentDocument.body){
+    const bt=(frame.contentDocument.body.innerText||'').replace(/\s+/g,' ').trim();
+    if(bt) return {txt:bt.slice(0,300),cr};
+  }
   const cached = (typeof pageCache !== 'undefined') ? pageCache.getPage(0) : null;
   if(cached && cached.text) return { txt: cached.text, cr };
   return {err:true};
@@ -6285,8 +6363,25 @@ const TTS = {
   sents: [], si: 0,
   doc: null, hl: null, hlDoc: null,
   utt: null, rate: 1, relocT: null, gen: 0,
+  currentCfi: '',
+  ttsCtx: null, srcNode: null, srcDone: true,
+  piperAvailable: null,
 
-  supported(){ return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window; },
+  supported(){
+    return ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) || (typeof tauriInvoke === 'function' && !!tauriInvoke());
+  },
+
+  async checkPiper(){
+    if(this.piperAvailable !== null) return this.piperAvailable;
+    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
+    if(!inv){ this.piperAvailable = false; return false; }
+    try{
+      this.piperAvailable = !!(await inv('tts_piper_status'));
+    }catch(e){
+      this.piperAvailable = false;
+    }
+    return this.piperAvailable;
+  },
 
   /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
   toggle(){
@@ -6294,42 +6389,72 @@ const TTS = {
     if(!this.active){ this.start(); return; }
     if(this.paused) this.resume(); else this.pause();
   },
-  start(){
+  async start(){
     if(!state.rendition){ toast('Open a book to start read aloud'); return; }
     this.active = true; this.paused = false; this.stopped = false;
     this.gen++; this.si = 0;
+    let cfi = '';
+    try{
+      const loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null;
+      cfi = loc && loc.start ? loc.start.cfi : '';
+    }catch(e){}
+    this.currentCfi = cfi;
     body.classList.add('tts-on');
     this.syncUI();
-    toast('Read aloud on — R pauses · Shift+R stops · - / = speed');
+    const hasPiper = await this.checkPiper();
+    if(hasPiper){
+      const vName = (this.voice === 'bryce') ? 'Ryan (Male)' : 'Lessac High (Female)';
+      toast(`Read aloud on: ${vName} · V switches voice · - / = speed`);
+    } else {
+      toast('Read aloud on — R pauses · Shift+R stops · - / = speed');
+    }
     this.loadPageAndSpeak();
   },
   pause(){
     if(!this.active || this.paused) return;
     this.paused = true;
+    if(this.ttsCtx && this.ttsCtx.state === 'running' && !this.srcDone){
+      try{ this.ttsCtx.suspend(); }catch(e){}
+    }
     try{ speechSynthesis.pause(); }catch(e){}
     this.syncUI();
   },
   resume(){
     if(!this.active || !this.paused) return;
     this.paused = false;
+    if(this.ttsCtx && this.ttsCtx.state === 'suspended'){
+      try{ this.ttsCtx.resume(); }catch(e){}
+    }
     try{ speechSynthesis.resume(); }catch(e){}
     this.syncUI();
-    // Chrome can drop a paused queue: nudge the cursor if nothing is speaking.
-    // The generation check keeps a pre-stop watchdog from firing into a
-    // later session (e.g. book switched and restarted within 200ms).
+    // Watchdog: nudge the cursor if nothing is speaking.
     const g0 = this.gen;
     setTimeout(() => {
       if(this.gen !== g0) return;
-      if(this.active && !this.paused && !this.stopped && !speechSynthesis.speaking && !speechSynthesis.pending){
+      const audioPlaying = this.ttsCtx && this.ttsCtx.state === 'running' && !this.srcDone;
+      const synthPlaying = ('speechSynthesis' in window) && (speechSynthesis.speaking || speechSynthesis.pending);
+      if(this.active && !this.paused && !this.stopped && !audioPlaying && !synthPlaying){
         this.speakNext();
       }
     }, 200);
   },
+  stopWav(){
+    if(this.srcNode){
+      try{ this.srcNode.onended = null; this.srcNode.stop(); }catch(e){}
+      this.srcNode = null;
+    }
+    this.srcDone = true;
+    if(this.ttsCtx){
+      try{ if(this.ttsCtx.state === 'suspended') this.ttsCtx.resume(); }catch(e){}
+    }
+  },
   stop(silent){
     this.stopped = true; this.active = false; this.paused = false;
     this.gen++;
-    this.sents = []; this.si = 0; this.doc = null;
+    this.sents = []; this.si = 0; this.doc = null; this.currentCfi = '';
+    this.clearPcm();
     clearTimeout(this.relocT);
+    this.stopWav();
     if(this.utt){
       this.utt.onend = null;
       this.utt.onerror = null;
@@ -6341,93 +6466,284 @@ const TTS = {
     this.syncUI();
     if(!silent) toast('Read aloud stopped');
   },
+  voice: (function(){
+    try { return localStorage.getItem('fio_tts_voice') || 'lessac'; } catch(e){ return 'lessac'; }
+  })(),
+
+  setVoice(v){
+    this.voice = (v === 'bryce') ? 'bryce' : 'lessac';
+    try { localStorage.setItem('fio_tts_voice', this.voice); } catch(e){}
+    this.syncVoiceUI();
+    this.syncUI();
+    const voiceName = (this.voice === 'bryce') ? 'Ryan High (Natural Male)' : 'Lessac High (Natural Female)';
+    toast('Narrator voice: ' + voiceName);
+    if(this.active && !this.paused){
+      // Invalidate any pending inter-sentence gap timer, or it would fire and
+      // start a second voice chain on top of the one we begin below.
+      this.gen++;
+      this.clearPcm();
+      this.stopWav();
+      try{ speechSynthesis.cancel(); }catch(e){}
+      this.speakNext();
+    }
+  },
+
+  cycleVoice(){
+    if(!this.piperAvailable){
+      toast('Natural neural voices are active in the desktop app');
+      return;
+    }
+    this.setVoice(this.voice === 'lessac' ? 'bryce' : 'lessac');
+  },
+
+  syncVoiceUI(){
+    document.querySelectorAll('#voiceSeg button').forEach(b => {
+      b.classList.toggle('sel', b.dataset.voice === this.voice);
+    });
+    const badge = el('voiceStatusBadge');
+    if(badge){
+      if(this.piperAvailable){
+        badge.textContent = '● Natural Neural Engine Active';
+        badge.style.color = 'var(--accent, #1a9955)';
+      } else if(!('speechSynthesis' in window) || speechSynthesis.getVoices().length === 0){
+        badge.textContent = '✕ No speech voices available (Piper engine missing)';
+        badge.style.color = '#c0392b';
+      } else {
+        badge.textContent = '○ Browser Speech Synthesis';
+        badge.style.color = 'var(--muted, #888)';
+      }
+    }
+  },
+
+  async previewVoice(v){
+    const voiceId = v || this.voice || 'lessac';
+    const text = (voiceId === 'bryce')
+      ? 'This is the Ryan natural male voice, ready for your books.'
+      : 'This is the Lessac natural female voice, ready for your books.';
+    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
+    const hasPiper = await this.checkPiper();
+    if(hasPiper && inv){
+      try {
+        toast(`Playing sample: ${voiceId === 'bryce' ? 'Ryan (Male)' : 'Lessac High (Female)'}…`);
+        const wavBytes = await inv('tts_piper_speak', { text, rate: 1.0, voice: voiceId });
+        const buf = ipcToBuffer(wavBytes);
+        if(buf && buf.byteLength > 0){
+          const blob = new Blob([buf], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          const aud = new Audio(url);
+          aud.onended = () => URL.revokeObjectURL(url);
+          aud.onerror = () => URL.revokeObjectURL(url);
+          await aud.play();
+          return;
+        }
+      } catch(e) {
+        console.warn('Voice preview failed:', e);
+      }
+    }
+    if('speechSynthesis' in window){
+      toast('Previewing browser voice (desktop app enables natural neural voices)…');
+      const u = new SpeechSynthesisUtterance(text);
+      speechSynthesis.speak(u);
+    }
+  },
+
   syncUI(){
     const b = el('btnSpeak');
     if(!b) return;
     b.classList.toggle('active', this.active && !this.paused);
     b.classList.toggle('paused', this.active && this.paused);
     b.setAttribute('aria-pressed', this.active ? 'true' : 'false');
-    b.setAttribute('title', this.active ? (this.paused ? 'Resume read aloud (R)' : 'Pause read aloud (R)') : 'Read aloud (R)');
+    const voiceLabel = (this.piperAvailable && this.voice === 'bryce') ? ' [Ryan - Male]' : (this.piperAvailable ? ' [Lessac - Female]' : '');
+    b.setAttribute('title', this.active ? (this.paused ? `Resume read aloud (R)${voiceLabel}` : `Pause read aloud (R)${voiceLabel}`) : `Read aloud (R)${voiceLabel}`);
   },
   nudgeRate(d){
     this.rate = clamp(Math.round((this.rate + d) * 10) / 10, 0.5, 3);
     toast('Read aloud speed: ' + this.rate.toFixed(1) + '×');
     if(this.active && !this.paused){
+      // Invalidate any pending inter-sentence gap timer (same double-chain
+      // hazard as setVoice).
+      this.gen++;
+      this.clearPcm();
+      this.stopWav();
       try{ speechSynthesis.cancel(); }catch(e){}
       this.speakNext();
     }
   },
 
+  /* Narration breath, matched to the per-voice bench profiles: the high
+     voices were tuned with 0.56s / 0.71s sentence silence. Rate keys scale it.
+     A heading (chapter/section title) just spoken earns an extra beat before
+     the body text starts. */
+  sentGapMs(afterHeading){
+    const base = (this.voice === 'bryce' ? 710 : 560) / this.rate;
+    return Math.round(afterHeading ? base + 700 / this.rate : base);
+  },
+
+  /* Synthesize sentence si+1 while si plays, so the pause between sentences is
+     the tuned gap instead of piper's latency. Entries are keyed by sentence
+     index and invalidated wherever voice/rate/page changes (gen bump alone is
+     not enough: a stored clip outlives its chain). */
+  pcmCache: new Map(),
+  clearPcm(){ this.pcmCache.clear(); },
+  prefetch(gu){
+    const nxt = this.si + 1;
+    const sent = this.sents[nxt];
+    if(!sent || this.pcmCache.has(nxt)) return;
+    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
+    if(!inv) return;
+    const voice = this.voice, rate = this.rate;
+    inv('tts_piper_speak', { text: sent.text, rate, voice }).then(bytes => {
+      if(this.gen !== gu || this.stopped) return;
+      if(this.voice !== voice || this.rate !== rate) return; // stale params
+      this.pcmCache.set(nxt, bytes);
+    }).catch(() => {});
+  },
+
+  /* Piper audio renders through WebAudio instead of an <audio> element: the
+     media-element blob path produced static on some WebView2 setups even with
+     byte-perfect WAVs, while the AudioContext pipeline renders cleanly. The
+     Rust side now also widens to 44.1kHz stereo, so decode is trivial.
+     Resolves true when playback started (onended advances the chain). */
+  playWav(buf, gu){
+    return new Promise((resolve) => {
+      try{
+        if(!this.ttsCtx) this.ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = this.ttsCtx;
+        const kick = ctx.resume().catch(() => {});
+        ctx.decodeAudioData(buf.slice(0)).then((decoded) => {
+          if(this.gen !== gu || this.stopped || !this.active){ resolve(false); return; }
+          // clamp any resampler overshoot above full scale
+          for(let c = 0; c < decoded.numberOfChannels; c++){
+            const d = decoded.getChannelData(c);
+            for(let i = 0; i < d.length; i++){ if(d[i] > 1) d[i] = 1; else if(d[i] < -1) d[i] = -1; }
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = decoded;
+          src.connect(ctx.destination);
+          this.srcNode = src; this.srcDone = false;
+          src.onended = () => {
+            this.srcDone = true;
+            if(this.gen !== gu || this.stopped || !this.active) return;
+            const afterHeading = !!(this.sents[this.si] && this.sents[this.si].isHeading);
+            this.si++;
+            setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
+          };
+          Promise.resolve(kick).then(() => {
+            if(this.gen !== gu || this.stopped || !this.active || this.paused){ resolve(false); return; }
+            try{ src.start(); resolve(true); }catch(e){ console.warn('BufferSource start failed:', e); this.srcDone = true; resolve(false); }
+          });
+        }).catch((e) => { console.warn('WAV decode failed:', e); resolve(false); });
+      }catch(e){ console.warn('WebAudio unavailable:', e); resolve(false); }
+    });
+  },
+
   /* One entry per sentence: text + DOM segments (node,start,end) for the
-     highlight. Falls back to cache-only text when the range is unavailable. */
+     highlight. Falls back to live DOM or cache-only text when the range is unavailable. */
   async collectSentences(){
     if(!state.book || !state.rendition) return [];
-    const loc = state.rendition.currentLocation();
-    if(!loc || !loc.start || !loc.end) return [];
-    const cr = loc.start.cfi + ',' + loc.end.cfi;
-    let range = null;
-    try{ range = await state.book.getRange(cr); }catch(e){}
-    if(!range || !range.startContainer) return this.cachedSentences();
+    let loc = null;
+    try{ loc = state.rendition.currentLocation(); }catch(e){}
+    if(!loc || !loc.start || !loc.end) return this.cachedSentences();
 
-    const doc = range.startContainer.ownerDocument || document;
-    this.doc = doc;
-    const nodes = [];
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
-    for(let n = walker.nextNode(); n; n = walker.nextNode()){
-      if(!range.intersectsNode || range.intersectsNode(n)){
-        if(n.nodeValue && n.nodeValue.trim()) nodes.push(n);
+    let docsRanges = [];
+    try{
+      const sr = await state.book.getRange(loc.start.cfi);
+      const er = await state.book.getRange(loc.end.cfi);
+      if(sr && er && sr.startContainer && er.startContainer){
+        if(sr.startContainer.ownerDocument === er.startContainer.ownerDocument){
+          const doc = sr.startContainer.ownerDocument;
+          const r = doc.createRange();
+          r.setStart(sr.startContainer, sr.startOffset);
+          r.setEnd(er.startContainer, er.startOffset);
+          if(!r.collapsed && r.toString().trim()) docsRanges.push({ doc, range: r });
+        } else {
+          const d1 = sr.startContainer.ownerDocument;
+          const r1 = d1.createRange();
+          r1.setStart(sr.startContainer, sr.startOffset);
+          r1.setEndAfter(d1.body.lastChild || d1.body);
+          if(!r1.collapsed && r1.toString().trim()) docsRanges.push({ doc: d1, range: r1 });
+
+          const d2 = er.startContainer.ownerDocument;
+          const r2 = d2.createRange();
+          r2.setStartBefore(d2.body.firstChild || d2.body);
+          r2.setEnd(er.startContainer, er.startOffset);
+          if(!r2.collapsed && r2.toString().trim()) docsRanges.push({ doc: d2, range: r2 });
+        }
+      }
+    }catch(e){}
+
+    if(!docsRanges.length) return this.cachedSentences();
+
+    const allSents = [];
+    const re = /[^.!?…\n]*[.!?…]+["')\]]*\s*|[^.!?…\n]+$/g;
+
+    for(const { doc, range } of docsRanges){
+      this.doc = doc;
+      const nodes = [];
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+      for(let n = walker.nextNode(); n; n = walker.nextNode()){
+        if(!range.intersectsNode || range.intersectsNode(n)){
+          if(n.nodeValue && n.nodeValue.trim()) nodes.push(n);
+        }
+      }
+      if(!nodes.length) continue;
+
+      const map = [];
+      let buf = '';
+      for(const n of nodes){
+        const s = (n === range.startContainer) ? range.startOffset : 0;
+        const e = (n === range.endContainer) ? range.endOffset : n.nodeValue.length;
+        for(let i = s; i < e; i++){
+          const ch = n.nodeValue[i];
+          buf += (ch === '\n' ? ' ' : ch);
+          map[buf.length - 1] = { node: n, off: i };
+        }
+      }
+      if(!buf.trim()) continue;
+
+      let m;
+      while((m = re.exec(buf)) !== null){
+        const raw = m[0];
+        if(!raw.trim()) continue;
+        const s = m.index, e = m.index + raw.length;
+        let text = '', first = -1, last = -1;
+        for(let i = s; i < e; i++){
+          const ch = buf[i];
+          if(ch === ' ' && (!text || text.endsWith(' '))) continue;
+          text += ch;
+          if(ch !== ' '){ if(first < 0) first = i; last = i; }
+        }
+        if(!text.trim() || first < 0) continue;
+        const segs = [];
+        let cur = null;
+        for(let i = first; i <= last; i++){
+          const mp = map[i];
+          if(!mp) continue;
+          if(cur && cur.node === mp.node && cur.end === mp.off){ cur.end = mp.off + 1; }
+          else { cur = { node: mp.node, start: mp.off, end: mp.off + 1 }; segs.push(cur); }
+        }
+        // Heading tag? Titles get a longer breath after them (sentGapMs).
+        let isHeading = false;
+        try{
+          const bel = segs[0] && segs[0].node && segs[0].node.parentElement &&
+            segs[0].node.parentElement.closest('h1,h2,h3,h4,h5,h6');
+          isHeading = !!bel;
+        }catch(err){}
+        allSents.push({ doc, text: text.trim(), segs, isHeading });
+        if(m.index === re.lastIndex) re.lastIndex++;
       }
     }
-    if(!nodes.length) return this.cachedSentences();
 
-    // Build one flat char buffer with (node, offset) mapping.
-    const map = [];
-    let buf = '';
-    for(const n of nodes){
-      const s = (n === range.startContainer) ? range.startOffset : 0;
-      const e = (n === range.endContainer) ? range.endOffset : n.nodeValue.length;
-      for(let i = s; i < e; i++){
-        const ch = n.nodeValue[i];
-        buf += (ch === '\n' ? ' ' : ch);
-        map[buf.length - 1] = { node: n, off: i };
-      }
-    }
-    if(!buf.trim()) return this.cachedSentences();
-
-    // Split into sentences on punctuation; keep whitespace collapsed but
-    // remember each sentence's char window for the segment ranges.
-    const out = [];
-    const re = /[^.!?…]*[.!?…]+["')\]]*\s*|[^.!?…]+$/g;
-    let m;
-    while((m = re.exec(buf)) !== null){
-      const raw = m[0];
-      if(!raw.trim()) continue;
-      const s = m.index, e = m.index + raw.length;
-      // Collapse to display text, tracking the first/last real char positions.
-      let text = '', first = -1, last = -1;
-      for(let i = s; i < e; i++){
-        const ch = buf[i];
-        if(ch === ' ' && (!text || text.endsWith(' '))) continue;
-        text += ch;
-        if(ch !== ' '){ if(first < 0) first = i; last = i; }
-      }
-      if(!text.trim() || first < 0) continue;
-      const segs = [];
-      let cur = null;
-      for(let i = first; i <= last; i++){
-        const mp = map[i];
-        if(!mp) continue;
-        if(cur && cur.node === mp.node && cur.end === mp.off){ cur.end = mp.off + 1; }
-        else { cur = { node: mp.node, start: mp.off, end: mp.off + 1 }; segs.push(cur); }
-      }
-      out.push({ text: text.trim(), segs });
-      if(m.index === re.lastIndex) re.lastIndex++;
-    }
-    return out;
+    return allSents.length ? allSents : this.cachedSentences();
   },
   cachedSentences(){
     this.doc = null;
     try{
+      const frame = document.querySelector('#viewer iframe');
+      if(frame && frame.contentDocument && frame.contentDocument.body){
+        const bt = (frame.contentDocument.body.innerText || '').trim();
+        if(bt) return splitSentences(bt).map(t => ({ text: t, segs: [] }));
+      }
       const p = (typeof pageCache !== 'undefined') ? pageCache.getPage(0) : null;
       if(p && p.sentences && p.sentences.length) return p.sentences.map(t => ({ text: t, segs: [] }));
       if(p && p.text) return splitSentences(p.text).map(t => ({ text: t, segs: [] }));
@@ -6438,8 +6754,8 @@ const TTS = {
   applyHighlight(sent){
     this.clearHighlight();
     try{
-      const doc = this.doc;
-      if(!doc || !sent.segs.length || !('highlights' in doc) || typeof Highlight === 'undefined') return;
+      const doc = (sent && sent.doc) || this.doc;
+      if(!doc || !sent || !sent.segs || !sent.segs.length || !('highlights' in doc) || typeof Highlight === 'undefined') return;
       const segs = sent.segs;
       const r = doc.createRange();
       r.setStart(segs[0].node, segs[0].start);
@@ -6458,25 +6774,80 @@ const TTS = {
     if(this.stopped || !this.active) return;
     const g = this.gen;
     this.sents = await this.collectSentences();
+    this.clearPcm(); // new page, new sentence texts — cached clips are stale
     if(this.gen !== g || this.stopped || !this.active) return;
     this.si = 0;
     if(!this.sents.length){ setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
-    this.speakNext();
+    // Lead-in breath on every page start: launching straight into the first
+    // sentence felt rushed, especially right after a page turn.
+    setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs());
   },
-  speakNext(){
+  async speakNext(){
     if(this.stopped || !this.active || this.paused) return;
     if(this.si >= this.sents.length){ this.autoAdvance(); return; }
     const sent = this.sents[this.si];
     this.applyHighlight(sent);
+
+    const gu = this.gen;
+    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
+    const hasPiper = await this.checkPiper();
+
+    if(hasPiper && inv){
+      try{
+        /* Prefetched audio (synthesized while the previous sentence played)
+           makes the inter-sentence pause exactly sentGapMs; synthesizing only
+           on demand adds the full piper latency (1-3s per high-voice sentence)
+           to every pause, which read as a 3-4s gap. */
+        let wavBytes = this.pcmCache.get(this.si);
+        if(wavBytes) this.pcmCache.delete(this.si);
+        else{
+          wavBytes = await inv('tts_piper_speak', { text: sent.text, rate: this.rate, voice: this.voice });
+          if(this.gen !== gu || this.stopped || !this.active) return;
+        }
+        const buf = ipcToBuffer(wavBytes);
+        if(buf && buf.byteLength > 0){
+          const started = await this.playWav(buf, gu);
+          if(started){ this.prefetch(gu); return; }
+        }
+      }catch(e){
+        console.warn('Piper invoke failed:', e);
+        // Piper invocation failed (e.g. unsupported text), fall back to SpeechSynthesis
+      }
+    }
+
+    if(this.gen !== gu || this.stopped || !this.active) return;
+    this.speakWebSpeech(sent, gu);
+  },
+
+  speakWebSpeech(sent, gu){
+    if(this.stopped || !this.active || this.paused) return;
+    /* WebView2 exposes speechSynthesis but with zero voices (it cannot see
+       Windows SAPI voices), so "fallback" there means silence. Give it a short
+       grace period to populate, then fail loudly instead of stalling mute. */
+    const voicesNow = () => speechSynthesis.getVoices().length;
+    if(!voicesNow()){
+      const gu2 = gu;
+      const failMute = () => {
+        if(this.gen !== gu2 || this.stopped || !this.active) return;
+        this.stop(true);
+        toast('No speech voices in this window and the Piper engine was not found — reinstall Folio so bin\\piper ships next to the exe');
+      };
+      let done = false;
+      const onVoices = () => { if(done) return; done = true; clearTimeout(t); if(voicesNow()) this.speakWebSpeech(sent, gu2); else failMute(); };
+      speechSynthesis.addEventListener('voiceschanged', onVoices, { once: true });
+      const t = setTimeout(onVoices, 1200);
+      return;
+    }
     const u = new SpeechSynthesisUtterance(sent.text);
     u.rate = this.rate;
-    const gu = this.gen;
     u.onend = () => {
       if(this.gen !== gu || this.stopped || !this.active) return;
+      const afterHeading = !!(sent && sent.isHeading);
       this.si++;
-      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 140);
+      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
     };
-    u.onerror = () => {
+    u.onerror = (e) => {
+      if(e && (e.error === 'canceled' || e.error === 'interrupted')) return;
       if(this.gen !== gu || this.stopped || !this.active) return;
       this.si++;
       setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 60);
@@ -6486,14 +6857,28 @@ const TTS = {
   },
   async autoAdvance(){
     if(this.stopped || !this.active) return;
+    this.gen++;
+    this.stopWav();
+    if(this.utt){
+      this.utt.onend = null;
+      this.utt.onerror = null;
+      this.utt = null;
+    }
+    this.clearHighlight();
     try{
-      const loc = state.rendition.currentLocation();
-      if(isLastPage(loc)){ this.stop(true); toast('The end — read aloud finished'); return; }
+      let loc = null;
+      try{ loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null; }catch(e){}
+      if(loc && isLastPage(loc)){ this.stop(true); toast('The end — read aloud finished'); return; }
       await turn(1);
     }catch(e){ this.stop(true); }
   },
   onRelocated(){
     if(!this.active || this.paused || this.stopped) return;
+    let loc = null;
+    try{ loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null; }catch(e){}
+    const cfi = loc && loc.start ? loc.start.cfi : '';
+    if(cfi && cfi === this.currentCfi) return;
+    this.currentCfi = cfi;
     clearTimeout(this.relocT);
     this.relocT = setTimeout(() => this.loadPageAndSpeak(), 260);
   }
@@ -6687,7 +7072,13 @@ addEventListener('pointermove', e=>{
 }, {passive:true});
 
 /* ---------------- panels ---------------- */
-function toggleSheet(){ body.classList.toggle('sheet-open'); syncScrim(); poke(); }
+function toggleSheet(){
+  body.classList.toggle('sheet-open');
+  if(body.classList.contains('sheet-open')){
+    TTS.syncVoiceUI();
+  }
+  syncScrim(); poke();
+}
 function toggleToc(){ body.classList.toggle('toc-open'); syncScrim(); poke(); }
 function closePanels(){
   hideSelBar();
@@ -7040,7 +7431,12 @@ function onKey(e){
         : settings.spread==='on' ? (on?'Two pages':'Two pages (screen too narrow — keeping one)') : 'One page'));
       break;
     }
-    case 'v': {
+    case 'v':
+    case 'V': {
+      if(typeof TTS !== 'undefined' && TTS.active){
+        TTS.cycleVoice();
+        break;
+      }
       const i=(FX_ORDER.indexOf(settings.turnFx||'slide')+1)%FX_ORDER.length;
       settings.turnFx=FX_ORDER[i]; save(); syncTurnSeg();
       toast('Page turn: '+FX_NAME[settings.turnFx]);
@@ -7669,6 +8065,10 @@ async function jumpToTocIndex(idx){
             await settled;
             await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
             updateChapterNav();
+            try{
+              const l3 = state.rendition ? state.rendition.currentLocation() : null;
+              if(l3) refreshChapterTitle(l3);
+            }catch(e){}
             toast('Jumped to ' + (item.label || 'chapter'));
             return;
           }
@@ -7676,6 +8076,11 @@ async function jumpToTocIndex(idx){
       }
     }
     await state.rendition.display(href);
+  }catch(e){}
+  updateChapterNav();
+  try{
+    const l4 = state.rendition ? state.rendition.currentLocation() : null;
+    if(l4) refreshChapterTitle(l4);
   }catch(e){}
   toast('Jumped to ' + (item.label || 'chapter'));
 }
@@ -7836,6 +8241,15 @@ document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('clic
   settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
 }));
+document.querySelectorAll('#voiceSeg button').forEach(b => b.addEventListener('click', () => {
+  TTS.setVoice(b.dataset.voice);
+}));
+const btnPrevVoice = el('btnPreviewVoice');
+if(btnPrevVoice){
+  btnPrevVoice.addEventListener('click', () => {
+    TTS.previewVoice();
+  });
+}
 document.querySelectorAll('#spreadSeg button').forEach(b=>b.addEventListener('click', async ()=>{
   settings.spread=b.dataset.spread; save(); await relayout();
   toast('Layout: '+(settings.spread==='auto'?'Auto':settings.spread==='on'?'Two pages':'One page'));
@@ -8241,6 +8655,15 @@ applyFit();
 updateLandingUI();
 poke();
 checkStartupFile();
+TTS.checkPiper().then(() => {
+  TTS.syncVoiceUI();
+  TTS.syncUI();
+});
+/* Speech voices populate asynchronously in browsers (voiceschanged) — refresh
+   the engine badge when they land so "no voices" doesn't stick wrongly. */
+if('speechSynthesis' in window){
+  try{ speechSynthesis.addEventListener('voiceschanged', () => TTS.syncVoiceUI()); }catch(e){}
+}
 
 /* ---------------- Tauri: Open-With file association ----------------
    Windows launches the exe with the .epub path as argv (cold start), or
@@ -8253,6 +8676,13 @@ function tauriInvoke(){
   }catch(e){}
   return null;
 }
+/* WebView2 only exposes registered custom schemes to fetch()/XHR under the
+   http://<scheme>.localhost/ spelling — a literal folio-cache:// URL is
+   unfetchable ("URL scheme not supported"), which left packaged builds
+   stuck on "Loading contents…". Build cache URLs in the fetchable form. */
+function folioCacheUrl(hash){
+  return 'http://folio-cache.localhost/' + hash + '/';
+}
 /* Byte length across every shape the Tauri IPC bridge can hand back:
    ArrayBuffer (byteLength), typed arrays and plain arrays (length). */
 function ipcByteLength(bytes){
@@ -8263,6 +8693,7 @@ function ipcByteLength(bytes){
 }
 function ipcToBuffer(bytes){
   if(bytes instanceof ArrayBuffer) return bytes;
+  if(bytes && bytes.buffer instanceof ArrayBuffer) return bytes.buffer;
   return new Uint8Array(bytes).buffer;
 }
 async function openEpubPath(path){
@@ -8283,7 +8714,7 @@ async function openEpubPath(path){
     try{
       const handle = await invoke('book_open', { path });
       if(handle && handle.hash){
-        await openBuffer(null, title, path, null, { url: `folio-cache://${handle.hash}/` });
+        await openBuffer(null, title, path, null, { url: folioCacheUrl(handle.hash) });
         return;
       }
     }catch(errDisk){
@@ -8349,7 +8780,7 @@ async function tauriOpenPath(path){
     try{
       const handle = await invoke('book_open', { path });
       if(handle && handle.hash){
-        await openBuffer(null, name, path, null, { url: `folio-cache://${handle.hash}/` });
+        await openBuffer(null, name, path, null, { url: folioCacheUrl(handle.hash) });
         return;
       }
     }catch(errDisk){

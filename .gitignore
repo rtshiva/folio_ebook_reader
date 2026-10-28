@@ -11,3 +11,8 @@ Thumbs.db
 # Playwright test output
 
 tauri_epub_reader/tests/e2e/artifacts/
+voice_testing/
+
+# Local-only Piper TTS bundle (~382MB exe + onnx models), bundled via
+# tauri.conf.json resources; fetch/install manually, never commit
+tauri_epub_reader/bin/

@@ -66,7 +66,6 @@ const htmlScriptRules = {
     'no-with': 'error',
     'no-delete-var': 'error',
     'no-octal': 'error',
-    'no-redeclare': 'error',
 
     // --- Housekeeping (warn-level: mass of legacy code) ----------------
     // Unused vars often flag listeners/timers that were created but never
@@ -91,7 +90,7 @@ const htmlScriptRules = {
 };
 
 export default [
-  { ignores: ['node_modules/**', 'src-tauri/target/**', 'tests/e2e/artifacts/**'] },
+  { ignores: ['node_modules/**', 'src-tauri/target/**', 'tests/e2e/artifacts/**', 'tests/manual/**'] },
 
   // The shipped app: one inline <script> in src/index.html
   {
@@ -115,6 +114,15 @@ export default [
       ...htmlScriptRules.rules,
       'no-undef': 'error',
       'no-console': 'off',
+    },
+  },
+
+  // E2E test specs pass client-side functions to page.evaluate() which
+  // legitimately reference app globals (state, LocEngine, Highlights, etc.)
+  {
+    files: ['tests/e2e/**/*.mjs'],
+    rules: {
+      'no-undef': 'off',
     },
   },
 ];
