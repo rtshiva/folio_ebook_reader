@@ -146,6 +146,11 @@ body.state-landing #posPill{display:none}
   align-items:stretch;padding:calc(var(--pad-y, 28px) + 38px + env(safe-area-inset-top)) 16px calc(var(--pad-y, 28px) + 32px + env(safe-area-inset-bottom));
   transition:opacity .35s,visibility .35s}
 #wrap{grid-column:2;grid-row:1;height:100%;position:relative;animation:pagein .5s cubic-bezier(.22,.7,.25,1)}
+/* desk contact shadow: a soft ellipse grounding the book in both page modes */
+#wrap::before{content:'';position:absolute;left:-8%;right:-8%;bottom:-30px;height:36px;z-index:-2;pointer-events:none;opacity:0;
+  background:radial-gradient(50% 62% at 50% 46%,rgba(var(--shadow-rgb),.30),rgba(var(--shadow-rgb),0) 74%);
+  transition:opacity .6s ease}
+body.state-reading #wrap::before{opacity:1}
 @keyframes pagein{from{opacity:0;transform:scale(.985)}}
 #viewer{width:100%;height:100%;background:var(--page);touch-action:pan-y}
 /* edge hover page-curl affordance (F1): a lifted paper corner near the
@@ -367,6 +372,14 @@ body.spread #stand::before{content:'';position:absolute;left:50%;top:-9px;transf
   width:34%;height:9px;border-radius:3px 3px 0 0;
   background:linear-gradient(to bottom,color-mix(in srgb,var(--stand-a) 55%,var(--stand-b)),var(--stand-b));
   box-shadow:inset 0 1px 0 var(--stand-hi)}
+/* bottom page block: the mirrored fore-edge seen from underneath, thickening
+   with progress on the same side as the stacks (EdgeStacks drives widths) */
+#stand i{position:absolute;top:0;height:8px;border-radius:0 0 3px 3px;visibility:hidden;pointer-events:none;
+  transition:width .22s ease;
+  background:repeating-linear-gradient(to bottom, color-mix(in srgb,var(--page) 62%,var(--paper-edge)) 0 1px, transparent 1px 2px),
+    color-mix(in srgb,var(--page) 40%,var(--paper-edge))}
+#standBlockL{left:5px}
+#standBlockR{right:5px}
 
 /* ---------- typography sheet ---------- */
 #sheet{position:fixed;top:0;right:0;bottom:0;width:352px;max-width:92vw;z-index:46;background:var(--page);
@@ -688,14 +701,53 @@ body.guide-on #guide{opacity:1}
     color-mix(in srgb,var(--page) 88%,var(--paper-edge)),var(--page) 14%,
     var(--page) 86%,color-mix(in srgb,var(--page) 80%,var(--paper-edge)));
   box-shadow:inset 0 0 42px rgba(var(--shadow-rgb),.10);will-change:clip-path,opacity}
-/* page-edge stack hints: hairlines at the book's outer edges (pure CSS) */
-.edge-stack{position:absolute;top:2px;bottom:2px;width:3px;pointer-events:none;z-index:4;opacity:.4;
-  background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px)}
-.edge-stack.left{left:-5px;display:none}
-.edge-stack.right{right:-5px}
-body.spread .edge-stack.left{display:block}
-body.fx-none .edge-stack,body.turning .edge-stack{display:none}
-@media (prefers-reduced-motion:reduce){.edge-stack{display:none}}
+/* ---- living page block: fore-edge stacks whose thickness tracks reading
+   progress (left = pages read, right = pages remaining), a mirrored bottom
+   block edge on the stand, cover boards that take a side's place once its
+   page block empties, and the finis mark on the last page. Dressing is
+   static between relocations; EdgeStacks only writes width/visibility when
+   the page count moves, and the flip adds a one-shot transform lift. ---- */
+.edge-stack{position:absolute;top:3px;bottom:3px;width:0;pointer-events:none;z-index:4;
+  visibility:hidden;transform:translateZ(0);transition:width .22s ease,transform .16s ease;
+  box-shadow:0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
+.edge-stack.left{right:calc(100% + 3px);
+  background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px),
+    linear-gradient(to left, color-mix(in srgb,var(--page) 84%,var(--paper-edge)), color-mix(in srgb,var(--page) 38%,var(--paper-edge)));
+  box-shadow:inset 1px 0 0 rgba(var(--shadow-rgb),.30),0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
+.edge-stack.right{left:calc(100% + 3px);
+  background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px),
+    linear-gradient(to right, color-mix(in srgb,var(--page) 84%,var(--paper-edge)), color-mix(in srgb,var(--page) 38%,var(--paper-edge)));
+  box-shadow:inset -1px 0 0 rgba(var(--shadow-rgb),.30),0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
+/* shadow pillow that wakes while the receiving stack lifts during a flip */
+.edge-stack::after{content:'';position:absolute;left:-9px;right:-9px;top:14px;bottom:-5px;z-index:-1;opacity:0;
+  background:radial-gradient(closest-side,rgba(var(--shadow-rgb),.34),rgba(var(--shadow-rgb),0) 74%);
+  transition:opacity .16s ease}
+body.lift-l .edge-stack.left{transform:translateY(-2px)}
+body.lift-r .edge-stack.right{transform:translateY(-2px)}
+body.lift-l .edge-stack.left::after,body.lift-r .edge-stack.right::after{opacity:1}
+/* cover boards: the front board lying open at the book's start (left) and
+   the back board at its end (right), slightly proud of the page block */
+.board-edge{position:absolute;top:-2px;bottom:-2px;width:13px;pointer-events:none;z-index:3;
+  visibility:hidden;opacity:0;transition:opacity .45s ease,visibility .45s;
+  background:linear-gradient(to bottom,var(--stand-a),var(--stand-b) 55%,var(--stand-c));
+  box-shadow:inset 0 1px 0 var(--stand-hi),inset 0 -1px 0 rgba(var(--shadow-rgb),.35)}
+.board-edge.left{right:calc(100% + 2px);border-radius:5px 2px 2px 5px;
+  box-shadow:inset 0 1px 0 var(--stand-hi),inset 0 -1px 0 rgba(var(--shadow-rgb),.35),-3px 5px 9px -2px rgba(var(--shadow-rgb),.4)}
+.board-edge.right{left:calc(100% + 2px);border-radius:2px 5px 5px 2px;
+  box-shadow:inset 0 1px 0 var(--stand-hi),inset 0 -1px 0 rgba(var(--shadow-rgb),.35),3px 5px 9px -2px rgba(var(--shadow-rgb),.4)}
+body.at-start .board-edge.left,body.at-end .board-edge.right{visibility:visible;opacity:1}
+/* finis: a quiet colophon mark once the last page is on screen */
+#finis{position:absolute;left:0;right:0;bottom:16px;z-index:6;display:flex;align-items:center;justify-content:center;gap:12px;
+  pointer-events:none;visibility:hidden;opacity:0;transition:opacity .8s ease,visibility .8s;
+  color:var(--ghost);font:500 10.5px var(--sans);letter-spacing:.38em;text-transform:uppercase;text-indent:.38em}
+#finis::before,#finis::after{content:'';width:44px;height:1px;background:var(--hairS)}
+body.at-end #finis{visibility:visible;opacity:.7}
+/* stacks/boards/finis are progress chrome, not motion: under reduced motion
+   they stay visible with every transition cut (the flip lift never fires,
+   since effectiveFx() forces crossfade when reduced motion is set) */
+@media (prefers-reduced-motion:reduce){
+  .edge-stack,.edge-stack::after,#stand i,.board-edge,#finis,#wrap::before{transition:none}
+}
 .pt-drag-capture{
   position:fixed;inset:0;z-index:9999;
   cursor:grabbing;cursor:-webkit-grabbing;
@@ -1127,10 +1179,13 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
     <div id="viewer"></div>
     <div id="chFlash" class="ch-flash hide" aria-hidden="true"></div>
     <div id="pageFx"></div>
-    <div class="edge-stack left"></div>
-    <div class="edge-stack right"></div>
+    <div class="edge-stack left" id="edgeStackL"></div>
+    <div class="edge-stack right" id="edgeStackR"></div>
+    <div class="board-edge left" aria-hidden="true"></div>
+    <div class="board-edge right" aria-hidden="true"></div>
+    <div id="finis" aria-hidden="true"><span>Finis</span></div>
     <div id="gutter"></div>
-    <div id="stand"></div>
+    <div id="stand"><i id="standBlockL"></i><i id="standBlockR"></i></div>
   </div>
   <button class="arrow" id="btnNext" title="Next page" aria-label="Next page">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5 16 12l-6.5 7"/></svg>
@@ -2621,6 +2676,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     body.classList.remove('state-landing');
     state.lastSpineIdx = undefined;   // F2: a fresh open never flashes on its first relocation
     chNavAnchorSteps.clear();         // F0: anchor steps are per-book
+    EdgeStacks.reset();               // living page block starts bare on every open
     NavHistory.clear();               // return-anchors hold CFIs into the previous book
     _sessionPages = 0;                // session page count restarts with each book
     tocCurIdx = -1;
@@ -3119,6 +3175,53 @@ const _paceHistory = [];
 let _effectivePace = 1.1; // minutes per page, starts at default
 function getEffectivePace(){ return _effectivePace; }
 
+/* ---------------- living page block ----------------
+   Fore-edge dressing driven by reading progress: the left stack thickens
+   with pages read, the right with pages remaining; the stand's bottom edge
+   mirrors them; cover boards show while a side is empty (book start/end)
+   and finis marks the last page. set() runs in the relocation hot path and
+   only writes when a width actually changed. */
+const EdgeStacks = {
+  MAX: 14,
+  _l: -1, _r: -1,
+  set(frac, gPage){
+    // Pages READ, not position: page 1 sits on a bare left block (the front
+    // board fills in) and the last page on a bare right one. Guard t<=1 so
+    // one-page books can't produce a NaN width.
+    let l;
+    if(gPage && gPage.total > 1){
+      l = Math.round(this.MAX * clamp((gPage.page - 1) / (gPage.total - 1), 0, 1));
+    } else if(gPage){
+      l = gPage.page <= 1 ? 0 : this.MAX;
+    } else {
+      l = Math.round(this.MAX * clamp(frac, 0, 1));
+    }
+    const r = this.MAX - l;
+    if(l !== this._l){
+      this._l = l;
+      const eL = el('edgeStackL'), sL = el('standBlockL');
+      if(eL){ eL.style.width = l + 'px'; eL.style.visibility = l >= 3 ? 'visible' : 'hidden'; }
+      if(sL){ sL.style.width = Math.round(l * .85) + 'px'; sL.style.visibility = l >= 4 ? 'visible' : 'hidden'; }
+    }
+    if(r !== this._r){
+      this._r = r;
+      const eR = el('edgeStackR'), sR = el('standBlockR');
+      if(eR){ eR.style.width = r + 'px'; eR.style.visibility = r >= 3 ? 'visible' : 'hidden'; }
+      if(sR){ sR.style.width = Math.round(r * .85) + 'px'; sR.style.visibility = r >= 4 ? 'visible' : 'hidden'; }
+    }
+    body.classList.toggle('at-start', gPage ? gPage.page <= 1 : frac <= .008);
+    body.classList.toggle('at-end', gPage ? gPage.page >= gPage.total - 1 : frac >= .995);
+  },
+  reset(){
+    this._l = this._r = -1;
+    ['edgeStackL','edgeStackR','standBlockL','standBlockR'].forEach(id => {
+      const e = el(id);
+      if(e){ e.style.width = '0px'; e.style.visibility = 'hidden'; }
+    });
+    body.classList.remove('at-start','at-end','lift-l','lift-r');
+  }
+};
+
 function onRelocated(loc){
   if(!loc||!loc.start)return;
   const total=state.book.spine.length;
@@ -3133,6 +3236,7 @@ function onRelocated(loc){
   el('railKnob').style.left=(frac*100)+'%';
   el('pct').textContent=Math.round(frac*100)+'%';
   Ribbon.move(frac);
+  EdgeStacks.set(frac, gPage);
 
   // Chapter pills + chNavIdx resolve here (hot): the [ / ] keys fire right
   // after a jump's badge flip, before the 80ms cold pass could update them.
@@ -6194,6 +6298,8 @@ async function playTurnFx(dir, fx){
     await Promise.race([arrived, new Promise(r => setTimeout(r, 60))]);
   } else {
     // Physical Paper Flip with Moving Fold, Curvature, Perspective & Shadows
+    // The receiving stack lifts a hair while the sheet settles onto it.
+    body.classList.add(dir > 0 ? 'lift-l' : 'lift-r');
     const adjacentInfo = PageSurfacePool.getAdjacentSurfaceInfo(dir, snapInfo);
     const compositor = new PageTurnCompositor(dir, snapInfo, adjacentInfo);
     // Backward chapter-cross: hold p=0 (front leaf still covers everything)
@@ -6272,7 +6378,7 @@ async function turn(dir, opts = {}){
     try{ if(state.rendition) (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{}); }catch(ignored){}
   } finally {
     state.turning = false;
-    body.classList.remove('turning');
+    body.classList.remove('turning','lift-l','lift-r');
     if(state.spreadPending){ state.spreadPending = false; await applySpread(); }
   }
 }

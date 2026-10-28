@@ -361,6 +361,47 @@ mode visually unchanged (full-spread logic gated by `isSpread`). (5) Boundary tu
 
 ---
 
+## A-L — Living page block (progress-driven book dressing)
+
+The static fore-edge hairlines shipped with A-C item 4 become a progress
+instrument: the book visibly thickens on the side you have read, the way a
+real book lying open does.
+
+**Behavior**
+
+- Left stack width = pages read, right = pages remaining (`EdgeStacks`, 14px
+  max, `(page-1)/(total-1)` mapping so page 1 is exactly bare). The stand's
+  bottom edge mirrors the same widths at 85%.
+- Cover boards (`.board-edge`, stand tokens) fade in on `body.at-start`
+  (front board, left) / `body.at-end` (back board, right) — the hard cover
+  lying open where the page block ran out.
+- `#finis` colophon mark fades in at the foot of the last page
+  (`body.at-end`).
+- Desk contact shadow (`#wrap::before`, static radial ellipse) grounds the
+  book in both page modes.
+- Flip micro-lift: the paper branch of `playTurnFx` adds `body.lift-l`/`-r`
+  so the receiving stack rises 2px over a radial shadow pillow; cleared in
+  `turn()`'s finally.
+
+**Constraints honored**
+
+- Relocation hot path writes width/visibility only when a value changed
+  (same <0.2ms budget); no per-frame work — the dressing is static between
+  relocations and every transition is a one-shot width/opacity/transform.
+- Stacks/boards/finis are progress chrome, not motion: visible under
+  `prefers-reduced-motion` (transitions cut there) and independent of
+  `body.fx-none`; the lift itself only fires on the paper-fx path.
+- Token-only colors (`paper-edge`/`stand-*`/`ghost`/`hairS`/`shadow-rgb`) —
+  all eleven themes dress the block with zero new theme fields.
+
+**Tests**: scan 21–23 (wiring, at-start/at-end hooks, token resolution);
+e2e `edgestacks.spec.mjs` ES1–ES4 (start dressing, progress tracking,
+end-of-book arrival/departure, lift class).
+
+**Effort: S** (one setter, token-only CSS).
+
+---
+
 ## Suggested implementation order
 
 1. **A-A** (S) — quick win, also fixes the ✕ annoyance.

@@ -153,4 +153,25 @@ const literalCacheUrls = (html.match(/folio-cache:\/\/\$\{/g) || []).length;
 check('cache book URLs use the fetchable http form', literalCacheUrls === 0,
   `${literalCacheUrls} template literal folio-cache:// URL(s) in code; use folioCacheUrl(hash)`);
 
+// 21. Living page block: the fore-edge stacks/stand blocks/boards/finis are
+// progress chrome driven from the relocation hot pass. set() must be fed
+// (frac, gPage) there, reset() must run on book open so widths never leak
+// across books, and the boards/finis must key off the at-start/at-end body
+// classes the same setter toggles.
+check('living page block wired to relocations and open flow',
+  /EdgeStacks\.set\(frac, gPage\)/.test(html) &&
+  /EdgeStacks\.reset\(\)/.test(html) &&
+  /id="edgeStackL"/.test(html) && /id="edgeStackR"/.test(html) &&
+  /id="standBlockL"/.test(html) && /id="standBlockR"/.test(html),
+  'hot pass must call EdgeStacks.set(frac, gPage), open must reset it, stack ids must exist');
+check('book-end dressing keys off at-start/at-end',
+  /body\.at-start \.board-edge\.left/.test(html) &&
+  /body\.at-end \.board-edge\.right/.test(html) &&
+  /body\.at-end #finis/.test(html),
+  'cover boards and the finis mark must toggle with the body classes');
+check('page-block vars resolve against theme tokens',
+  ['--paper-edge', '--stand-a', '--stand-b', '--stand-c', '--stand-hi', '--ghost']
+    .every((v) => html.includes(v + ':')),
+  'living-page dressing uses a token no theme/root block defines');
+
 process.exit(failures ? 1 : 0);
