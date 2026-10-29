@@ -174,4 +174,38 @@ check('page-block vars resolve against theme tokens',
     .every((v) => html.includes(v + ':')),
   'living-page dressing uses a token no theme/root block defines');
 
+// 24. Bookish dressing extras: the front board carries the book title as
+// spine lettering, the finis mark carries per-book stats, and the gilt
+// fore-edge line is theme-gated in applyTheme.
+check('board lettering, finis meta and gilt edges wired',
+  /id="boardTitle"/.test(html) &&
+  /id="finisMeta"/.test(html) &&
+  /boardTitle'\)\.textContent = getActiveTitle\(\)/.test(html) &&
+  /fillFinisMeta\(\)/.test(html) &&
+  /folio-bstat:/.test(html) &&
+  /gilt-fore/.test(html) &&
+  /key === 'velvet' \|\| key === 'emerald'/.test(html),
+  'board title, finis meta, per-book stat keys and the gilt theme gate must all be present');
+
+// 25. Bookish type channels (classic indents, old-style numerals) must join
+// the folio-dyn hash so toggling re-injects chapter CSS, and must be
+// persisted per book via TYPO_KEYS.
+check('indent + oldstyle wired as typography channels',
+  /settings\.indent \+ '\|' \+ settings\.oldstyle/.test(html) &&
+  /TYPO_KEYS=[^\n]*'indent','oldstyle'/.test(html) &&
+  /id="swIndent"/.test(html) && /id="swOldstyle"/.test(html) &&
+  /swIndent'\)\.addEventListener/.test(html) && /swOldstyle'\)\.addEventListener/.test(html) &&
+  /onum/.test(html) && /text-indent:1\.35em/.test(html),
+  'hash entry, TYPO_KEYS, sheet toggles, listeners and injected rules must all exist');
+
+// 26. Honest ribbon: multi-anchor files must split their location count
+// across their TOC sections (groupSize), and the per-book stat heartbeat
+// must ride the global one.
+check('ribbon splits multi-anchor weights, book stats ride the heartbeat',
+  /groupSize\[si\] = \(groupSize\[si\] \|\| 0\) \+ 1/.test(html) &&
+  /\(counts\[si\] \|\| 0\) \/ \(groupSize\[si\] \|\| 1\)/.test(html) &&
+  /loadBookStat\(getActiveTitle\(\)\)/.test(html) &&
+  /bookStat\.min = \(bookStat\.min \|\| 0\) \+ 0\.5/.test(html),
+  'multi-anchor weight split and the per-book heartbeat bump are missing');
+
 process.exit(failures ? 1 : 0);

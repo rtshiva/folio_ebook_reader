@@ -718,6 +718,10 @@ body.guide-on #guide{opacity:1}
   background:repeating-linear-gradient(to right, var(--hairS) 0 1px, transparent 1px 2px),
     linear-gradient(to right, color-mix(in srgb,var(--page) 84%,var(--paper-edge)), color-mix(in srgb,var(--page) 38%,var(--paper-edge)));
   box-shadow:inset -1px 0 0 rgba(var(--shadow-rgb),.30),0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
+/* gilded fore-edges: a gold line on the stacks' outer edge, for the themes
+   whose stand boards are already gilt */
+body.gilt-fore .edge-stack.left{box-shadow:inset 1px 0 0 rgba(216,181,74,.62),0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
+body.gilt-fore .edge-stack.right{box-shadow:inset -1px 0 0 rgba(216,181,74,.62),0 3px 7px -2px rgba(var(--shadow-rgb),.42)}
 /* shadow pillow that wakes while the receiving stack lifts during a flip */
 .edge-stack::after{content:'';position:absolute;left:-9px;right:-9px;top:14px;bottom:-5px;z-index:-1;opacity:0;
   background:radial-gradient(closest-side,rgba(var(--shadow-rgb),.34),rgba(var(--shadow-rgb),0) 74%);
@@ -736,11 +740,22 @@ body.lift-l .edge-stack.left::after,body.lift-r .edge-stack.right::after{opacity
 .board-edge.right{left:calc(100% + 2px);border-radius:2px 5px 5px 2px;
   box-shadow:inset 0 1px 0 var(--stand-hi),inset 0 -1px 0 rgba(var(--shadow-rgb),.35),3px 5px 9px -2px rgba(var(--shadow-rgb),.4)}
 body.at-start .board-edge.left,body.at-end .board-edge.right{visibility:visible;opacity:1}
-/* finis: a quiet colophon mark once the last page is on screen */
-#finis{position:absolute;left:0;right:0;bottom:16px;z-index:6;display:flex;align-items:center;justify-content:center;gap:12px;
+/* embossed title running down the front board like spine lettering */
+.board-edge.left span{position:absolute;inset:0;display:block;overflow:hidden;
+  padding:14px 0 10px;writing-mode:vertical-rl;text-orientation:mixed;
+  font:600 9px var(--sans);letter-spacing:.32em;text-transform:uppercase;text-align:left;
+  color:var(--stand-hi);text-shadow:0 1px 1px rgba(var(--shadow-rgb),.55)}
+/* finis: a quiet colophon mark once the last page is on screen; the meta
+   line beneath carries the per-book reading stats when they exist. Sits ON
+   the page, so the color is a muted ink — the desk-dwelling --ghost token
+   equals the page color on velvet/aizome and would vanish. */
+#finis{position:absolute;left:0;right:0;bottom:16px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:7px;
   pointer-events:none;visibility:hidden;opacity:0;transition:opacity .8s ease,visibility .8s;
-  color:var(--ghost);font:500 10.5px var(--sans);letter-spacing:.38em;text-transform:uppercase;text-indent:.38em}
-#finis::before,#finis::after{content:'';width:44px;height:1px;background:var(--hairS)}
+  color:color-mix(in srgb,var(--ink) 62%,var(--page));font:500 10.5px var(--sans);letter-spacing:.38em;text-transform:uppercase;text-indent:.38em}
+.finis-row{display:flex;align-items:center;gap:12px}
+.finis-row::before,.finis-row::after{content:'';width:44px;height:1px;background:var(--hairS)}
+#finisMeta{font-size:9px;letter-spacing:.22em;opacity:.7}
+#finisMeta:empty{display:none}
 body.at-end #finis{visibility:visible;opacity:.7}
 /* stacks/boards/finis are progress chrome, not motion: under reduced motion
    they stay visible with every transition cut (the flip lift never fires,
@@ -1181,9 +1196,9 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
     <div id="pageFx"></div>
     <div class="edge-stack left" id="edgeStackL"></div>
     <div class="edge-stack right" id="edgeStackR"></div>
-    <div class="board-edge left" aria-hidden="true"></div>
+    <div class="board-edge left" aria-hidden="true"><span id="boardTitle"></span></div>
     <div class="board-edge right" aria-hidden="true"></div>
-    <div id="finis" aria-hidden="true"><span>Finis</span></div>
+    <div id="finis" aria-hidden="true"><span class="finis-row"><span>Finis</span></span><span id="finisMeta"></span></div>
     <div id="gutter"></div>
     <div id="stand"><i id="standBlockL"></i><i id="standBlockR"></i></div>
   </div>
@@ -1333,6 +1348,10 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
         <span class="tx"><b>Paper texture</b><small>A faint grain over pages and page turns.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swIndent"><span class="tr"></span>
+        <span class="tx"><b>Classic indents</b><small>First-line indents instead of gaps between paragraphs, like a printed novel.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swOldstyle"><span class="tr"></span>
+        <span class="tx"><b>Old-style numerals</b><small>Text figures that sit like lowercase letters, for a bookish feel.</small></span></label>
     </section>
 
     <section><h4 class="lbl">Paper</h4><div class="theme-row" id="themeRow"></div></section>
@@ -1518,7 +1537,7 @@ const DEFAULTS = {
   measure:34, justify:false,
   bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
-  marginAuto:true, marginVertical:28, dropCaps:false,
+  marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   warmth:0, perBookType:false, pageSound:false, grain:true
 };
 let settings = {...DEFAULTS};
@@ -1530,7 +1549,7 @@ try{
   if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
 }catch(e){}
 let saveT=null;
-const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','bionic'];
+const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic'];
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
   localStorage.setItem('folio-settings',JSON.stringify(settings));
   // Per-book typography memory: mirror the type channels under the book key.
@@ -1878,7 +1897,8 @@ function buildCSS(){
   const ls = effLetterSpacing();
   const ws = effWordSpacing();
   const hash = thKey + '|' + settings.font + '|' + fs + '|' + lh + '|' + ls + '|' + ws + '|' +
-    settings.justify + '|' + settings.dropCaps + '|' + settings.warmth + '|' + settings.bionic + '|' + settings.guide;
+    settings.justify + '|' + settings.dropCaps + '|' + settings.indent + '|' + settings.oldstyle + '|' +
+    settings.warmth + '|' + settings.bionic + '|' + settings.guide;
   if(hash === _cssHash) return _cssCache;
   _cssHash = hash;
   const t = THEMES[thKey]||THEMES.paper;
@@ -1898,6 +1918,17 @@ div > p:first-of-type::first-letter {
   font-weight: 700 !important;
 }` : '';
 
+  /* Classic book indent style: first-line indents instead of inter-paragraph
+     gaps; openers after headings and pull-quotes stay flush. Container-first
+     variants are limited to body/section/article — a div>p:first-of-type
+     rule would wrongly flush every paragraph in div-wrapped books. */
+  const indentCss = settings.indent ? `
+h1+p,h2+p,h3+p,h4+p,h5+p,h6+p,blockquote p,li p,dt,dd,td,th,figcaption,
+body>p:first-of-type,section>p:first-of-type,article>p:first-of-type{
+  text-indent:0 !important;
+}
+p{margin:0 !important;text-indent:1.35em !important;}` : '';
+
   _cssCache = FONT_FACES + `
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
@@ -1908,6 +1939,7 @@ body{
   line-height:${lh} !important;
   letter-spacing:${(ls/1000).toFixed(3)}em !important;
   word-spacing:${(ws/1000).toFixed(3)}em !important;
+  font-feature-settings:${settings.oldstyle ? '"onum" 1' : 'normal'} !important;
   text-align:${j?'justify':'left'} !important;
   margin:0 !important; padding:0 !important;
   -webkit-hyphens:auto; hyphens:auto; overflow-wrap:break-word;
@@ -1929,6 +1961,7 @@ b.fio-b{font-weight:700;}
   -webkit-box-decoration-break:clone;box-decoration-break:clone;}
 .fio-hl{border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;cursor:pointer;}
 ${dropCapCss}
+${indentCss}
 `;
   return _cssCache;
 }
@@ -2217,6 +2250,7 @@ function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('load
 async function closeBook(){
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
   if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
+  flushBookStat();
   lastStatCfi = null;
   LocEngine.data = null;
   if(typeof pageCache !== 'undefined') pageCache.clear();
@@ -2251,6 +2285,7 @@ async function closeBook(){
 function flushPendingPersist(){
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
   if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
+  flushBookStat();
   if(saveT) { clearTimeout(saveT); try{ localStorage.setItem('folio-settings', JSON.stringify(settings)); }catch(e){} }
 }
 window.addEventListener('beforeunload', flushPendingPersist);
@@ -2269,7 +2304,24 @@ function loadStats(){
 }
 function saveStatsSoon(){
   clearTimeout(statsSaveT);
-  statsSaveT = setTimeout(() => { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }, 2000);
+  statsSaveT = setTimeout(() => {
+    try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){}
+    if(bookStat){ try{ localStorage.setItem('folio-bstat:'+bookStatTitle, JSON.stringify(bookStat)); }catch(e){} }
+  }, 2000);
+}
+/* Per-book reading stats (folio-bstat:<title>) feed the finis colophon —
+   minutes read and the days the book was open, same 30s heartbeat. */
+let bookStat = null, bookStatTitle = '';
+function loadBookStat(title){
+  bookStatTitle = title || '';
+  bookStat = null;
+  if(!bookStatTitle || bookStatTitle === 'Untitled') return;
+  try{ bookStat = Object.assign({ min: 0, days: {} }, JSON.parse(localStorage.getItem('folio-bstat:' + bookStatTitle) || '{}')); }
+  catch(e){ bookStat = { min: 0, days: {} }; }
+  if(!bookStat.days) bookStat.days = {};
+}
+function flushBookStat(){
+  if(bookStat){ try{ localStorage.setItem('folio-bstat:'+bookStatTitle, JSON.stringify(bookStat)); }catch(e){} }
 }
 function statStreak(){
   let streak = 0;
@@ -2301,6 +2353,11 @@ setInterval(() => {
       statsCache.min = (statsCache.min || 0) + 0.5;
       const k = dayKey();
       statsCache.days[k] = (statsCache.days[k] || 0) + 0.5;
+      if(!bookStat || bookStatTitle !== getActiveTitle()) loadBookStat(getActiveTitle());
+      if(bookStat){
+        bookStat.min = (bookStat.min || 0) + 0.5;
+        bookStat.days[k] = (bookStat.days[k] || 0) + 0.5;
+      }
       saveStatsSoon();
     }
   }catch(e){}
@@ -3210,17 +3267,43 @@ const EdgeStacks = {
       if(sR){ sR.style.width = Math.round(r * .85) + 'px'; sR.style.visibility = r >= 4 ? 'visible' : 'hidden'; }
     }
     body.classList.toggle('at-start', gPage ? gPage.page <= 1 : frac <= .008);
-    body.classList.toggle('at-end', gPage ? gPage.page >= gPage.total - 1 : frac >= .995);
+    const end = gPage ? gPage.page >= gPage.total - 1 : frac >= .995;
+    body.classList.toggle('at-end', end);
+    if(end && !this._wasEnd) fillFinisMeta();
+    this._wasEnd = end;
   },
   reset(){
     this._l = this._r = -1;
+    this._wasEnd = false;
     ['edgeStackL','edgeStackR','standBlockL','standBlockR'].forEach(id => {
       const e = el(id);
       if(e){ e.style.width = '0px'; e.style.visibility = 'hidden'; }
     });
     body.classList.remove('at-start','at-end','lift-l','lift-r');
+    // New book: restamp the front board's spine lettering with its title.
+    if(el('boardTitle')) el('boardTitle').textContent = getActiveTitle();
   }
 };
+
+/* Colophon meta for the finis mark: per-book days + minutes, phrased like a
+   colophon page. Empty when the book has no tracked time yet. */
+function fillFinisMeta(){
+  const m = el('finisMeta');
+  if(!m) return;
+  const t = getActiveTitle();
+  let bs = null;
+  if(t && t !== 'Untitled'){
+    try{ bs = JSON.parse(localStorage.getItem('folio-bstat:' + t) || 'null'); }catch(e){ bs = null; }
+  }
+  const mins = bs ? Math.round(bs.min || 0) : 0;
+  const days = bs ? Object.keys(bs.days || {}).filter(k => (bs.days[k] || 0) > 0).length : 0;
+  const parts = [];
+  if(days > 1) parts.push('read across ' + days + ' days');
+  else if(days === 1) parts.push('read in one sitting');
+  if(mins >= 60) parts.push(Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min');
+  else if(mins > 0) parts.push(mins + ' min');
+  m.textContent = parts.join(' · ');
+}
 
 function onRelocated(loc){
   if(!loc||!loc.start)return;
@@ -3602,9 +3685,27 @@ const Ribbon = {
       tail = items.slice(this.MAX_SEG - 1);
     }
     const counts = this.locCounts();
+    /* Multi-anchor files pack several TOC sections into one spine item;
+       without a split each section would claim the file's full location
+       count and the ribbon would overweight that file N-fold. Split the
+       file's count evenly across its sections — anchor-exact attribution
+       would need every spine document loaded, not worth it here. */
+    const groupSize = {};
+    if(counts){
+      shown.forEach((it) => {
+        const si = this.spineIndexForHref(it.href);
+        if(si >= 0) groupSize[si] = (groupSize[si] || 0) + 1;
+      });
+      if(tail) tail.forEach((it) => {
+        const si = this.spineIndexForHref(it.href);
+        if(si >= 0) groupSize[si] = (groupSize[si] || 0) + 1;
+      });
+    }
     const wOf = (it) => {
       if(!counts) return 1;
-      return Math.max(1, counts[this.spineIndexForHref(it.href)] || 0);
+      const si = this.spineIndexForHref(it.href);
+      const w = (counts[si] || 0) / (groupSize[si] || 1);
+      return Math.max(0.5, w);
     };
     let total = 0;
     shown.forEach((it) => { total += wOf(it); });
@@ -7635,6 +7736,9 @@ function applyTheme(){
   // themes set it, everything else renders from the base stylesheet.
   if(key === 'light' || key === 'aizome' || key === 'ember' || key === 'velvet' || key === 'emerald') document.documentElement.dataset.theme = key;
   else delete document.documentElement.dataset.theme;
+  // Gilded fore-edges: only the cloth themes whose stands are already gold
+  // carry the gilt line on the page stacks.
+  body.classList.toggle('gilt-fore', key === 'velvet' || key === 'emerald');
   // The book lives in iframes with their own theme CSS (folio-dyn). Every
   // caller used to be responsible for refreshing it via relayout() — any path
   // that forgot (or errored before reaching it) left the book on the old
@@ -7850,6 +7954,8 @@ function syncControls(){
   el('swGuide').checked=settings.guide;
   body.classList.toggle('guide-on',settings.guide);
   el('swJustify').checked=settings.justify;
+  el('swIndent').checked=!!settings.indent;
+  el('swOldstyle').checked=!!settings.oldstyle;
   el('swSound').checked=!!settings.pageSound;
   el('swGrain').checked=settings.grain !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm();
@@ -8095,6 +8201,8 @@ el('swSound').addEventListener('change',e=>{ settings.pageSound=e.target.checked
 el('swGrain').addEventListener('change',e=>{ settings.grain=e.target.checked; save(); });
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
+el('swIndent').addEventListener('change',e=>{ settings.indent=e.target.checked; save(); relayout(); });
+el('swOldstyle').addEventListener('change',e=>{ settings.oldstyle=e.target.checked; save(); relayout(); });
 
 // Night warmth
 el('warmRange').addEventListener('input',e=>{

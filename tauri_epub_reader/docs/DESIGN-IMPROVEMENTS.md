@@ -402,6 +402,50 @@ end-of-book arrival/departure, lift class).
 
 ---
 
+## A-M — Bookish dressing & type channels
+
+Follow-up to A-L, from the same menu of "physical book" details.
+
+**Dressing**
+
+- **Embossed board lettering**: the front board (visible on `body.at-start`)
+  carries the book title set vertically like spine lettering — 9px uppercase
+  in `--stand-hi` over the stand gradient, deboss shadow below. Restamped on
+  every open by `EdgeStacks.reset()`.
+- **Gilded fore-edges**: `body.gilt-fore` (applyTheme, gated to velvet +
+  emerald — the themes whose stands are already gold) lays a gold line on
+  the stacks' outer edge via the per-side inset box-shadow.
+- **Finis colophon**: `#finis` gained a meta line fed by per-book stats
+  (`folio-bstat:<title>` = `{min, days}`), bumped by the same 30s heartbeat
+  as the global stats, flushed on close/unload. Phrased "read across N days
+  · H h M min" ("read in one sitting" for a single day). Color is a muted
+  ink `color-mix(ink 62%, page)` — NOT `--ghost`, which equals the page
+  color on velvet/aizome and rendered the mark invisible there (found by
+  the visual pass).
+- **Honest ribbon**: multi-anchor files pack several TOC sections into one
+  spine item; each section used to claim the file's full location count,
+  overweighting the file N-fold on the ribbon. `Ribbon.build` now splits
+  the file's count evenly across its sections (anchor-exact attribution
+  would need every spine doc loaded).
+
+**Type channels** (both in the folio-dyn hash + TYPO_KEYS, sheet toggles
+`swIndent` / `swOldstyle`, each triggering relayout on change)
+
+- **Classic indents**: `p{margin:0; text-indent:1.35em}` with openers kept
+  flush (`h1..h6+p`, blockquote/li/table cells, body/section/article
+  first-of-type). The container-first list deliberately excludes
+  `div>p:first-of-type` — div-wrapped books would flush every paragraph.
+- **Old-style numerals**: `font-feature-settings:"onum" 1` on the chapter
+  body; inherits into all content, no-ops on fonts without the feature.
+
+**Tests**: scan 24–26; e2e `bookish.spec.mjs` BK1–BK4 (board title + gilt
+gate, uneven multi-anchor split with fractional weights, seeded colophon
+meta, indent/oldstyle injection + computed styles).
+
+**Effort: S**.
+
+---
+
 ## Suggested implementation order
 
 1. **A-A** (S) — quick win, also fixes the ✕ annoyance.

@@ -33,6 +33,8 @@
 | Fonts | ✅ | Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic (local woff2) |
 | Justified text toggle | ✅ | |
 | Drop caps toggle | ✅ | |
+| Classic indents toggle | ✅ | First-line paragraph indents instead of inter-para gaps; openers after headings and pull-quotes stay flush (injected via `buildCSS`) |
+| Old-style numerals toggle | ✅ | `font-feature-settings: "onum" 1` on chapter bodies; no-ops safely on fonts without the feature |
 | Bionic reading (bold prefixes) | ✅ | `bionifyDoc` rewrites DOM text nodes on chapter load |
 | Reading ruler / guide line | ✅ | Follows pointer when enabled (`G`) |
 | Themes (paper variants) | ✅ | Manual pick + auto follow OS day/night (`themeAuto`) |
@@ -48,6 +50,7 @@
 | Full-spread two-phase fold | ✅ | Fold travels the whole spread (`PageTurnConfig.fullSpreadFold`, default on); phase-2 paper back-sheet overlaps the opposite page; legacy half-leaf path kept behind the flag / `quality:'basic'` |
 | Paper texture + warmer fold light | ✅ | Shared 256px grain tile (one `toDataURL`, `multiply` wash) gated by a texture chip (default on, off for basic); warmer fold/ambient gradients; dual-band soft-light crease sheen; mid-turn settle sound |
 | Living page block dressing | ✅ | `EdgeStacks`: fore-edge stacks thicken with reading progress (left = pages read, right = remaining, `(page-1)/(total-1)` mapping), mirrored bottom blocks on the stand, cover boards where a side runs out, finis colophon on the last page, desk contact shadow, flip micro-lift; relocation-hot-path width/visibility writes only |
+| Bookish dressing extras | ✅ | Embossed board lettering (book title runs down the front board like spine text), theme-gated gilded fore-edges (velvet/emerald), finis colophon carries per-book stats ("read across N days · H h M min" from `folio-bstat:` heartbeat), honest chapter ribbon (multi-anchor files split their location counts across their TOC sections instead of each claiming the file's full weight) |
 | Damped-spring physics | ✅ | `PageTurnPhysics` (settle on p < 0.003, v < 0.02) |
 | Drag-to-turn gesture with fling | ✅ | `TurnGestureController`: 120 ms velocity window, edge/boundary detection, cross-iframe pointer capture |
 | Slide FX | ✅ | Snapshot pool (6 warm iframes) slides |
