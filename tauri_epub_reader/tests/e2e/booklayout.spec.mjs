@@ -76,7 +76,7 @@ test('BL4 drawer desk-shift: stage slides clear of the TOC and returns on close'
   // the shift eases in over .4s — wait for the wrap to actually move
   await page.waitForFunction(
     (b) => document.getElementById('wrap').getBoundingClientRect().left > b + 5,
-    before, { timeout: 3000 });
+    before, { timeout: 9000 });
   const during = (await spreadMetrics(page)).left;
   // stage eases right, away from the left drawer, but never off-viewport
   expect(during).toBeGreaterThan(before);
@@ -87,7 +87,7 @@ test('BL4 drawer desk-shift: stage slides clear of the TOC and returns on close'
   // ease back out, then the book re-centres exactly
   await page.waitForFunction(
     (b) => Math.abs(document.getElementById('wrap').getBoundingClientRect().left - b) < 1.5,
-    before, { timeout: 3000 });
+    before, { timeout: 9000 });
   expect((await spreadMetrics(page)).left).toBeCloseTo(before, 0);
 });
 

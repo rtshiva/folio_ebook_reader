@@ -60,6 +60,11 @@ test('RR3 an environment card resets the room to match', async ({ page }) => {
     try { return JSON.parse(localStorage.getItem('folio-settings') || '{}').rrTheme === 'match'; }
     catch (e) { return false; }
   }, null, { timeout: 9000 });
+  // the gilt band is theme-independent dressing: it survives the room reset
+  expect(await page.evaluate(() =>
+    getComputedStyle(document.getElementById('rrFrame')).display)).toBe('block');
+  expect(await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--rr-gold').trim())).toBe('#c9a45c');
 });
 
 test('RR4 room swaps live without touching the book layout or iframe', async ({ page }) => {

@@ -1207,10 +1207,12 @@ html[data-rr] body.rr-orn #rrRoom{display:block}
    against the viewer rect by layoutChNavPills, class set on body) */
 body.rr-no-med .rr-medallion{display:none!important}
 /* gilt frame: a real gold band with a bevelled sheen, dark keylines inside
-   and out — the book's tooled cover border */
+   and out — the book's tooled cover border. Theme-independent dressing:
+   the sandal-gold band rides every paper environment and desk (only the
+   Reading Room toggle can retire it). */
 #rrFrame,.rr-spine-orn{position:absolute;pointer-events:none;z-index:2;display:none}
-html[data-rr] body.rr-frame-on #rrFrame,
-html[data-rr] body.rr-frame-on .rr-spine-orn{display:block}
+body.rr-frame-on #rrFrame,
+body.rr-frame-on .rr-spine-orn{display:block}
 #rrFrame{inset:-8px;
   border:6px solid transparent;
   border-image:linear-gradient(135deg,#efdca6 0%,#d9b866 22%,#a97e35 48%,#c9a45c 72%,#f0e0ac 100%) 1;
@@ -1576,6 +1578,22 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
               <output id="marginOut"></output>
             </div>
           </div>
+          <div class="adv-group">
+            <div class="row-head"><h4 class="lbl">Inside-page margins</h4><button class="chip" id="pmSidesAuto">Auto</button></div>
+            <div class="slider-row">
+              <input type="range" id="pmTopRange" min="0" max="120" step="1" aria-label="Page margin top">
+              <output id="pmTopOut"></output>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="pmBottomRange" min="0" max="120" step="1" aria-label="Page margin bottom">
+              <output id="pmBottomOut"></output>
+            </div>
+            <div class="slider-row">
+              <input type="range" id="pmSidesRange" min="0" max="120" step="1" aria-label="Page margin sides">
+              <output id="pmSidesOut"></output>
+            </div>
+            <p class="fine">Empty space at the top, bottom and sides of every page. Sides also set the spine gutter (auto = half the desk gutter).</p>
+          </div>
         </div>
       </details>
     </section>
@@ -1701,6 +1719,7 @@ const DEFAULTS = {
   bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
+  pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   warmth:0, perBookType:false, pageSound:false, grain:true,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
@@ -1725,6 +1744,10 @@ try{
   if(!Number.isFinite(settings.widthSingle) || settings.widthSingle < 300 || settings.widthSingle > 2400) settings.widthSingle = DEFAULTS.widthSingle;
   if(!Number.isFinite(settings.widthSpread) || settings.widthSpread < 600 || settings.widthSpread > 3600) settings.widthSpread = DEFAULTS.widthSpread;
   if(!Number.isFinite(settings.marginVertical) || settings.marginVertical < 0 || settings.marginVertical > 120) settings.marginVertical = DEFAULTS.marginVertical;
+  if(!Number.isFinite(settings.pageMarginTop) || settings.pageMarginTop < 0 || settings.pageMarginTop > 120) settings.pageMarginTop = DEFAULTS.pageMarginTop;
+  if(!Number.isFinite(settings.pageMarginBottom) || settings.pageMarginBottom < 0 || settings.pageMarginBottom > 120) settings.pageMarginBottom = DEFAULTS.pageMarginBottom;
+  if(!Number.isFinite(settings.pageMarginSides) || settings.pageMarginSides < 0 || settings.pageMarginSides > 120) settings.pageMarginSides = DEFAULTS.pageMarginSides;
+  if(typeof settings.pageMarginSidesAuto !== 'boolean') settings.pageMarginSidesAuto = DEFAULTS.pageMarginSidesAuto;
   if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
 }catch(e){}
 // Normalise legacy display-name font values saved by older Folio builds.
@@ -1738,7 +1761,7 @@ try{
   if(settings.font !== normalised) settings.font = normalised;
 }
 let saveT=null;
-const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic'];
+const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic','pageMarginTop','pageMarginBottom','pageMarginSidesAuto','pageMarginSides'];
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
   localStorage.setItem('folio-settings',JSON.stringify(settings));
   // Per-book typography memory: mirror the type channels under the book key.
@@ -1890,9 +1913,11 @@ function calcCPL(){
   if(sp){
     const sm = spreadMetrics();
     const pageW = Math.round((mw - sm.gutter) / 2);
-    return Math.max(25, Math.round(pageW / (es * charAdvance)));
+    const textW = Math.max(50, pageW - sm.gutter/2);
+    return Math.max(25, Math.round(textW / (es * charAdvance)));
   }
-  return Math.max(25, Math.round(mw / (es * charAdvance)));
+  const textW = Math.max(50, mw - spreadMetrics().gutter);
+  return Math.max(25, Math.round(textW / (es * charAdvance)));
 }
 
 function calcTypographicHarmony(){
@@ -1955,7 +1980,13 @@ function fitInfo(){
 }
 function spreadMetrics(){
   const padX = clamp(innerWidth*0.05, 24, 48);
-  const gutter = Math.round(clamp(innerWidth*0.03, 40, 72));
+  /* The epub.js gap IS the page-margin mechanism: per-page side inset =
+     gap/2 in both modes, and the spread spine gutter equals the whole gap.
+     Auto follows the desk gutter (today's behaviour); an explicit
+     Inside-page margin value drives it directly (PM feature). */
+  const gutter = Math.round(settings.pageMarginSidesAuto
+    ? clamp(innerWidth*0.03, 40, 72)
+    : clamp(2*settings.pageMarginSides, 0, 240));
   const availW = Math.max(100, innerWidth - padX*2);
   const pageMax = Math.max(50, Math.min((availW - gutter)/2, 950));
   const h = Math.max(100, innerHeight - 150);
@@ -2085,6 +2116,7 @@ function applyFit(){
   if(sr){ sr.value = es; setFill(sr); }
   syncWidthSlider();
   syncMarginSlider();
+  syncPageMargins();
   syncLhSlider();
   syncLsSlider();
   syncWsSlider();
@@ -2103,12 +2135,21 @@ function buildCSS(){
   const ws = effWordSpacing();
   const hash = thKey + '|' + settings.font + '|' + fs + '|' + lh + '|' + ls + '|' + ws + '|' +
     settings.justify + '|' + settings.dropCaps + '|' + settings.indent + '|' + settings.oldstyle + '|' +
-    settings.warmth + '|' + settings.bionic + '|' + settings.guide;
+    settings.warmth + '|' + settings.bionic + '|' + settings.guide +
+    '|' + settings.pageMarginTop + '|' + settings.pageMarginBottom +
+    '|' + Math.round(spreadMetrics().gutter/2);
   if(hash === _cssHash) return _cssCache;
   _cssHash = hash;
   const t = THEMES[thKey]||THEMES.paper;
   const stack = (FONTS[settings.font]||FONTS.literata).stack;
   const j = settings.justify;
+  /* Inside-page margins (PM): top/bottom are direct padding; the side inset
+     is half the epub.js gap (its own per-page padding in both modes). The
+     `html body` double specificity beats epub's chapter sheet AND publisher
+     CSS regardless of source order — folio-dyn is not reliably last. */
+  const pgT = clamp(settings.pageMarginTop, 0, 120);
+  const pgB = clamp(settings.pageMarginBottom, 0, 120);
+  const pgS = Math.round(spreadMetrics().gutter/2);
   const dropCapCss = settings.dropCaps ? `
 body > p:first-of-type::first-letter,
 section > p:first-of-type::first-letter,
@@ -2137,19 +2178,19 @@ p{margin:0 !important;text-indent:1.35em !important;}` : '';
   _cssCache = FONT_FACES + `
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
-body{
-  color:${t.ink} !important;
-  font-family:${stack} !important;
-  font-size:${fs}px !important;
-  line-height:${lh} !important;
-  letter-spacing:${(ls/1000).toFixed(3)}em !important;
-  word-spacing:${(ws/1000).toFixed(3)}em !important;
-  font-feature-settings:${settings.oldstyle ? '"onum" 1' : 'normal'} !important;
-  text-align:${j?'justify':'left'} !important;
-  margin:0 !important; padding:0 !important;
-  -webkit-hyphens:auto; hyphens:auto; overflow-wrap:break-word;
-  touch-action:pan-y !important; /* horizontal drags become pointer events for the fold engine */
-}
+  body{
+    color:${t.ink} !important;
+    font-family:${stack} !important;
+    font-size:${fs}px !important;
+    line-height:${lh} !important;
+    letter-spacing:${(ls/1000).toFixed(3)}em !important;
+    word-spacing:${(ws/1000).toFixed(3)}em !important;
+    font-feature-settings:${settings.oldstyle ? '"onum" 1' : 'normal'} !important;
+    text-align:${j?'justify':'left'} !important;
+    margin:0 !important;
+    -webkit-hyphens:auto; hyphens:auto; overflow-wrap:break-word;
+    touch-action:pan-y !important; /* horizontal drags become pointer events for the fold engine */
+  }
 p,li,dd,dt,blockquote,td,th,figcaption,div,section,article,span,h1,h2,h3,h4,h5,h6,a,strong,b,em,i,small,pre{
   letter-spacing:inherit !important; word-spacing:inherit !important; line-height:inherit !important;}
 p,li,dd,dt,blockquote,td,th,figcaption,div,section,article,pre{font-size:1rem !important;}
@@ -2167,6 +2208,7 @@ b.fio-b{font-weight:700;}
 .fio-hl{border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;cursor:pointer;}
 ${dropCapCss}
 ${indentCss}
+html body{padding:${pgT}px ${pgS}px ${pgB}px ${pgS}px !important;}
 `;
   return _cssCache;
 }
@@ -8002,8 +8044,24 @@ async function relayout(){
   updateStageShift();
   if(state.rendition && !state.recreating && !state.turning){
     const w=el('wrap');
-    try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
+    renditionResizeWithGap(w.clientWidth,w.clientHeight);
   }
+}
+/* Rendition resize that keeps the epub.js gap in step with the Inside-page
+   margin setting: per-page side inset = gap/2, so the gap is pushed through
+   manager.settings.gap first. A plain resize() early-returns when the stage
+   size is unchanged, so a changed gap also clears _stageSize — the same
+   full clear/updateLayout re-flow a real window resize takes. */
+function renditionResizeWithGap(w,h){
+  const m=state.rendition && state.rendition.manager;
+  if(m){
+    const g=spreadMetrics().gutter;
+    if(m.settings.gap!==g){
+      m.settings.gap=g;
+      m._stageSize=void 0;
+    }
+  }
+  try{ state.rendition.resize(w,h); }catch(e){}
 }
 /* Throttled book refresh for continuous slider drags: cheap chrome/output
    updates run on the next frame, while the expensive book reflow (iframe CSS
@@ -8023,7 +8081,7 @@ function scheduleBookRefresh(needResize){
         brResize=false;
         if(state.rendition && !state.recreating && !state.turning){
           const w=el('wrap');
-          try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
+          renditionResizeWithGap(w.clientWidth,w.clientHeight);
         }
       }
     };
@@ -8342,7 +8400,7 @@ function syncControls(){
   el('swOldstyle').checked=!!settings.oldstyle;
   el('swSound').checked=!!settings.pageSound;
   el('swGrain').checked=settings.grain !== false;
-  syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm();
+  syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm(); syncPageMargins();
   el('swPerBook').checked=!!settings.perBookType;
   syncEnvCards();
 }
@@ -8501,6 +8559,41 @@ el('marginRange').addEventListener('input', e => {
   settings.marginAuto = false;
   settings.marginVertical = +e.target.value;
   save(); scheduleBookRefresh(false);
+});
+
+/* Inside-page margins (PM): top/bottom are pure iframe CSS — no pagination
+   impact. Sides drive the epub.js gap (per-page inset = gap/2, and the
+   spread spine gutter equals the whole gap), so they ride the throttled
+   resize path; the Auto chip restores desk-gutter coupling. */
+function syncPageMargins(){
+  const t = el('pmTopRange'), b = el('pmBottomRange'), s = el('pmSidesRange');
+  if(!t) return;
+  t.value = settings.pageMarginTop;
+  b.value = settings.pageMarginBottom;
+  s.value = settings.pageMarginSides;
+  el('pmTopOut').textContent = settings.pageMarginTop + 'px';
+  el('pmBottomOut').textContent = settings.pageMarginBottom + 'px';
+  const eff = Math.round(spreadMetrics().gutter / 2);
+  el('pmSidesOut').textContent = settings.pageMarginSidesAuto ? eff + 'px (Auto)' : settings.pageMarginSides + 'px';
+  el('pmSidesAuto').classList.toggle('on', !!settings.pageMarginSidesAuto);
+  [t, b, s].forEach(setFill);
+}
+el('pmTopRange').addEventListener('input', e => {
+  settings.pageMarginTop = clamp(Math.round(+e.target.value), 0, 120);
+  save(); syncPageMargins(); scheduleBookRefresh(false);
+});
+el('pmBottomRange').addEventListener('input', e => {
+  settings.pageMarginBottom = clamp(Math.round(+e.target.value), 0, 120);
+  save(); syncPageMargins(); scheduleBookRefresh(false);
+});
+el('pmSidesRange').addEventListener('input', e => {
+  settings.pageMarginSidesAuto = false;
+  settings.pageMarginSides = clamp(Math.round(+e.target.value), 0, 120);
+  save(); syncPageMargins(); scheduleBookRefresh(true);
+});
+el('pmSidesAuto').addEventListener('click', () => {
+  settings.pageMarginSidesAuto = !settings.pageMarginSidesAuto;
+  save(); syncPageMargins(); scheduleBookRefresh(true);
 });
 
 // Line height
