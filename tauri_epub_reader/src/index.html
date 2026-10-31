@@ -29,6 +29,11 @@
      or assets/*.png) and size it with --deco-size; plain desks leave none */
   --deco:none;
   --deco-size:auto;
+  /* Reading Room axis (desk chrome): gold for the frame/ornament dressing,
+     owned by the [data-rr] blocks + applyReadingRoom(), independent of the
+     paper environment's tokens */
+  --rr-gold:#c9a45c;
+  --rr-ornament-opacity:.9;
   --sans:'Space Grotesk',ui-sans-serif,sans-serif;
   --serif:'Literata',Georgia,serif;
   --fit-fs:19.5px; --fit-lh:1.65; --fit-mw:660px; --gut:64px;
@@ -323,6 +328,11 @@ body.state-landing .jump-anchor{display:none!important;}
   color:#2b2318;font-family:'Literata',serif;border-bottom:3px solid #c29b3e}
 .env-prev-emerald{background:linear-gradient(to right,#073614 0 15%,#f5eedc 15% 85%,#073614 85% 100%);
   color:#2b2318;font-family:'Literata',serif;border-bottom:3px solid #c29b3e}
+/* Reading Room card previews: desk · gilt · paper bands */
+.rr-prev-match{background:linear-gradient(to right,var(--desk) 0 15%,var(--accent) 15% 26%,var(--page) 26% 100%);
+  color:var(--ink);border-bottom:3px solid var(--accent)}
+.rr-prev-maroon{background:linear-gradient(to right,#431120 0 15%,#c9a45c 15% 26%,#f7f1e3 26% 100%);
+  color:#2b2318;font-family:'Literata',serif;border-bottom:3px solid #c9a45c}
 .env-sample-text{font-size:17px;font-weight:600;}
 .env-name{font:600 12px var(--sans);color:var(--ink);margin-bottom:2px;}
 .env-sub{font:400 9.5px var(--sans);color:var(--muted);line-height:1.2;}
@@ -662,6 +672,23 @@ body.guide-on #guide{opacity:1}
   position:fixed;pointer-events:none;z-index:62;overflow:hidden;
   perspective:2400px;-webkit-perspective:2400px;
   background:var(--desk);contain:paint;
+}
+/* desk composite (every theme): a candle-pool wash above, a soft falloff
+   below, and the optional cloth/damask tile through --deco — invisible
+   while --deco:none. Reading Room patterns flow through here and into the
+   compositor so page turns never flash a flat desk. The bespoke [data-theme]
+   blocks below restate the same composite with their own wash values. */
+body,#landing,#loader{
+  background-image:
+    radial-gradient(120% 85% at 50% 24%, rgba(255,244,214,.08), transparent 55%),
+    linear-gradient(180deg, rgba(var(--shadow-rgb),.10), transparent 26%, transparent 74%, rgba(var(--shadow-rgb),.18)),
+    radial-gradient(140% 120% at 50% 42%, transparent 58%, rgba(var(--shadow-rgb),.20) 100%),
+    var(--deco);
+  background-size:auto,auto,auto,var(--deco-size);
+}
+.pt-compositor{
+  background-image:var(--deco);
+  background-size:var(--deco-size);
 }
 
 /* Stationary base layer & revealed page layer */
@@ -1126,15 +1153,101 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 [data-theme="velvet"] .recent-progress-fill{background:#d4ab55}
 [data-theme="velvet"] .coach-btn{background:#c29b3e;color:#241703}
 [data-theme="velvet"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+
+/* ============ READING ROOM — the desk axis ============
+   data-rr is independent of data-theme (paper): the surroundings, pattern,
+   gilt and dressing gold come from here while page/ink/type stay with the
+   reading environment. Blocks MUST stay after the [data-theme] blocks —
+   same specificity, later source wins — and mirror RR_THEMES in JS (the
+   scan asserts they agree). 'match' simply sets no attribute, so the desk
+   keeps following the environment exactly as before. */
+[data-rr="royal-maroon"]{
+  --desk:#431120; --on-desk:#eed9ac; --desk-meta:#c9a98d; --ghost:#eed9ac;
+  --stand-a:#e6c15e; --stand-b:#c29b3e; --stand-c:#93702a; --stand-hi:rgba(255,244,200,.85);
+  --deco:url("assets/ornaments/damask-maroon.svg"); --deco-size:280px 280px;
+  --rr-gold:#c9a45c;
+}
+/* chrome joins the maroon room — the same chalk treatment the cloth salons
+   use, so no cream band slices the damask */
+[data-rr="royal-maroon"] #topbar{
+  background:color-mix(in srgb,var(--desk) 86%,transparent);
+  border-bottom:1px solid rgba(238,217,172,.18);
+  color:var(--on-desk);
+}
+[data-rr="royal-maroon"] #bookTitle{color:var(--desk-meta)}
+[data-rr="royal-maroon"] .pos-pill{color:var(--desk-meta);border-color:rgba(238,217,172,.24)}
+[data-rr="royal-maroon"] .pos-pill:hover{color:var(--on-desk);border-color:rgba(238,217,172,.5)}
+[data-rr="royal-maroon"] .arrow{
+  color:var(--on-desk);border-color:rgba(238,217,172,.25);
+  background:color-mix(in srgb,var(--desk) 72%,transparent)}
+[data-rr="royal-maroon"] .arrow:hover{border-color:rgba(226,189,99,.9)}
+[data-rr="royal-maroon"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+
+/* ---- Reading Room dressing. The corners + medallion are ROOM furniture:
+   fixed at the viewport corners in #rrRoom, independent of the book's
+   geometry. The gilt frame + spine marks are book furniture: children of
+   #wrap tracking the spread. Pure decoration — pointer-events none
+   everywhere; visible only while a room is active (html[data-rr]) and its
+   toggle is on. ---- */
+#rrRoom{position:fixed;inset:0;pointer-events:none;z-index:1;display:none}
+html[data-rr] body.rr-orn #rrRoom{display:block}
+.rr-corner,.rr-medallion{position:absolute;background:var(--rr-gold);opacity:var(--rr-ornament-opacity)}
+.rr-corner{width:150px;height:150px;
+  -webkit-mask:url("assets/ornaments/corner-acanthus.svg") center/contain no-repeat;
+  mask:url("assets/ornaments/corner-acanthus.svg") center/contain no-repeat}
+.rr-corner.tl{top:8px;left:8px}
+.rr-corner.tr{top:8px;right:8px;transform:scaleX(-1)}
+.rr-corner.bl{bottom:8px;left:8px;transform:scaleY(-1)}
+.rr-corner.br{bottom:8px;right:8px;transform:scale(-1,-1)}
+.rr-medallion{right:26px;top:50%;transform:translateY(-50%);width:170px;height:170px;
+  opacity:calc(var(--rr-ornament-opacity)*.92);
+  -webkit-mask:url("assets/ornaments/medallion-maroon.svg") center/contain no-repeat;
+  mask:url("assets/ornaments/medallion-maroon.svg") center/contain no-repeat}
+/* the medallion yields when the right desk margin cannot hold it (measured
+   against the viewer rect by layoutChNavPills, class set on body) */
+body.rr-no-med .rr-medallion{display:none!important}
+/* gilt frame: a real gold band with a bevelled sheen, dark keylines inside
+   and out — the book's tooled cover border */
+#rrFrame,.rr-spine-orn{position:absolute;pointer-events:none;z-index:2;display:none}
+html[data-rr] body.rr-frame-on #rrFrame,
+html[data-rr] body.rr-frame-on .rr-spine-orn{display:block}
+#rrFrame{inset:-8px;
+  border:6px solid transparent;
+  border-image:linear-gradient(135deg,#efdca6 0%,#d9b866 22%,#a97e35 48%,#c9a45c 72%,#f0e0ac 100%) 1;
+  box-shadow:0 0 0 1px rgba(var(--shadow-rgb),.42),0 0 0 2px color-mix(in srgb,var(--rr-gold) 55%,transparent),
+    0 14px 36px -14px rgba(var(--shadow-rgb),.6)}
+#rrFrame::before{content:'';position:absolute;inset:4px;border:1px solid rgba(var(--shadow-rgb),.5)}
+/* binding mark centred on the frame's top and bottom bands */
+.rr-spine-orn{width:220px;height:46px;background:var(--rr-gold);opacity:calc(var(--rr-ornament-opacity)*.95);
+  -webkit-mask:url("assets/ornaments/spine-ornament.svg") center/contain no-repeat;
+  mask:url("assets/ornaments/spine-ornament.svg") center/contain no-repeat}
+.rr-spine-orn.top{top:-31px;left:50%;transform:translateX(-50%)}
+.rr-spine-orn.bottom{bottom:-31px;left:50%;transform:translateX(-50%)}
+/* narrow screens simplify rather than crowd the page (guide §7) */
+@media (max-width:1100px){#rrRoom,#rrFrame,.rr-spine-orn{display:none!important}}
 </style>
-<script>/* FOUC guard: paint the saved bespoke theme on first paint. Reads the
-   same folio-settings the app persists (no second key); applyTheme() re-sets
-   the identical values from THEMES once the app boots. */
+<script>/* FOUC guard: paint the saved bespoke theme and Reading Room on first
+   paint. Reads the same folio-settings the app persists (no second key);
+   applyTheme()/applyReadingRoom() re-set the identical values once the app
+   boots. Room rule matches the settings-load migration: fresh installs wake
+   in Royal Maroon; readers with saved settings keep desk-follows-env until
+   they pick a room. */
 try{var __fs=JSON.parse(localStorage.getItem('folio-settings')||'{}');
-if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='ember'||__fs.theme==='velvet'||__fs.theme==='emerald'))document.documentElement.dataset.theme=__fs.theme;}catch(e){}</script>
+if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='ember'||__fs.theme==='velvet'||__fs.theme==='emerald'))document.documentElement.dataset.theme=__fs.theme;
+var __rr=(__fs.rrTheme!==undefined)?__fs.rrTheme:((__fs.theme!==undefined)?'match':'royal-maroon');
+if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</script>
 </head>
 <body class="state-landing">
 <div id="deskDim" aria-hidden="true"></div>
+<!-- Reading Room wall furniture: corner filigree + side medallion hang at
+     the room's corners (fixed, independent of the book's geometry) -->
+<div id="rrRoom" aria-hidden="true">
+  <span class="rr-corner tl"></span>
+  <span class="rr-corner tr"></span>
+  <span class="rr-corner bl"></span>
+  <span class="rr-corner br"></span>
+  <span class="rr-medallion"></span>
+</div>
 
 <!-- ============ landing / title page ============ -->
 <div id="landing">
@@ -1231,6 +1344,9 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
     <div id="finis" aria-hidden="true"><span class="finis-row"><span>Finis</span></span><span id="finisMeta"></span></div>
     <div id="gutter"></div>
     <div id="stand"><i id="standBlockL"></i><i id="standBlockR"></i></div>
+    <div id="rrFrame" aria-hidden="true"></div>
+    <span class="rr-spine-orn top" aria-hidden="true"></span>
+    <span class="rr-spine-orn bottom" aria-hidden="true"></span>
   </div>
   <button class="arrow" id="btnNext" title="Next page" aria-label="Next page">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5 16 12l-6.5 7"/></svg>
@@ -1321,6 +1437,23 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
           <span class="env-sub">Green · gold</span>
         </button>
       </div>
+    </section>
+    <section id="rrSection">
+      <h4 class="lbl">Reading Room</h4>
+      <div class="env-cards" id="rrCards">
+        <button type="button" class="env-card" data-rr="match" id="rrMatch" title="Desk follows the reading environment">
+          <span class="env-preview rr-prev-match"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Match Environment</span>
+          <span class="env-sub">Desk follows paper</span>
+        </button>
+        <button type="button" class="env-card" data-rr="royal-maroon" id="rrMaroon" title="Burgundy damask with gilt tooling">
+          <span class="env-preview rr-prev-maroon"><span class="env-sample-text">Aa</span></span>
+          <span class="env-name">Royal Maroon</span>
+          <span class="env-sub">Damask · gilt</span>
+        </button>
+      </div>
+      <label class="sw"><input type="checkbox" id="swRrOrn"><span class="tr"></span><span class="tx"><b>Ornaments</b><small>Corner flourishes, side medallion, spine marks</small></span></label>
+      <label class="sw"><input type="checkbox" id="swRrFrame"><span class="tr"></span><span class="tx"><b>Gilt frame</b><small>Fine double rule around the spread</small></span></label>
     </section>
     <section>
       <div class="row-head">
@@ -1568,7 +1701,8 @@ const DEFAULTS = {
   bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
-  warmth:0, perBookType:false, pageSound:false, grain:true
+  warmth:0, perBookType:false, pageSound:false, grain:true,
+  rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
 let settings = {...DEFAULTS};
 try{
@@ -1577,6 +1711,12 @@ try{
   // Migration: readers who had explicitly picked a theme keep manual mode;
   // fresh installs default to following the OS day/night theme.
   if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
+  // Reading Room: fresh installs wake in the Royal Maroon room; readers with
+  // saved settings keep today's desk-follows-environment behaviour until
+  // they pick a room themselves.
+  if(!raw.includes('"rrTheme"')) settings.rrTheme = raw.includes('"theme"') ? 'match' : DEFAULTS.rrTheme;
+  if(typeof settings.rrOrnaments !== 'boolean') settings.rrOrnaments = DEFAULTS.rrOrnaments;
+  if(typeof settings.rrFrame !== 'boolean') settings.rrFrame = DEFAULTS.rrFrame;
   // Validate numeric settings to guard against corrupt/NaN storage
   if(!Number.isFinite(settings.fontSize) || settings.fontSize < 10 || settings.fontSize > 48) settings.fontSize = DEFAULTS.fontSize;
   if(!Number.isFinite(settings.lineHeight) || settings.lineHeight < 1.0 || settings.lineHeight > 3.0) settings.lineHeight = DEFAULTS.lineHeight;
@@ -1665,6 +1805,17 @@ const THEMES = {
     shadowRgb:'26,6,14', paperEdge:'#b09758', sheenRgb:'255,246,214', standA:'#e6c15e', standB:'#c29b3e', standC:'#93702a', standHi:'rgba(255,244,200,.85)', ghost:'var(--page)', onDesk:'#f3e9d6', deskMeta:'#c9a8a5', grainOp:.55, grainBlend:'multiply'},
   emerald: {label:'Emerald',  desk:'#073614', page:'#f5eedc', ink:'#2b2318', muted:'#857356', accent:'#8f6a28', hair:'rgba(43,35,24,.16)',  hairS:'rgba(43,35,24,.34)', dim:'rgba(4,12,9,.5)',      sel:'rgba(198,158,68,.30)',
     shadowRgb:'6,16,12', paperEdge:'#b09758', sheenRgb:'255,244,210', standA:'#e6c15e', standB:'#c29b3e', standC:'#93702a', standHi:'rgba(255,244,200,.85)', ghost:'var(--page)', onDesk:'#f3e9d6', deskMeta:'#a9c3b4', grainOp:.55, grainBlend:'multiply'}
+};
+/* Reading Room themes: the DESK axis — surroundings, pattern (--deco via the
+   [data-rr] block), gilt and dressing gold — deliberately separate from the
+   paper environment in THEMES so any room can host any paper. 'match' is not
+   an entry: it means "desk follows the environment". The [data-rr="..."] CSS
+   blocks mirror these values for first paint; the scan asserts agreement.
+   Ghost is a literal warm ivory (never var(--page): the paper may be dark). */
+const RR_THEMES = {
+  'royal-maroon': {label:'Royal Maroon', desk:'#431120', onDesk:'#eed9ac', deskMeta:'#c9a98d', ghost:'#eed9ac',
+    standA:'#e6c15e', standB:'#c29b3e', standC:'#93702a', standHi:'rgba(255,244,200,.85)',
+    gold:'#c9a45c', gilt:true}
 };
 function rgba(hex,a){
   const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -4401,6 +4552,9 @@ function layoutChNavPills(){
   };
   setPill(L, deskL);
   setPill(R, deskR);
+  // Reading Room side medallion: it needs a real desk margin to hang in
+  // (~170px emblem + breathing room), same measurement the pills use.
+  body.classList.toggle('rr-no-med', deskR < 150);
 }
 async function toggleBookmark(){
   if(!state.rendition) return;
@@ -7926,6 +8080,38 @@ function applyTheme(){
     b.classList.toggle('sel', selected);
     b.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
+  applyReadingRoom();
+}
+
+/* Reading Room: overlay the desk axis (surroundings, pattern, gilt, dressing
+   gold) onto whatever applyTheme() just wrote. 'match' keeps the reading
+   environment's own desk; any room rides on top — desk-family tokens and
+   gilt come from RR_THEMES, the pattern flows through --deco via the
+   [data-rr] CSS block, and the paper/page tokens are untouched. Runs at the
+   tail of applyTheme(), so every theme path (boot, theme row, env cards,
+   auto-theme tick) re-asserts the room for free. */
+function applyReadingRoom(){
+  const key=settings.rrTheme||'match';
+  const t=RR_THEMES[key];
+  const rs=document.documentElement.style;
+  body.classList.toggle('rr-orn',!!settings.rrOrnaments);
+  body.classList.toggle('rr-frame-on',!!settings.rrFrame);
+  syncRRCards();
+  if(!t){
+    delete document.documentElement.dataset.rr;
+    rs.removeProperty('--rr-gold');
+    return; // desk tokens are exactly what applyTheme() just set
+  }
+  document.documentElement.dataset.rr=key;
+  rs.setProperty('--rr-gold',t.gold);
+  rs.setProperty('--desk',t.desk);
+  rs.setProperty('--on-desk',t.onDesk);
+  rs.setProperty('--desk-meta',t.deskMeta);
+  rs.setProperty('--ghost',t.ghost);
+  rs.setProperty('--stand-a',t.standA); rs.setProperty('--stand-b',t.standB);
+  rs.setProperty('--stand-c',t.standC); rs.setProperty('--stand-hi',t.standHi);
+  // the room owns the gilt: fore-edges follow the binding, not the paper
+  body.classList.toggle('gilt-fore',!!t.gilt);
 }
 
 /* ---------------- settings UI ---------------- */
@@ -8023,6 +8209,10 @@ function nudgeWidth(d){
   showNudgeHud('↔ ' + effWidth() + 'px');
 }
 function applyEnvironment(envKey){
+  // An environment card is a whole-room choice: it resets the Reading Room
+  // to "desk follows environment" so the bespoke rooms keep their current
+  // meaning instead of being overridden by the room axis.
+  settings.rrTheme = 'match';
   if(envKey === 'paper'){
     settings.theme = 'paper';
     settings.themeAuto = false;
@@ -8106,6 +8296,17 @@ function syncEnvCards(){
   if(e) e.classList.toggle('sel', isEmber);
   if(v) v.classList.toggle('sel', isVelvet);
   if(em) em.classList.toggle('sel', isEmerald);
+}
+/* Reading Room selection + toggles; called from applyReadingRoom() so the
+   sheet always mirrors the active room. */
+function syncRRCards(){
+  document.querySelectorAll('#rrCards .env-card').forEach(b=>{
+    const sel = b.dataset.rr === (settings.rrTheme || 'match');
+    b.classList.toggle('sel', sel);
+    b.setAttribute('aria-pressed', sel ? 'true' : 'false');
+  });
+  const orn = el('swRrOrn'); if(orn) orn.checked = !!settings.rrOrnaments;
+  const frm = el('swRrFrame'); if(frm) frm.checked = !!settings.rrFrame;
 }
 
 // Feature 3: time-aware auto theme. With the Auto chip on, the hour of day
@@ -8528,6 +8729,17 @@ const envVelvet = el('envVelvet');
 if(envVelvet) envVelvet.addEventListener('click', () => applyEnvironment('velvet'));
 const envEmerald = el('envEmerald');
 if(envEmerald) envEmerald.addEventListener('click', () => applyEnvironment('emerald'));
+/* Reading Room cards + toggles: the desk axis. A card pick re-runs the full
+   applyTheme() chain so gilt and desk tokens re-assert in canonical order;
+   the toggles only need the cheap room overlay. */
+document.querySelectorAll('#rrCards .env-card').forEach(b => b.addEventListener('click', () => {
+  settings.rrTheme = b.dataset.rr || 'match';
+  save(); applyTheme();
+}));
+const swRrOrn = el('swRrOrn');
+if(swRrOrn) swRrOrn.addEventListener('change', () => { settings.rrOrnaments = swRrOrn.checked; save(); applyReadingRoom(); });
+const swRrFrame = el('swRrFrame');
+if(swRrFrame) swRrFrame.addEventListener('change', () => { settings.rrFrame = swRrFrame.checked; save(); applyReadingRoom(); });
 // TOC drawer tabs: contents / bookmarks / highlights
 function setTocTab(which){
   const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl', voc:'tabVoc' };

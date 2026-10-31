@@ -7,6 +7,9 @@ import { fresh, openDemo, openDemoReady, viewerFrame } from './helpers.mjs';
 test('BK1 front board carries the book title; gilt only on gold-stand themes', async ({ page }) => {
   await fresh(page);
   await openDemoReady(page);
+  // Pin desk-follows-environment: fresh installs wake in the Royal Maroon
+  // room, whose gilt would otherwise own the fore-edges (RR1 covers that).
+  await page.evaluate(() => { settings.rrTheme = 'match'; applyTheme(); });
   expect(await page.evaluate(() => document.getElementById('boardTitle').textContent)).toBe('The Time Machine');
   expect(await page.evaluate(() => document.body.classList.contains('gilt-fore'))).toBe(false);
   await page.evaluate(() => { settings.theme = 'velvet'; applyTheme(); });

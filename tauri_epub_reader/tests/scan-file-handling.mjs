@@ -118,12 +118,31 @@ for (const name of BESPOKE) {
 }
 check('bespoke theme CSS/JS palettes agree', themeDrift === '',
   `first-paint vs runtime drift: ${themeDrift || 'n/a'}`);
+
+// 16b. Reading Room rooms: the [data-rr] first-paint block and the JS
+// RR_THEMES entry must agree on the desk family and the dressing gold, so
+// the FOUC paint and the runtime overlay never disagree.
+const RR_ROOMS = ['royal-maroon'];
+let rrDrift = '';
+for (const name of RR_ROOMS) {
+  const cssBlock = html.match(new RegExp(`\\[data-rr="${name}"\\]\\{([\\s\\S]*?)\\n\\}`, '')) || [];
+  const jsLine = (html.match(new RegExp(`'${name}':\\s*\\{label[\\s\\S]*?\\}`)) || [''])[0];
+  for (const pair of [['desk', 'desk'], ['on-desk', 'onDesk'], ['desk-meta', 'deskMeta'], ['rr-gold', 'gold']]) {
+    const cssVal = (cssBlock[1] || '').match(new RegExp(`--${pair[0]}:\\s*(#[0-9a-fA-F]{6})`));
+    const jsVal = jsLine.match(new RegExp(`${pair[1]}:'(#[0-9a-fA-F]{6})'`));
+    if (!cssVal || !jsVal || cssVal[1].toLowerCase() !== jsVal[1].toLowerCase()) {
+      rrDrift += `${name}.${pair[0]}: css=${cssVal && cssVal[1]} js=${jsVal && jsVal[1]}; `;
+    }
+  }
+}
+check('reading room CSS/JS palettes agree', rrDrift === '',
+  `first-paint vs runtime drift: ${rrDrift || 'n/a'}`);
 const rootBlock = (html.match(/:root\{([\s\S]*?)\n\}/) || [])[1] || '';
 const rootVars = new Set([...rootBlock.matchAll(/--([\w-]+)\s*:/g)].map((m) => m[1]));
 const usedVars = new Set([...html.matchAll(/var\(--([\w-]+)\)/g)].map((m) => m[1]));
 // JS-owned vars (set at runtime, never in :root): layout fit vars, slider
 // fills, and --grain (pre-existing dead reference kept for compatibility).
-const jsOwned = new Set(['fit-font', 'mw', 'pad-y', 'fill', 'grain']);
+const jsOwned = new Set(['fit-font', 'mw', 'pad-y', 'fill', 'grain', 'stage-shift-x']);
 const missing = [...usedVars].filter((v) => !rootVars.has(v) && !jsOwned.has(v));
 check('every themed var() resolves to a :root default', missing.length === 0,
   `unresolved tokens: ${missing.join(', ') || 'n/a'}`);

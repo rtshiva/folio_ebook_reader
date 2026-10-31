@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170 170">
+  <!-- Folio Reading Room · side medallion: a bold gilt ring framing a dense
+       botanical spray, hung in the right desk margin. Alpha geometry,
+       consumed as a CSS mask and tinted with the room gold. -->
+  <g fill="none" stroke="#000">
+    <!-- bold outer band + fine inner rings -->
+    <circle cx="85" cy="85" r="76" stroke-width="8"/>
+    <circle cx="85" cy="85" r="66" stroke-width="2.2"/>
+    <circle cx="85" cy="85" r="60" stroke-width="4"/>
+    <!-- ring beading at the cardinal points -->
+    <circle cx="85" cy="5" r="3.4" fill="#000" stroke="none"/>
+    <circle cx="85" cy="165" r="3.4" fill="#000" stroke="none"/>
+    <circle cx="5" cy="85" r="3.4" fill="#000" stroke="none"/>
+    <circle cx="165" cy="85" r="3.4" fill="#000" stroke="none"/>
+    <!-- central palmette, filled, with vein detail -->
+    <path d="M85 34 C 96 48, 98 64, 90 78 C 87 83, 85 86, 85 88 C 85 86, 83 83, 80 78 C 72 64, 74 48, 85 34 Z" fill="#000" stroke="none"/>
+    <path d="M85 136 C 96 122, 98 106, 90 92 C 87 87, 85 84, 85 82 C 85 84, 83 87, 80 92 C 72 106, 74 122, 85 136 Z" fill="#000" stroke="none"/>
+    <path d="M85 46 C 85 66, 85 84, 85 124" stroke-width="1.8" opacity=".8"/>
+    <!-- side acanthus leaves, filled with curls -->
+    <path d="M52 62 C 64 62, 76 68, 82 78 C 70 80, 58 76, 50 68 C 50 65, 50 63, 52 62 Z" fill="#000" stroke="none" opacity=".95"/>
+    <path d="M118 62 C 106 62, 94 68, 88 78 C 100 80, 112 76, 120 68 C 120 65, 120 63, 118 62 Z" fill="#000" stroke="none" opacity=".95"/>
+    <path d="M54 112 C 66 112, 78 106, 84 96 C 72 94, 60 98, 52 106 C 52 108, 53 110, 54 112 Z" fill="#000" stroke="none" opacity=".95"/>
+    <path d="M116 112 C 104 112, 92 106, 86 96 C 98 94, 110 98, 118 106 C 118 108, 117 110, 116 112 Z" fill="#000" stroke="none" opacity=".95"/>
+    <!-- curling stems between the leaves -->
+    <path d="M58 70 C 66 76, 72 84, 74 94" stroke-width="2"/>
+    <path d="M112 70 C 104 76, 98 84, 96 94" stroke-width="2"/>
+    <path d="M58 104 C 66 98, 72 90, 74 80" stroke-width="2"/>
+    <path d="M112 104 C 104 98, 98 90, 96 80" stroke-width="2"/>
+    <!-- heart bud at the centre -->
+    <path d="M85 76 C 91 80, 93 87, 89 93 C 87 96, 85 97, 85 98 C 85 97, 83 96, 81 93 C 77 87, 79 80, 85 76 Z" fill="#000" stroke="none"/>
+    <circle cx="85" cy="85" r="4.5" fill="#000" stroke="none"/>
+    <circle cx="85" cy="85" r="12" stroke-width="1.4" opacity=".8"/>
+  </g>
+</svg>

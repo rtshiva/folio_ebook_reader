@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 46">
+  <!-- Folio Reading Room · spine ornament: a bolder binding mark centred on
+       the frame rules. Filled fleuron, flanking rules with diamond
+       terminals. Alpha geometry, consumed as a CSS mask. -->
+  <g fill="none" stroke="#000" stroke-linecap="round">
+    <path d="M6 23 H 74" stroke-width="3"/>
+    <path d="M146 23 H 214" stroke-width="3"/>
+    <path d="M74 23 L 88 23" stroke-width="1.4" opacity=".8"/>
+    <path d="M132 23 L 146 23" stroke-width="1.4" opacity=".8"/>
+    <!-- central fleuron: filled palmette with mirrored lobes -->
+    <path d="M110 6 C 118 12, 122 20, 120 28 C 118 34, 114 38, 110 40 C 106 38, 102 34, 100 28 C 98 20, 102 12, 110 6 Z" fill="#000" stroke="none"/>
+    <path d="M96 23 C 100 16, 106 13, 112 15 C 108 20, 106 26, 107 32 C 102 31, 98 28, 96 23 Z" fill="#000" stroke="none"/>
+    <path d="M124 23 C 120 16, 114 13, 108 15 C 112 20, 114 26, 113 32 C 118 31, 122 28, 124 23 Z" fill="#000" stroke="none"/>
+    <path d="M110 12 C 110 20, 110 28, 110 34" stroke-width="1.6" opacity=".7"/>
+    <!-- diamond terminals -->
+    <path d="M88 23 L 94 18 L 100 23 L 94 28 Z" fill="#000" stroke="none"/>
+    <path d="M120 23 L 126 18 L 132 23 L 126 28 Z" fill="#000" stroke="none"/>
+    <circle cx="78" cy="23" r="2.6" fill="#000" stroke="none"/>
+    <circle cx="142" cy="23" r="2.6" fill="#000" stroke="none"/>
+    <circle cx="16" cy="23" r="2" fill="#000" stroke="none"/>
+    <circle cx="204" cy="23" r="2" fill="#000" stroke="none"/>
+  </g>
+</svg>
