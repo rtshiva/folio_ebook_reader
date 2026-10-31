@@ -102,3 +102,42 @@ test('CN2 keyboard ] / [ match the pill behavior on multi-anchor files', async (
   await page.waitForFunction(() => tocCurIdx === 0, null, { timeout: 9000 });
   expect(await page.evaluate(() => document.getElementById('chapter').textContent)).toBe(LABELS[0]);
 });
+
+test('CN3 chapter jumps resolve relative hrefs when nav document is in a subfolder (EPUB 3)', async ({ page }) => {
+  await fresh(page);
+  await openDemo(page);
+  await page.waitForFunction(() => !state.loading, null, { timeout: 12000 });
+  await page.evaluate(async () => {
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/epub+zip');
+    zip.file('META-INF/container.xml',
+      '<?xml version="1.0" encoding="utf-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+    zip.file('OPS/xhtml/c1.xhtml',
+      '<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch1</title></head><body><h1 id="sec1">Chapter 1</h1><p>Body 1 content that fills space nicely.</p></body></html>');
+    zip.file('OPS/xhtml/c2.xhtml',
+      '<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch2</title></head><body><h1 id="sec2">Chapter 2</h1><p>Body 2 content that fills space nicely.</p></body></html>');
+    zip.file('OPS/xhtml/nav.xhtml',
+      '<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Nav</title></head><body><nav epub:type="toc" xmlns:epub="http://www.idpf.org/2007/ops"><ol>' +
+      '<li><a href="c1.xhtml#sec1">Chapter One</a></li>' +
+      '<li><a href="c2.xhtml#sec2">Chapter Two</a></li>' +
+      '</ol></nav></body></html>');
+    zip.file('OPS/package.opf',
+      '<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bid">urn:folio:nested</dc:identifier><dc:title>Nested Nav</dc:title><dc:language>en</dc:language></metadata>' +
+      '<manifest><item id="nav" href="xhtml/nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>' +
+      '<item id="c1" href="xhtml/c1.xhtml" media-type="application/xhtml+xml"/>' +
+      '<item id="c2" href="xhtml/c2.xhtml" media-type="application/xhtml+xml"/></manifest>' +
+      '<spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>');
+    const b = await zip.generateAsync({ type: 'arraybuffer' });
+    await openBuffer(b, 'Nested Nav');
+  });
+  await page.waitForFunction(() => document.body.classList.contains('state-reading'), null, { timeout: 12000 });
+  await page.waitForFunction(() => tocItems && tocItems.length === 2, null, { timeout: 12000 });
+
+  const hrefs = await page.evaluate(() => tocItems.map(t => t.href));
+  expect(hrefs[0]).toBe('xhtml/c1.xhtml#sec1');
+  expect(hrefs[1]).toBe('xhtml/c2.xhtml#sec2');
+
+  await page.locator('#chLabelNext').click();
+  await page.waitForFunction(() => tocCurIdx === 1, null, { timeout: 9000 });
+  expect(await page.evaluate(() => document.getElementById('chapter').textContent)).toBe('Chapter Two');
+});

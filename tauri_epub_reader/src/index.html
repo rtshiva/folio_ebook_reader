@@ -144,7 +144,13 @@ body.state-landing #posPill{display:none}
 @keyframes spwave{0%,100%{opacity:.35}50%{opacity:1}}
 #stage{position:fixed;inset:0;display:grid;grid-template-columns:1fr minmax(0,var(--mw,640px)) 1fr;
   align-items:stretch;padding:calc(var(--pad-y, 28px) + 38px + env(safe-area-inset-top)) 16px calc(var(--pad-y, 28px) + 32px + env(safe-area-inset-bottom));
-  transition:opacity .35s,visibility .35s}
+  transition:opacity .35s,visibility .35s,transform .4s cubic-bezier(.32,.72,.24,1)}
+/* drawer desk-shift (spec §4): while a side panel is open the whole reading
+   stage eases toward the free side — a composited transform on #stage, so
+   the book never re-lays out (no EPUB reflow) and the page-turn compositor,
+   which reads viewer rects, stays consistent. updateStageShift() caps the
+   travel so the far edge never leaves the viewport. */
+#stage.desk-shift{transform:translateX(var(--stage-shift-x,0px))}
 #wrap{grid-column:2;grid-row:1;height:100%;position:relative;animation:pagein .5s cubic-bezier(.22,.7,.25,1)}
 /* desk contact shadow: a soft ellipse grounding the book in both page modes */
 #wrap::before{content:'';position:absolute;left:-8%;right:-8%;bottom:-30px;height:36px;z-index:-2;pointer-events:none;opacity:0;
@@ -349,6 +355,15 @@ body.chrome-hidden #bottombar{transform:translate(-50%,101%)}
 #pct{font:500 11.5px var(--sans);font-variant-numeric:tabular-nums;color:var(--desk-meta);width:40px;text-align:right}
 
 /* ---------- book spread dressing ---------- */
+/* paper depth in every mode: a quiet drop shadow lifts the page block off
+   the desk (the spread rule below deepens it into the pressed-board look),
+   and a 4px sheen rides both outer page edges — light landing on paper
+   (spec §7/§8/§11). Pseudo-layer only: never intercepts selection, links
+   or gestures. */
+#wrap{box-shadow:0 1px 3px rgba(var(--shadow-rgb),.12),0 14px 34px -20px rgba(var(--shadow-rgb),.28)}
+#wrap::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:6;border-radius:inherit;
+  background:linear-gradient(to right,rgba(var(--sheen-rgb),.09),rgba(var(--sheen-rgb),0) 4px),
+    linear-gradient(to left,rgba(var(--sheen-rgb),.09),rgba(var(--sheen-rgb),0) 4px)}
 body.spread #wrap{border-radius:8px;
   box-shadow:0 2px 6px rgba(var(--shadow-rgb),.18),0 26px 54px -26px rgba(var(--shadow-rgb),.42),0 70px 110px -70px rgba(var(--shadow-rgb),.38)}
 body.spread #viewer{border-radius:8px}
@@ -362,7 +377,22 @@ body.spread #pageFx{border-radius:8px}
 #gutter{display:none}
 body.spread #gutter{display:block;position:absolute;top:0;bottom:0;left:50%;width:var(--gut,64px);
   transform:translateX(-50%);z-index:5;pointer-events:none;
-  background:linear-gradient(to right,rgba(var(--shadow-rgb),0),rgba(var(--shadow-rgb),.10) 34%,rgba(var(--shadow-rgb),.24) 50%,rgba(var(--shadow-rgb),.10) 66%,rgba(var(--shadow-rgb),0))}
+  /* valley shadow plus a curvature sheen: the page bending into the binding
+     catches light a few pixels before the fold. The sheen must rise AND fall
+     to zero inside the box — a non-zero edge alpha is invisible on cream
+     paper but steps in as a hard line on dark-page themes (Ember). */
+  background:linear-gradient(to right,
+    rgba(var(--sheen-rgb),0) 0%,rgba(var(--sheen-rgb),.09) 12%,rgba(var(--sheen-rgb),0) 30%,
+    rgba(var(--sheen-rgb),0) 70%,rgba(var(--sheen-rgb),.09) 88%,rgba(var(--sheen-rgb),0) 100%),
+    linear-gradient(to right,rgba(var(--shadow-rgb),0),rgba(var(--shadow-rgb),.10) 34%,rgba(var(--shadow-rgb),.24) 50%,rgba(var(--shadow-rgb),.10) 66%,rgba(var(--shadow-rgb),0))}
+/* dark-page themes: 24% black barely registers over near-black paper, so the
+   fade collapses into a flat band — deepen the valley so the middle reads
+   darkest and eases outward (user-reported, Ember) */
+[data-theme="ember"] body.spread #gutter{
+  background:linear-gradient(to right,
+    rgba(var(--sheen-rgb),0) 0%,rgba(var(--sheen-rgb),.05) 12%,rgba(var(--sheen-rgb),0) 30%,
+    rgba(var(--sheen-rgb),0) 70%,rgba(var(--sheen-rgb),.05) 88%,rgba(var(--sheen-rgb),0) 100%),
+    linear-gradient(to right,rgba(var(--shadow-rgb),0) 0%,rgba(var(--shadow-rgb),.20) 28%,rgba(var(--shadow-rgb),.52) 50%,rgba(var(--shadow-rgb),.20) 72%,rgba(var(--shadow-rgb),0) 100%)}
 #stand{display:none}
 body.spread #stand{display:block;position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);
   width:calc(100% + 64px);height:16px;border-radius:4px;z-index:-1;
@@ -1384,15 +1414,15 @@ if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='
         <div class="adv-body">
           <div class="adv-group">
             <div class="row-head"><h4 class="lbl">Line height</h4><button class="chip" id="lhAuto">Auto</button></div>
-            <div class="slider-row"><input type="range" id="lhRange" min="1.2" max="2.3" step="0.02"><output id="lhOut"></output></div>
+            <div class="slider-row"><input type="range" id="lhRange" aria-label="Line height" min="1.2" max="2.3" step="0.02"><output id="lhOut"></output></div>
           </div>
           <div class="adv-group">
             <div class="row-head"><h4 class="lbl">Letter spacing</h4><button class="chip" id="lsAuto">Auto</button></div>
-            <div class="slider-row"><input type="range" id="lsRange" min="-20" max="150" step="5"><output id="lsOut"></output></div>
+            <div class="slider-row"><input type="range" id="lsRange" aria-label="Letter spacing" min="-20" max="150" step="5"><output id="lsOut"></output></div>
           </div>
           <div class="adv-group">
             <div class="row-head"><h4 class="lbl">Word spacing</h4><button class="chip" id="wsAuto">Auto</button></div>
-            <div class="slider-row"><input type="range" id="wsRange" min="-50" max="300" step="10"><output id="wsOut"></output></div>
+            <div class="slider-row"><input type="range" id="wsRange" aria-label="Word spacing" min="-50" max="300" step="10"><output id="wsOut"></output></div>
           </div>
           <div class="adv-group">
             <div class="row-head"><h4 class="lbl">Page width</h4><button class="chip" id="widthAuto">Auto</button></div>
@@ -1547,7 +1577,26 @@ try{
   // Migration: readers who had explicitly picked a theme keep manual mode;
   // fresh installs default to following the OS day/night theme.
   if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
+  // Validate numeric settings to guard against corrupt/NaN storage
+  if(!Number.isFinite(settings.fontSize) || settings.fontSize < 10 || settings.fontSize > 48) settings.fontSize = DEFAULTS.fontSize;
+  if(!Number.isFinite(settings.lineHeight) || settings.lineHeight < 1.0 || settings.lineHeight > 3.0) settings.lineHeight = DEFAULTS.lineHeight;
+  if(!Number.isFinite(settings.letterSpacing) || settings.letterSpacing < -50 || settings.letterSpacing > 300) settings.letterSpacing = DEFAULTS.letterSpacing;
+  if(!Number.isFinite(settings.wordSpacing) || settings.wordSpacing < -50 || settings.wordSpacing > 400) settings.wordSpacing = DEFAULTS.wordSpacing;
+  if(!Number.isFinite(settings.widthSingle) || settings.widthSingle < 300 || settings.widthSingle > 2400) settings.widthSingle = DEFAULTS.widthSingle;
+  if(!Number.isFinite(settings.widthSpread) || settings.widthSpread < 600 || settings.widthSpread > 3600) settings.widthSpread = DEFAULTS.widthSpread;
+  if(!Number.isFinite(settings.marginVertical) || settings.marginVertical < 0 || settings.marginVertical > 120) settings.marginVertical = DEFAULTS.marginVertical;
+  if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
 }catch(e){}
+// Normalise legacy display-name font values saved by older Folio builds.
+{
+  const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
+  const fontAliases = {
+    'literata':'literata', 'atkinson hyperlegible':'atkinson', 'atkinson':'atkinson',
+    'lexend':'lexend', 'opendyslexic':'opendyslexic', 'open dyslexic':'opendyslexic'
+  };
+  const normalised = fontAliases[legacyFont] || (FONTS[legacyFont] ? legacyFont : 'literata');
+  if(settings.font !== normalised) settings.font = normalised;
+}
 let saveT=null;
 const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic'];
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
@@ -1564,9 +1613,14 @@ function loadPerBookType(title){
   try{
     const raw=localStorage.getItem('folio-typo:'+title);
     if(!raw) return;
-    Object.assign(settings, JSON.parse(raw));
-    if(state.rendition){ syncControls(); relayout(); }
-    else { syncControls(); applyFit(); }
+    const parsed = JSON.parse(raw);
+    if(parsed && typeof parsed === 'object'){
+      Object.assign(settings, parsed);
+      const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
+      settings.font = ({'literata':'literata','atkinson hyperlegible':'atkinson','atkinson':'atkinson','lexend':'lexend','opendyslexic':'opendyslexic','open dyslexic':'opendyslexic'})[legacyFont] || (FONTS[legacyFont] ? legacyFont : 'literata');
+      if(state.rendition){ syncControls(); relayout(); }
+      else { syncControls(); applyFit(); }
+    }
   }catch(e){}
 }
 function applyWarmth(){
@@ -1742,14 +1796,14 @@ function effMarginVertical(){
    each line keeps the chosen character count, height balances pages. */
 function fitInfo(){
   const m = settings.measure;
-  const padX = clamp(innerWidth*0.05, 16, 48);
+  const padX = clamp(innerWidth*0.05, 24, 48);
   const w = innerWidth - padX*2;
   const h = innerHeight - 150;
   const fs = Math.round( clamp(Math.min(w/m, 700/m, h/26), 17, 23) *10 )/10;
   return { fs, mw: Math.round(Math.min(m*fs, w)) };
 }
 function spreadMetrics(){
-  const padX = clamp(innerWidth*0.05, 16, 48);
+  const padX = clamp(innerWidth*0.05, 24, 48);
   const gutter = Math.round(clamp(innerWidth*0.03, 40, 72));
   const availW = Math.max(100, innerWidth - padX*2);
   const pageMax = Math.max(50, Math.min((availW - gutter)/2, 950));
@@ -1765,7 +1819,7 @@ function effSize(){
   return clamp(settings.size, 15, 28);
 }
 function effWidth(){
-  const padX = clamp(innerWidth*0.05, 16, 48);
+  const padX = clamp(innerWidth*0.05, 24, 48);
   const availW = Math.max(100, Math.round(innerWidth - padX*2));
   const sp = !!state.spreadOn;
   if(settings.widthAuto){
@@ -1786,7 +1840,7 @@ function effWidth(){
 function syncWidthSlider(){
   const wInput = el('widthRange');
   if(!wInput) return;
-  const padX = clamp(innerWidth*0.05, 16, 48);
+  const padX = clamp(innerWidth*0.05, 24, 48);
   const availW = Math.max(200, Math.round(innerWidth - padX*2));
   const sp = !!state.spreadOn;
   const minW = sp ? Math.min(720, Math.max(100, availW - 40)) : Math.min(460, Math.max(100, availW - 40));
@@ -2844,8 +2898,8 @@ function loadFile(file, optionalPath){
   const cleanName = (file.name || '').replace(/\.epub$/i, '').trim();
   const filePath = optionalPath || file.path || null;
   const fr=new FileReader();
-  fr.onload=()=>openBuffer(fr.result, cleanName, filePath);
-  fr.onerror=()=>{ hideLoader(); toast('The file could not be read'); };
+  fr.onload = () => { try { openBuffer(fr.result, cleanName, filePath); } catch(err) { hideLoader(); toast('Could not open book: ' + (err.message || err)); } };
+  fr.onerror = () => { hideLoader(); toast('Failed to read file: ' + (file.name || 'selected file')); };
   fr.readAsArrayBuffer(file);
 }
 
@@ -2952,8 +3006,11 @@ function wireContents(contents){
       const a = e.target.closest && e.target.closest('a');
       if(a){
         const href = a.getAttribute('href') || '';
-        if(href.startsWith('#')){
-          const t = d.getElementById(href.slice(1)) || d.querySelector(href);
+        const rel = (a.getAttribute('epub:type') || a.getAttribute('role') || a.getAttribute('rel') || '').toLowerCase();
+        const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '');
+        const id = href.startsWith('#') ? decodeURIComponent(href.slice(1)) : '';
+        if(href.startsWith('#') && isNoteRef){
+          const t = d.getElementById(id) || d.querySelector(href);
           if(t && t.textContent.trim()){
             e.preventDefault(); e.stopPropagation();
             Footnotes.show(t, e.clientX || Highlights.lastPtr.x, e.clientY || Highlights.lastPtr.y);
@@ -3531,6 +3588,8 @@ function makeTocRow(it, idx){
   const b=document.createElement('button');
   b.textContent=it.label;
   b.title=it.label;
+  b.setAttribute('tabindex', '0');
+  b.setAttribute('aria-label', it.label);
   b.style.paddingLeft=(20+it.depth*14)+'px';
   b.addEventListener('click',()=>{
     closePanels();
@@ -3557,13 +3616,76 @@ function renderTocWindow(){
   }
   pad.appendChild(frag);
 }
+function resolveRelativePath(baseFile, relHref){
+  if(!relHref || !baseFile) return relHref;
+  if(/^[a-z]+:/i.test(relHref) || relHref.startsWith('/')) return relHref;
+  const idx = baseFile.lastIndexOf('/');
+  const dir = idx >= 0 ? baseFile.slice(0, idx + 1) : '';
+  if(!dir) return relHref;
+  const hi = relHref.indexOf('#');
+  const pathPart = hi >= 0 ? relHref.slice(0, hi) : relHref;
+  const frag = hi >= 0 ? relHref.slice(hi) : '';
+  const combined = dir + pathPart;
+  const parts = combined.split('/');
+  const resolved = [];
+  for(const part of parts){
+    if(part === '.' || part === '') continue;
+    if(part === '..'){
+      if(resolved.length && resolved[resolved.length - 1] !== '..'){
+        resolved.pop();
+      }
+    } else {
+      resolved.push(part);
+    }
+  }
+  return resolved.join('/') + frag;
+}
+function resolveNavHref(href, book){
+  if(!href) return '';
+  const rawHref = String(href).trim();
+  if(/^[a-z]+:/i.test(rawHref)) return rawHref;
+  const hi = rawHref.indexOf('#');
+  const base = hi >= 0 ? rawHref.slice(0, hi) : rawHref;
+  const frag = hi >= 0 ? rawHref.slice(hi) : '';
+  // 1. If base already matches a spine item directly, keep it.
+  if(book && book.spine && typeof book.spine.get === 'function' && book.spine.get(base)){
+    return rawHref;
+  }
+  // 2. Try resolving against navPath or ncxPath (e.g. EPUB 3 OPS/xhtml/nav.xhtml -> base dir xhtml/)
+  const pkg = (book && book.packaging) || {};
+  const docPath = pkg.navPath || pkg.ncxPath || '';
+  if(docPath){
+    const candidate = resolveRelativePath(docPath, rawHref);
+    const candidateHi = candidate.indexOf('#');
+    const candidateBase = candidateHi >= 0 ? candidate.slice(0, candidateHi) : candidate;
+    if(book && book.spine && typeof book.spine.get === 'function' && book.spine.get(candidateBase)){
+      return candidate;
+    }
+  }
+  // 3. Fallback: match by filename in spineItems
+  if(book && book.spine && Array.isArray(book.spine.spineItems)){
+    const baseName = base.split('/').pop();
+    const match = book.spine.spineItems.find(sec => {
+      const secBase = String(sec.href || '').split('/').pop().split('#')[0];
+      return secBase === baseName;
+    });
+    if(match && match.href){
+      return match.href + frag;
+    }
+  }
+  if(docPath){
+    return resolveRelativePath(docPath, rawHref);
+  }
+  return rawHref;
+}
 async function buildTOC(book){
   try{
-    const nav=await book.loaded.navigation;
+    const nav = await book.loaded.navigation;
     const out=[];
     (function flat(items,depth){
       (items||[]).forEach(it=>{
-        out.push({label:String(it.label||'Untitled').trim(), href:it.href, depth});
+        const resolvedHref = resolveNavHref(it.href, book);
+        out.push({label:String(it.label||'Untitled').trim(), href:resolvedHref, depth});
         if(it.subitems&&it.subitems.length)flat(it.subitems,depth+1);
       });
     })(nav.toc,0);
@@ -3916,7 +4038,10 @@ function renderRecentShelf(){
         <div class="recent-meta">${b.pct}% completed</div>
       </div>
     `;
-    card.addEventListener('click', async () => {
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', 'Open ' + (b.title || 'book'));
+    const openCard = async () => {
       const curTitle = getActiveTitle();
       // 1. If currently active book in memory, resume reading directly
       if(state.book && state.rendition && curTitle === b.title){
@@ -3968,6 +4093,13 @@ function renderRecentShelf(){
       // 5. Book unavailable
       hideLoader();
       toast(`Could not open "${b.title}" — file may have been moved.`);
+    };
+    card.addEventListener('click', openCard);
+    card.addEventListener('keydown', e => {
+      if(e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();
+        openCard();
+      }
     });
     listEl.appendChild(card);
   });
@@ -4656,7 +4788,9 @@ const SearchIndex = {
     });
   }
 };
+let currentSearchAbort = null;
 async function doSearch(query){
+  if(currentSearchAbort){ currentSearchAbort.abort(); currentSearchAbort = null; }
   const q = (query || '').trim();
   const resultsEl = el('searchResults');
   const metaEl = el('searchMeta');
@@ -4667,6 +4801,8 @@ async function doSearch(query){
     metaEl.textContent = 'Type at least 2 characters to search across book';
     return;
   }
+  const abortCtrl = new AbortController();
+  currentSearchAbort = abortCtrl;
   const book = state.book;
   const spine = book && book.spine;
   if(!spine){ metaEl.textContent = 'No book loaded'; return; }
@@ -4708,7 +4844,7 @@ async function doSearch(query){
 
   // 3. Resolve CFIs by loading ONLY hit chapters.
   for(const i of hitIdx){
-    if(searchToken !== myToken) return;
+    if(abortCtrl.signal.aborted || searchToken !== myToken) return;
     if(matches.length >= maxMatches) break;
     const item = spine.get(i);
     if(!item) continue;
@@ -4721,16 +4857,34 @@ async function doSearch(query){
       if(!sectionMatches || !sectionMatches.length){
         const doc = item.document;
         if(doc && doc.body){
-          const bodyText = doc.body.innerText || doc.body.textContent || '';
+          const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+          const textNodes = [];
+          let textNode;
+          while((textNode = walker.nextNode())){
+            if(textNode.nodeValue && textNode.nodeValue.trim()) textNodes.push(textNode);
+          }
           const re2 = new RegExp(esc, 'gi');
-          let m;
-          while((m = re2.exec(bodyText)) !== null && sectionMatches.length < 15){
-            if(m[0].length === 0){ re2.lastIndex++; continue; }
-            const start = Math.max(0, m.index - 35);
-            const end = Math.min(bodyText.length, m.index + q.length + 45);
-            const snip = bodyText.substring(start, end).replace(/\s+/g, ' ');
-            const cfi = item.cfiFromElement ? item.cfiFromElement(item.document.body) : item.href;
-            sectionMatches.push({ cfi, excerpt: snip });
+          for(const tn of textNodes){
+            if(abortCtrl.signal.aborted || searchToken !== myToken || sectionMatches.length >= 15) break;
+            const nodeText = tn.nodeValue || '';
+            re2.lastIndex = 0;
+            let m;
+            while((m = re2.exec(nodeText)) !== null && sectionMatches.length < 15){
+              if(!m[0].length){ re2.lastIndex++; continue; }
+              const range = doc.createRange();
+              range.setStart(tn, m.index);
+              range.setEnd(tn, m.index + m[0].length);
+              let cfi = null;
+              try{
+                if(book.locations && typeof book.locations.cfiFromRange === 'function') cfi = book.locations.cfiFromRange(range);
+                else if(typeof item.cfiFromRange === 'function') cfi = item.cfiFromRange(range);
+              }catch(cfiErr){}
+              if(cfi){
+                const context = nodeText.slice(Math.max(0, m.index - 35), Math.min(nodeText.length, m.index + q.length + 45));
+                sectionMatches.push({ cfi, excerpt: context.replace(/\s+/g, ' ') });
+              }
+              if(m.index === re2.lastIndex) re2.lastIndex++;
+            }
           }
         }
       }
@@ -6476,7 +6630,7 @@ async function turn(dir, opts = {}){
     }
   } catch(e){
     turnQueue = 0;
-    try{ if(state.rendition) (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{}); }catch(ignored){}
+    try{ if(state.rendition === rGen) (dir>0 ? rGen.next() : rGen.prev()).catch(()=>{}); }catch(ignored){}
   } finally {
     state.turning = false;
     body.classList.remove('turning','lift-l','lift-r');
@@ -7324,6 +7478,25 @@ function syncScrim(){
   // desktop settings sheet: invisible catcher (no dimming, so the live
   // typography preview stays clear) — a click outside still closes it
   el('scrim').classList.toggle('clear', sheet && !toc && !search && !help && !mobile);
+  updateStageShift();
+}
+/* Drawer desk-shift (spec §4): net-translate the reading stage halfway
+   toward the side that stays free, capped so the book's far edge keeps a
+   desk-width gap to the viewport. Half-travel of the panel — the book
+   visibly yields to the drawer without any EPUB reflow (transform only). */
+function updateStageShift(){
+  const stage = el('stage');
+  if(!stage) return;
+  let want = 0;
+  if(!matchMedia('(max-width:760px)').matches){
+    const tocW = body.classList.contains('toc-open') ? Math.min(340, innerWidth*.88) : 0;
+    const searchW = body.classList.contains('search-open') ? Math.min(380, innerWidth*.92) : 0;
+    const sheetW = body.classList.contains('sheet-open') ? Math.min(352, innerWidth*.92) : 0;
+    const cap = Math.max(0, (innerWidth - effWidth())/2 - 16);
+    want = clamp((tocW - searchW - sheetW)/2, -cap, cap);
+  }
+  document.documentElement.style.setProperty('--stage-shift-x', want.toFixed(1) + 'px');
+  stage.classList.toggle('desk-shift', Math.abs(want) > .5);
 }
 el('scrim').addEventListener('click', closePanels);
 
@@ -7672,6 +7845,7 @@ async function relayout(){
   await applySpread();
   applyFit(); refreshCSS();
   layoutChNavPills();
+  updateStageShift();
   if(state.rendition && !state.recreating && !state.turning){
     const w=el('wrap');
     try{ state.rendition.resize(w.clientWidth,w.clientHeight); }catch(e){}
@@ -7748,7 +7922,9 @@ function applyTheme(){
   if(state.rendition) refreshCSS();
   document.querySelectorAll('#themeRow .t-btn').forEach(b=>{
     const k=b.dataset.theme;
-    b.classList.toggle('sel', k==='auto' ? !!settings.themeAuto : (!settings.themeAuto && k===settings.theme));
+    const selected = k==='auto' ? !!settings.themeAuto : (!settings.themeAuto && k===settings.theme);
+    b.classList.toggle('sel', selected);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
 }
 
@@ -7769,7 +7945,11 @@ function buildFontGrid(){
   syncFontSel();
 }
 function syncFontSel(){
-  document.querySelectorAll('#fontGrid .f-btn').forEach(b=>b.classList.toggle('sel',b.dataset.font===settings.font));
+  document.querySelectorAll('#fontGrid .f-btn').forEach(b=>{
+    const selected = b.dataset.font === settings.font;
+    b.classList.toggle('sel', selected);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
 }
 function buildThemeRow(){
   const r=el('themeRow'); r.innerHTML='';
@@ -7795,8 +7975,11 @@ function buildThemeRow(){
 }
 function syncTurnSeg(){
   const fx = settings.turnFx || 'slide';
-  document.querySelectorAll('#turnSeg button').forEach(b=>
-    b.classList.toggle('sel', b.dataset.fx === fx));
+  document.querySelectorAll('#turnSeg button').forEach(b=>{
+    const selected = b.dataset.fx === fx;
+    b.classList.toggle('sel', selected);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
   body.classList.toggle('fx-none', fx === 'none');
 }
 function syncSpreadUI(){
@@ -7827,7 +8010,7 @@ function nudgeSize(d){
 }
 function nudgeWidth(d){
   if(settings.widthAuto) settings.widthAuto = false;
-  const padX = clamp(innerWidth*0.05, 16, 48);
+  const padX = clamp(innerWidth*0.05, 24, 48);
   const availW = Math.round(innerWidth - padX*2);
   const sp = !!state.spreadOn;
   const minW = sp ? Math.min(720, availW) : Math.min(460, availW);
@@ -8238,9 +8421,14 @@ async function jumpToTocIndex(idx){
   const hi = href.indexOf('#');
   const base = hi >= 0 ? href.slice(0, hi) : href;
   const frag = hi >= 0 ? href.slice(hi + 1) : '';
+  let jumped = false;
   try{
     if(frag && state.book && state.book.spine){
-      const sec = state.book.spine.get(base);
+      let sec = state.book.spine.get(base);
+      if(!sec && Array.isArray(state.book.spine.spineItems)){
+        const baseName = base.split('/').pop();
+        sec = state.book.spine.spineItems.find(s => String(s.href || '').split('/').pop().split('#')[0] === baseName);
+      }
       if(sec){
         // sec.load() resolves with a wrapper; the Document lands on the
         // section itself.
@@ -8278,25 +8466,41 @@ async function jumpToTocIndex(idx){
             // once the view has settled.
             await settled;
             await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-            updateChapterNav();
-            try{
-              const l3 = state.rendition ? state.rendition.currentLocation() : null;
-              if(l3) refreshChapterTitle(l3);
-            }catch(e){}
-            toast('Jumped to ' + (item.label || 'chapter'));
-            return;
+            jumped = true;
           }
         }
       }
     }
-    await state.rendition.display(href);
-  }catch(e){}
+    if(!jumped){
+      await state.rendition.display(href);
+      jumped = true;
+    }
+  }catch(e){
+    console.warn('jumpToTocIndex display failed:', e);
+    if(!jumped && state.book && state.book.spine && Array.isArray(state.book.spine.spineItems)){
+      try{
+        const baseName = base.split('/').pop();
+        const sec = state.book.spine.spineItems.find(s => String(s.href || '').split('/').pop().split('#')[0] === baseName);
+        if(sec){
+          const target = frag ? (sec.href + '#' + frag) : sec.href;
+          await state.rendition.display(target);
+          jumped = true;
+        }
+      }catch(retryErr){
+        console.warn('jumpToTocIndex fallback failed:', retryErr);
+      }
+    }
+  }
   updateChapterNav();
   try{
     const l4 = state.rendition ? state.rendition.currentLocation() : null;
     if(l4) refreshChapterTitle(l4);
   }catch(e){}
-  toast('Jumped to ' + (item.label || 'chapter'));
+  if(jumped){
+    toast('Jumped to ' + (item.label || 'chapter'));
+  } else {
+    toast('That section could not be displayed');
+  }
 }
 
 // Floating safety anchor
@@ -8557,10 +8761,22 @@ function railSeek(f){
   }
   updateRailPreview(f);
 }
+let railPreviewRaf = 0;
+let railPendingFraction = 0;
+let railDragRect = null;
+function scheduleRailPreview(f){
+  railPendingFraction = f;
+  if(railPreviewRaf) return;
+  railPreviewRaf = requestAnimationFrame(() => {
+    railPreviewRaf = 0;
+    if(railDragging) updateRailPreview(railPendingFraction);
+  });
+}
 rail.addEventListener('pointerdown', e => {
   if(!state.rendition) return;
   e.preventDefault();
   railDragging = true;
+  railDragRect = rail.getBoundingClientRect();
   const curLoc = state.rendition.currentLocation();
   railDeparture = {
     cfi: curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi,
@@ -8571,26 +8787,28 @@ rail.addEventListener('pointerdown', e => {
   const f = railFraction(e);
   el('railFill').style.width = (f * 100) + '%';
   el('railKnob').style.left = (f * 100) + '%';
-  const r = rail.getBoundingClientRect();
+  const r = railDragRect || rail.getBoundingClientRect();
   const x = clamp(f * r.width, 85, Math.max(85, r.width - 85));
   const rp = el('railPreview');
   if(rp){ rp.style.left = x + 'px'; }
-  updateRailPreview(f);
+  scheduleRailPreview(f);
 });
 rail.addEventListener('pointermove', e => {
   if(!railDragging) return;
   const f = railFraction(e);
   el('railFill').style.width = (f * 100) + '%';
   el('railKnob').style.left = (f * 100) + '%';
-  const r = rail.getBoundingClientRect();
+  const r = railDragRect || rail.getBoundingClientRect();
   const x = clamp(f * r.width, 85, Math.max(85, r.width - 85));
   const rp = el('railPreview');
   if(rp){ rp.style.left = x + 'px'; }
-  updateRailPreview(f);
+  scheduleRailPreview(f);
 });
 const railRelease = e => {
   if(!railDragging) return;
   railDragging = false;
+  if(railPreviewRaf){ cancelAnimationFrame(railPreviewRaf); railPreviewRaf = 0; updateRailPreview(railPendingFraction); }
+  railDragRect = null;
   try{ rail.releasePointerCapture(e.pointerId); }catch(err){}
   const preview = el('railPreview');
   if(preview) preview.classList.add('hide');
@@ -8605,6 +8823,8 @@ rail.addEventListener('pointerup', railRelease);
 rail.addEventListener('pointercancel', e => {
   if(!railDragging) return;
   railDragging = false;
+  if(railPreviewRaf){ cancelAnimationFrame(railPreviewRaf); railPreviewRaf = 0; }
+  railDragRect = null;
   try{ rail.releasePointerCapture(e.pointerId); }catch(err){}
   const preview = el('railPreview');
   if(preview) preview.classList.add('hide');
