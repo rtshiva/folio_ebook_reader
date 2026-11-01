@@ -22,6 +22,26 @@ Folio is a lightweight desktop EPUB reader built with **Tauri 2.0** and the nati
 |---|---|
 | ![Shortcuts overlay](docs/screenshots/shortcuts.png) | ![Night theme](docs/screenshots/night.png) |
 
+## Reading environments
+
+Seven curated environments, each with its own desk, cloth, and side-vine dressing — captured live with the per-chapter page art on:
+
+| Natural Paper | Modern Clean |
+|---|---|
+| ![Natural Paper — warm serif, book stock](docs/screenshots/theme-paper.png) | ![Modern Clean — sharp sans, high contrast](docs/screenshots/theme-light.png) |
+
+| Velvet Night | Aizome |
+|---|---|
+| ![Velvet Night — soft amber, no blue-light](docs/screenshots/theme-noir.png) | ![Aizome — indigo & vermilion](docs/screenshots/theme-aizome.png) |
+
+| Ember | Velvet |
+|---|---|
+| ![Ember — night & amber](docs/screenshots/theme-ember.png) | ![Velvet — claret & gilt](docs/screenshots/theme-velvet.png) |
+
+| Emerald | |
+|---|---|
+| ![Emerald — green & gold](docs/screenshots/theme-emerald.png) | |
+
 ## Features
 
 ### Getting books in
@@ -121,7 +141,11 @@ The screenshots above are captured from the real frontend with Playwright:
 node tests/manual/capture_readme_shots.mjs   # from tauri_epub_reader/
 ```
 
-It serves `src/` locally, opens the embedded demo book, walks through the main views (landing, single page, spread, contents, settings, shortcuts, night theme), and writes PNGs to `docs/screenshots/`.
+It serves `src/` locally, opens the embedded demo book, walks through the main views (landing, single page, spread, contents, settings, shortcuts, night theme), and writes PNGs to `docs/screenshots/`. The per-theme Reading-environment shots come from a sibling script:
+
+```powershell
+node tests/manual/capture_theme_shots.cjs   # from tauri_epub_reader/ (needs src/ served on :8124)
+```
 
 ## Project structure
 
