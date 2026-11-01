@@ -203,6 +203,18 @@ body:not(.spread) #runHeadRight{max-width:90%;}
    book and steal page-flip clicks at mid-height. */
 .ch-nav-panel.no-desk{pointer-events:none;}
 .ch-nav-panel.no-desk .ch-nav-label{visibility:hidden;}
+/* side vines (page corner art): full-height botanical columns flanking the
+   book on the DESK — outside the page like the boards/fore-edges, so no
+   pagination impact and no reservation. One of three procedural designs per
+   chapter (swapped on spine change); hidden on narrow desks/screens. */
+.folio-vine{position:absolute;top:8px;bottom:8px;height:calc(100% - 16px);width:auto;
+  aspect-ratio:180/1200;pointer-events:none;z-index:3;display:none;opacity:.92;
+  background-repeat:no-repeat;background-position:center;background-size:100% 100%}
+.folio-vine.left{right:calc(100% + 14px)}
+.folio-vine.right{left:calc(100% + 14px);transform:scaleX(-1)}
+body.page-orn .folio-vine{display:block}
+.rr-no-med .folio-vine{display:none!important}
+@media (max-width:1100px){.folio-vine{display:none!important}}
 .ch-nav-label{pointer-events:auto;display:block;width:176px;text-align:right;
   font:600 13px/1.4 var(--sans);color:var(--desk);background:transparent;
   padding:9px 14px;border:none;border-radius:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -1238,6 +1250,7 @@ try{var __fs=JSON.parse(localStorage.getItem('folio-settings')||'{}');
 if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='ember'||__fs.theme==='velvet'||__fs.theme==='emerald'))document.documentElement.dataset.theme=__fs.theme;
 var __rr=(__fs.rrTheme!==undefined)?__fs.rrTheme:((__fs.theme!==undefined)?'match':'royal-maroon');
 if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</script>
+<script src="assets/ornaments/page-art.js"></script>
 </head>
 <body class="state-landing">
 <div id="deskDim" aria-hidden="true"></div>
@@ -1346,6 +1359,8 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <div id="finis" aria-hidden="true"><span class="finis-row"><span>Finis</span></span><span id="finisMeta"></span></div>
     <div id="gutter"></div>
     <div id="stand"><i id="standBlockL"></i><i id="standBlockR"></i></div>
+    <span class="folio-vine left" aria-hidden="true"></span>
+    <span class="folio-vine right" aria-hidden="true"></span>
     <div id="rrFrame" aria-hidden="true"></div>
     <span class="rr-spine-orn top" aria-hidden="true"></span>
     <span class="rr-spine-orn bottom" aria-hidden="true"></span>
@@ -1456,6 +1471,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       </div>
       <label class="sw"><input type="checkbox" id="swRrOrn"><span class="tr"></span><span class="tx"><b>Ornaments</b><small>Corner flourishes, side medallion, spine marks</small></span></label>
       <label class="sw"><input type="checkbox" id="swRrFrame"><span class="tr"></span><span class="tx"><b>Gilt frame</b><small>Fine double rule around the spread</small></span></label>
+      <label class="sw"><input type="checkbox" id="swPageOrn" checked><span class="tr"></span><span class="tx"><b>Page corner art</b><small>Per-chapter ornament arms in the page margins</small></span></label>
     </section>
     <section>
       <div class="row-head">
@@ -1720,6 +1736,7 @@ const DEFAULTS = {
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
+  pageOrnaments:true,
   warmth:0, perBookType:false, pageSound:false, grain:true,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
@@ -1748,6 +1765,7 @@ try{
   if(!Number.isFinite(settings.pageMarginBottom) || settings.pageMarginBottom < 0 || settings.pageMarginBottom > 120) settings.pageMarginBottom = DEFAULTS.pageMarginBottom;
   if(!Number.isFinite(settings.pageMarginSides) || settings.pageMarginSides < 0 || settings.pageMarginSides > 120) settings.pageMarginSides = DEFAULTS.pageMarginSides;
   if(typeof settings.pageMarginSidesAuto !== 'boolean') settings.pageMarginSidesAuto = DEFAULTS.pageMarginSidesAuto;
+  if(typeof settings.pageOrnaments !== 'boolean') settings.pageOrnaments = DEFAULTS.pageOrnaments;
   if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
 }catch(e){}
 // Normalise legacy display-name font values saved by older Folio builds.
@@ -1761,7 +1779,7 @@ try{
   if(settings.font !== normalised) settings.font = normalised;
 }
 let saveT=null;
-const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic','pageMarginTop','pageMarginBottom','pageMarginSidesAuto','pageMarginSides'];
+const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic','pageMarginTop','pageMarginBottom','pageMarginSidesAuto','pageMarginSides','pageOrnaments'];
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
   localStorage.setItem('folio-settings',JSON.stringify(settings));
   // Per-book typography memory: mirror the type channels under the book key.
@@ -2137,7 +2155,7 @@ function buildCSS(){
     settings.justify + '|' + settings.dropCaps + '|' + settings.indent + '|' + settings.oldstyle + '|' +
     settings.warmth + '|' + settings.bionic + '|' + settings.guide +
     '|' + settings.pageMarginTop + '|' + settings.pageMarginBottom +
-    '|' + Math.round(spreadMetrics().gutter/2);
+    '|' + Math.round(spreadMetrics().gutter/2) + '|' + (settings.pageOrnaments ? 1 : 0);
   if(hash === _cssHash) return _cssCache;
   _cssHash = hash;
   const t = THEMES[thKey]||THEMES.paper;
@@ -2150,6 +2168,11 @@ function buildCSS(){
   const pgT = clamp(settings.pageMarginTop, 0, 120);
   const pgB = clamp(settings.pageMarginBottom, 0, 120);
   const pgS = Math.round(spreadMetrics().gutter/2);
+  /* Page corner art reserves a taller top/bottom band so the pieces never
+     crowd the text block (the side margins stay untouched — no spine impact). */
+  const ornBand = settings.pageOrnaments ? 72 : 0;
+  const pgTe = Math.max(pgT, ornBand);
+  const pgBe = Math.max(pgB, ornBand);
   const dropCapCss = settings.dropCaps ? `
 body > p:first-of-type::first-letter,
 section > p:first-of-type::first-letter,
@@ -2208,7 +2231,25 @@ b.fio-b{font-weight:700;}
 .fio-hl{border-radius:2px;-webkit-box-decoration-break:clone;box-decoration-break:clone;cursor:pointer;}
 ${dropCapCss}
 ${indentCss}
-html body{padding:${pgT}px ${pgS}px ${pgB}px ${pgS}px !important;}
+html body{padding:${pgTe}px ${pgS}px ${pgBe}px ${pgS}px !important;}
+/* page corner art: fixed spans pinned to the page viewport corners — the
+   grand set shows on the chapter's opening page (.opening on the wrapper,
+   driven by the relocation page state); the small fleuron shows on every
+   continuation page. Both live inside the reserved top/bottom bands. */
+.folio-pg{position:absolute;width:210px;height:210px;pointer-events:none;display:none;
+  background-repeat:no-repeat;background-position:center;background-size:contain}
+.folio-pg.tl{top:2px;left:2px}
+.folio-pg.tr{top:2px;right:2px;transform:scaleX(-1)}
+.folio-pg.bl{bottom:2px;left:2px;transform:scaleY(-1)}
+.folio-pg.br{bottom:2px;right:2px;transform:scale(-1,-1)}
+.folio-ph{position:absolute;top:6px;left:50%;transform:translateX(-50%);width:340px;height:58px;
+  pointer-events:none;display:none;opacity:.8;
+  mask-repeat:no-repeat;mask-position:center;mask-size:contain;
+  -webkit-mask-repeat:no-repeat;-webkit-mask-position:center;-webkit-mask-size:contain}
+#folio-pcs .folio-pg,#folio-pcs .folio-ph{display:none}
+#folio-pcs.opening .folio-pg{display:block}
+#folio-pcs.opening .folio-ph.grand{display:block}
+#folio-pcs:not(.opening) .folio-ph.simple{display:block}
 `;
   return _cssCache;
 }
@@ -3097,11 +3138,165 @@ function loadFile(file, optionalPath){
 }
 
 /* ---------------- content hooks: styles, bionic, taps, keys ---------------- */
+/* ---------------- Page corner art (per-chapter margin ornaments) ----------------
+   Three grand corner pieces for a chapter's opening page plus a seamless
+   ivy tile for the running pattern on every continuation page (alpha
+   geometry, tinted sandal-gold via CSS mask). Each chapter hashes to one
+   grand design; art shows on every page. Injected into the chapter
+   document as fixed spans, so they serialize into the page cache and
+   replay identically inside the turn compositor. Data URIs, not file
+   URLs: chapter documents live under book/blob bases where relative
+   asset paths break. */
+/* Page corner art (per-chapter margin ornaments), sourced from Vecteezy
+   free downloads (see assets/ornaments/VECTEEZY-LICENSE.txt): 12 gold
+   corner frames for the chapter opening, a gold headpiece above the
+   opening, and a small fleuron for every continuation page. Raster PNG
+   data URIs from assets/ornaments/page-art.js (window.PAGE_ART) — file
+   URLs would break inside book/blob chapter bases, and the gold pieces
+   keep their baked gradients as direct backgrounds. The .opening class on
+   the wrapper (relocation page state) picks grand vs continuation. */
+const PAGE_ORN = {
+  keys: Object.keys(window.PAGE_ART || {}).filter(k => k.indexOf('gold-') === 0),
+  sideDesigns: [['vine-01-l', 'vine-01-r'], ['vine-02-l', 'vine-02-r'], ['vine-03-l', 'vine-03-r']]
+};
+function pageOrnVariant(idx){
+  const s = 'c' + String(idx == null ? 0 : idx);
+  let h = 0;
+  for(let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h % Math.max(1, PAGE_ORN.keys.length);
+}
+function pageOrnMarkup(idx){
+  if(!settings.pageOrnaments || !window.PAGE_ART || !PAGE_ORN.keys.length) return '';
+  const ug = "url('" + PAGE_ART[PAGE_ORN.keys[pageOrnVariant(idx)]] + "')";
+  const uh = "url('" + PAGE_ART['head-large'] + "')";
+  const us = "url('" + PAGE_ART['head-small'] + "')";
+  const g = p => '<span class="folio-pg ' + p + '" style="background-image:' + ug + '"></span>';
+  /* The wrapper is absolute + 100vw/vh and gets scroll-translated by the
+     track() listener below — epub.js renders the whole section as one long
+     multicol canvas inside a parked iframe (measured 3108px wide), so CSS
+     `position:fixed` does NOT stay viewport-glued in that space. */
+  return '<div id="folio-pcs" style="position:absolute;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:1">' +
+    g('tl') + g('tr') + g('bl') + g('br') +
+    '<span class="folio-ph grand" style="background:#c9a45c;mask-image:' + uh + ';-webkit-mask-image:' + uh + '"></span>' +
+    '<span class="folio-ph simple" style="background:#c9a45c;mask-image:' + us + ';-webkit-mask-image:' + us + '"></span>' +
+    '</div>';
+}
+/* Apply/remove on the live chapter views right now (toggle path); cached
+   chapters normalize through retintHtml. */
+function syncPageOrnamentsLive(){
+  try{
+    const m = state.rendition && state.rendition.manager;
+    const list = m && m.views && m.views._views ? m.views._views : [];
+    list.forEach(v => {
+      const c = v.contents;
+      if(!c || !c.document || !c.document.body) return;
+      const d = c.document;
+      const old = d.getElementById('folio-pcs');
+      if(old) old.remove();
+      if(settings.pageOrnaments){
+        const si = (typeof c.sectionIndex === 'number') ? c.sectionIndex : 0;
+        d.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(si));
+      }
+    });
+  }catch(e){}
+}
+/* Opening vs continuation: the chapter's first rendered page carries the
+   grand corner set, every later page the running fleuron. Called from the
+   relocation hot path — two classList toggles + the park-offset tracking,
+   no layout work. */
+function syncPageOrnPageState(loc, defer){
+  try{
+    const m = state.rendition && state.rendition.manager;
+    const list = m && m.views && m.views._views ? m.views._views : [];
+    if(!list.length) return;
+    const disp = loc && loc.start && loc.start.displayed;
+    const opening = !disp || !disp.page || disp.page <= 1;
+    list.forEach(v => {
+      const c = v.contents;
+      const pcs = c && c.document ? c.document.getElementById('folio-pcs') : null;
+      if(!pcs) return;
+      pcs.classList.toggle('opening', opening);
+      trackPageOrnRun(c.document, pcs);
+    });
+    // side vines: one botanical design per chapter (true left/right pairs),
+    // swapped when the spine index changes
+    const idx = loc && loc.start ? loc.start.index : null;
+    if(idx != null && PAGE_ORN._lastSideIdx !== idx){
+      PAGE_ORN._lastSideIdx = idx;
+      const pair = PAGE_ORN.sideDesigns[pageOrnVariant(idx) % PAGE_ORN.sideDesigns.length];
+      const set = (cls, key) => {
+        const el = document.querySelector('.folio-vine.' + cls);
+        if(el && window.PAGE_ART && window.PAGE_ART[key]) el.style.backgroundImage = "url('" + window.PAGE_ART[key] + "')";
+      };
+      set('left', pair[0]);
+      set('right', pair[1]);
+    }
+    // epub.js parks the iframe AFTER the relocation event fires — re-run the
+    // park-offset tracking once the geometry settles (defer=false inside).
+    if(defer !== false){
+      clearTimeout(syncPageOrnPageState._t);
+      syncPageOrnPageState._t = setTimeout(() => {
+        try{ if(state.rendition) syncPageOrnPageState(state.rendition.currentLocation(), false); }catch(e){}
+      }, 400);
+    }
+  }catch(e){}
+}
+/* Glue the overlay to the visible spread: epub.js renders a whole section
+   as one long multicol canvas inside a wide parked iframe and slides the
+   IFRAME element itself (no internal scroll), so the overlay — sized to
+   the viewer box — must translate by the iframe's park offset. The park
+   settles a few hundred ms AFTER the relocation event, so tracking runs as
+   a generational rAF loop (~2s, then stops — no permanent per-frame cost);
+   every relocation bumps the generation and restarts it. */
+function trackPageOrnRun(d, w){
+  w.dataset.trk = String((+w.dataset.trk || 0) + 1);
+  const gen = w.dataset.trk;
+  let last = '';
+  let n = 0;
+  const step = () => {
+    if(w.dataset.trk !== gen || !w.isConnected) return;
+    try{
+      const f = [...el('viewer').querySelectorAll('iframe')].find(f => f.contentDocument === d);
+      if(f){
+        const v = el('viewer').getBoundingClientRect();
+        const fr = f.getBoundingClientRect();
+        const key = [v.left.toFixed(1), v.width.toFixed(1), (v.left - fr.left).toFixed(1), (v.top - fr.top).toFixed(1)].join('|');
+        if(key !== last){
+          last = key;
+          w.style.width = v.width + 'px';
+          w.style.height = v.height + 'px';
+          w.style.transform = 'translate(' + (v.left - fr.left).toFixed(1) + 'px,' + (v.top - fr.top).toFixed(1) + 'px)';
+        }
+      }
+    }catch(e){}
+    if(++n < 120) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 function onContent(contents){
   const d=contents.document;
   let s=d.getElementById('folio-dyn');
   if(!s){ s=d.createElement('style'); s.id='folio-dyn'; (d.head||d.documentElement).appendChild(s); }
   s.textContent=buildCSS();
+  // Page corner art goes in before the cache capture below so the serialized
+  // chapter HTML (turn-compositor replays) carries the identical markup.
+  // Anchored on documentElement, NOT body: a fixed child of the body (the
+  // multicol scroll container) perturbs epub.js's wheel-turn mapping —
+  // probe-verified; html-anchored is layout-inert.
+  try{
+    if(settings.pageOrnaments && !d.getElementById('folio-pcs')){
+      const si = (typeof contents.sectionIndex === 'number') ? contents.sectionIndex : 0;
+      d.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(si));
+      const w = d.getElementById('folio-pcs');
+      if(w && !w.dataset.trk){
+        w.dataset.trk = '1';
+        // overlay geometry is park-offset driven — see trackPageOrn(); the
+        // first glue happens right here, relocations keep it aligned
+        trackPageOrnRun(d, w);
+      }
+    }
+  }catch(e){}
   try{
     const cleanHtml = '<!DOCTYPE html>' + d.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
     // Key by the rendered section, not currentSpine: relocated() runs after
@@ -3570,6 +3765,7 @@ function onRelocated(loc){
   el('pct').textContent=Math.round(frac*100)+'%';
   Ribbon.move(frac);
   EdgeStacks.set(frac, gPage);
+  syncPageOrnPageState(loc);
 
   // Chapter pills + chNavIdx resolve here (hot): the [ / ] keys fire right
   // after a jump's badge flip, before the 80ms cold pass could update them.
@@ -5224,9 +5420,16 @@ class PageCacheManager {
     // Replacement via function: css must never be read as a $-pattern.
     const swap = html => html.replace(/(<style id="folio-dyn">)[\s\S]*?<\/style>/,
       (m, open) => open + css + '</style>');
-    if(this.cachedChapterHtml) this.cachedChapterHtml = swap(this.cachedChapterHtml);
+    // Page corner art normalization: the markup rides the cached chapter
+    // strings, so a toggle (or reservation change) must strip and re-lay it
+    // per spine index — pageOrnMarkup returns '' when off or on a quiet
+    // chapter, which cleanly removes it.
+    const norm = (html, idx) => html
+      .replace(/<div id="folio-pcs"[\s\S]*?<\/div>/, '')
+      .replace(/<\/html>/i, pageOrnMarkup(idx) + '</html>');
+    if(this.cachedChapterHtml) this.cachedChapterHtml = norm(swap(this.cachedChapterHtml), this.currentSpine);
     for(const [k, html] of this.chapterHtmls){
-      if(html) this.chapterHtmls.set(k, swap(html));
+      if(html) this.chapterHtmls.set(k, norm(swap(html), k));
     }
   }
 
@@ -8365,6 +8568,8 @@ function syncRRCards(){
   });
   const orn = el('swRrOrn'); if(orn) orn.checked = !!settings.rrOrnaments;
   const frm = el('swRrFrame'); if(frm) frm.checked = !!settings.rrFrame;
+  const po = el('swPageOrn'); if(po) po.checked = !!settings.pageOrnaments;
+  body.classList.toggle('page-orn', !!settings.pageOrnaments);
 }
 
 // Feature 3: time-aware auto theme. With the Auto chip on, the hour of day
@@ -8833,6 +9038,14 @@ const swRrOrn = el('swRrOrn');
 if(swRrOrn) swRrOrn.addEventListener('change', () => { settings.rrOrnaments = swRrOrn.checked; save(); applyReadingRoom(); });
 const swRrFrame = el('swRrFrame');
 if(swRrFrame) swRrFrame.addEventListener('change', () => { settings.rrFrame = swRrFrame.checked; save(); applyReadingRoom(); });
+/* Page corner art: pure CSS + per-chapter markup — the retint chain re-lays
+   cached chapters and syncPageOrnamentsLive handles the live views. */
+const swPageOrn = el('swPageOrn');
+if(swPageOrn) swPageOrn.addEventListener('change', () => {
+  settings.pageOrnaments = swPageOrn.checked;
+  body.classList.toggle('page-orn', !!settings.pageOrnaments);
+  save(); syncPageOrnamentsLive(); scheduleBookRefresh(false);
+});
 // TOC drawer tabs: contents / bookmarks / highlights
 function setTocTab(which){
   const tabs = { toc:'tabToc', bm:'tabBm', hl:'tabHl', voc:'tabVoc' };

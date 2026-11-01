@@ -31,6 +31,9 @@ async function framePaddings(page) {
 }
 
 test('PM1 defaults: 20px top/bottom, sides at half the desk gutter', async ({ page }) => {
+  // corner art reserves a 72px top/bottom band (PO1 covers that) — disable
+  // it here so the raw margin defaults are measured
+  await page.evaluate(() => { settings.pageOrnaments = false; save(); });
   await openDemoReady(page);
   const p = await framePaddings(page);
   expect(p.top).toBe(20);
@@ -68,6 +71,8 @@ test('PM2 sides slider drives the epub gap, spine gutter and per-page inset', as
 });
 
 test('PM3 top/bottom sliders apply as page padding and persist', async ({ page }) => {
+  // corner art floors the top/bottom bands at 72px (PO1) — measure raw values
+  await page.evaluate(() => { settings.pageOrnaments = false; save(); });
   await openAdvanced(page);
   await page.evaluate(() => {
     const t = document.getElementById('pmTopRange');

@@ -1,0 +1,23 @@
+Page ornament assets — attribution notice
+=========================================
+
+The raster pieces embedded in page-art.js (gold corner frames, floral
+headpieces) are derived from Vecteezy free downloads:
+
+  vecteezy_gold-vector-illustration-of-decorative-corner-frame-set_35437823.svg
+  vecteezy_free-floral-ornamental-border-vectors_81749.svg
+  vecteezy_floral-ornament-vectors_87406.svg
+  vecteezy_free-leaves-pattern-vector_101169.svg
+  vecteezy_page-border-line-vectors_95547.svg
+
+Copyright their respective authors. Used under the Vecteezy Free License
+(attribution required): https://www.vecteezy.com/licensing-agreement
+Source: https://www.vecteezy.com
+
+The vintage-corner-vector-set-free-cdr-vec.zip (CorelDRAW source) and the
+seamless-patterns EPS set are NOT bundled — their formats are not used by
+the app.
+
+Regeneration: tests/manual/extract_raster_ornaments.cjs renders the source
+SVGs at 2x, crops grid cells to transparent PNGs, and emits page-art.json;
+the fixup + page-art.js generation step follows in the session notes.
