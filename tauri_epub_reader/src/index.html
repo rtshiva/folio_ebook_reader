@@ -1274,11 +1274,11 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <div id="landing">
   <div id="ghost">F</div>
   <div class="landing-card">
-    <p class="kicker">An EPUB reader for your books</p>
+    <p class="kicker">A reading experience for your books</p>
     <h1 class="wordmark">Folio<span class="dot">.</span></h1>
     <div class="rule-double"></div>
-    <p id="lede">Folio is an EPUB reader that helps you read books comfortably — open any
-      DRM-free .epub and it sets the text the way a good paperback would: type sized to your
+    <p id="lede">Folio is an ebook reader that helps you read comfortably — open any
+      DRM-free .epub, .mobi, or .azw3 and it sets the text the way a good paperback would: type sized to your
       screen, a measure your eye can hold, leading with room to breathe. Wide windows open into a
       two-page spread on its stand, with bionic reading, dyslexia-tuned typefaces, and a
       guided line to help you keep reading.</p>
@@ -1291,7 +1291,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       </button>
       <button class="btn btn-primary" id="btnOpen">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 8.5 4.5 6 4.5c-1 0-2 .1-3 .4V18c1-.3 2-.4 3-.4 2.5 0 4.5.5 6 1.9 1.5-1.4 3.5-1.9 6-1.9 1 0 2 .1 3 .4V4.9c-1-.3-2-.4-3-.4-2.5 0-4.5.5-6 2z"/><path d="M12 6.5v13"/></svg>
-        <span id="openLabel">Open an EPUB…</span>
+        <span id="openLabel">Open a Book…</span>
       </button>
       <button class="btn btn-ghost" id="btnDemo">Read the sample</button>
     </div>
@@ -1303,7 +1303,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       <h3 class="recent-title">Recent Books</h3>
       <div id="recentList" class="recent-grid"></div>
     </div>
-    <p class="drop-hint" id="dropHint">— or drop a .epub anywhere on this page</p>
+    <p class="drop-hint" id="dropHint">— or drop an ebook (.epub, .mobi) anywhere on this page</p>
   </div>
   <footer class="landing-foot">Auto-fit typography <i>·</i> Two-page spread <i>·</i> Page-flip &amp; slide <i>·</i> Four typefaces <i>·</i> Bionic reading <i>·</i> Bookmarks &amp; search</footer>
 </div>
@@ -1694,7 +1694,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
   </div>
 </div>
 <div id="topHint"></div><div id="botHint"></div>
-<div id="drop"><div class="frame"><p>Drop your EPUB to open it</p></div></div>
+<div id="drop"><div class="frame"><p>Drop your book to open it</p></div></div>
 <div id="loader" class="hide">
   <div><span class="wm" style="font-size:22px">Folio<span class="dot">.</span></span>
     <div class="loader-rule"></div><p class="kicker" id="loaderMsg">Typesetting…</p></div>
@@ -1720,7 +1720,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <div id="hlPop" hidden></div>
 <div id="nudgeHud" class="nudge-hud hide" aria-hidden="true"></div>
 <div id="toast"></div>
-<input id="file" type="file" accept=".epub,application/epub+zip" hidden>
+<input id="file" type="file" accept=".epub,.mobi,.azw,.azw3,application/epub+zip,application/x-mobipocket-ebook" hidden>
 
 <script>
 'use strict';
@@ -2710,20 +2710,20 @@ function updateLandingUI(){
       openBtn.classList.remove('btn-primary');
       openBtn.classList.add('btn-ghost');
     }
-    if(openLbl) openLbl.textContent = 'Open a different EPUB…';
+    if(openLbl) openLbl.textContent = 'Open a different book…';
     if(curBadge) curBadge.style.display = 'inline-flex';
     const pctText = el('pct') ? el('pct').textContent : '';
     if(curText) curText.textContent = `Open book: ${title}${pctText ? ' ('+pctText+')' : ''}`;
-    if(dropHint) dropHint.textContent = '— or drop a new .epub to replace current book';
+    if(dropHint) dropHint.textContent = '— or drop a new book to replace current book';
   } else {
     if(resumeBtn) resumeBtn.style.display = 'none';
     if(openBtn){
       openBtn.classList.add('btn-primary');
       openBtn.classList.remove('btn-ghost');
     }
-    if(openLbl) openLbl.textContent = 'Open an EPUB…';
+    if(openLbl) openLbl.textContent = 'Open a book…';
     if(curBadge) curBadge.style.display = 'none';
-    if(dropHint) dropHint.textContent = '— or drop a .epub anywhere on this page';
+    if(dropHint) dropHint.textContent = '— or drop an ebook (.epub, .mobi) anywhere on this page';
   }
   renderRecentShelf();
 }
@@ -3163,13 +3163,17 @@ async function applySpread(){
 function loadFile(file, optionalPath){
   if(!file) return;
   if(state.loading){ toast('Still opening a book — try again in a moment'); return; }
-  if(!/\.epub$/i.test(file.name) && file.type!=='application/epub+zip'){
-    toast('That does not look like an EPUB file'); return;
+  if(!/\.(epub|mobi|azw3?)$/i.test(file.name) && file.type!=='application/epub+zip' && file.type!=='application/x-mobipocket-ebook'){
+    toast('Please select an EPUB, MOBI, or AZW3 file'); return;
   }
-  if(file.size === 0){ toast('That file is empty — Folio reads DRM-free EPUBs'); return; }
+  if(file.size === 0){ toast('That file is empty'); return; }
   showLoader('Opening…');
-  const cleanName = (file.name || '').replace(/\.epub$/i, '').trim();
+  const cleanName = (file.name || '').replace(/\.(epub|mobi|azw3?)$/i, '').trim();
   const filePath = optionalPath || file.path || null;
+  if(filePath && tauriInvoke()){
+    openEpubPath(filePath);
+    return;
+  }
   const fr=new FileReader();
   fr.onload = () => { try { openBuffer(fr.result, cleanName, filePath); } catch(err) { hideLoader(); toast('Could not open book: ' + (err.message || err)); } };
   fr.onerror = () => { hideLoader(); toast('Failed to read file: ' + (file.name || 'selected file')); };
@@ -10152,7 +10156,7 @@ async function openEpubPath(path){
   if(!invoke) return;
   try{
 
-    const title = String(path.split(/[\\/]/).pop() || '').replace(/\.epub$/i, '').trim() || 'Untitled';
+    const title = String(path.split(/[\\/]/).pop() || '').replace(/\.(epub|mobi|azw3?)$/i, '').trim() || 'Untitled';
     closePanels();
     try{
       const handle = await invoke('book_open', { path });
@@ -10161,6 +10165,11 @@ async function openEpubPath(path){
         return;
       }
     }catch(errDisk){
+      if(/\.(mobi|azw3?)$/i.test(path)){
+        hideLoader();
+        toast(String(errDisk || 'Could not open book'));
+        return;
+      }
       console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
     }
     const bytes = await invoke('read_file_bytes', { path });
@@ -10219,7 +10228,7 @@ async function tauriOpenPath(path){
     }
     const invoke = tauriInvoke();
     if(!invoke) return;
-    const name = String(path).split(/[\\/]/).pop().replace(/\.epub$/i,'') || 'Untitled';
+    const name = String(path).split(/[\\/]/).pop().replace(/\.(epub|mobi|azw3?)$/i,'') || 'Untitled';
     try{
       const handle = await invoke('book_open', { path });
       if(handle && handle.hash){
@@ -10227,6 +10236,11 @@ async function tauriOpenPath(path){
         return;
       }
     }catch(errDisk){
+      if(/\.(mobi|azw3?)$/i.test(path)){
+        hideLoader();
+        toast(String(errDisk || 'Could not open book'));
+        return;
+      }
       console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
     }
     const bytes = await invoke('read_file_bytes', { path });

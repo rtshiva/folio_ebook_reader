@@ -165,6 +165,107 @@ export function buildTestEpub() {
   return out;
 }
 
+// Builds a synthetic DRM-free MOBI file in memory for tests.
+export function buildTestMobi(title = 'M Test', author = 'Tester') {
+  const enc = new TextEncoder();
+  const text = '<h1>Chapter 1</h1><p>First paragraph of the test MOBI book with words to paginate and read.</p><mbp:pagebreak/><h1>Chapter 2</h1><p>Second chapter of the test MOBI ebook.</p>';
+  const textBytes = enc.encode(text);
+
+  const rec0Parts = [];
+  const pushU16BE = (arr, v) => { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, false); arr.push(b); };
+  const pushU32BE = (arr, v) => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v >>> 0, false); arr.push(b); };
+
+  // PalmDOC header:
+  pushU16BE(rec0Parts, 2); // compression = 2
+  pushU16BE(rec0Parts, 0); // unused
+  pushU32BE(rec0Parts, textBytes.length); // uncompressed length
+  pushU16BE(rec0Parts, 1); // 1 text record
+  pushU16BE(rec0Parts, 4096); // record size
+  pushU16BE(rec0Parts, 0); // current pos
+  pushU16BE(rec0Parts, 0); // encryption = 0 (DRM free)
+
+  // MOBI header: 232 bytes
+  const mobiHdr = new Uint8Array(232);
+  const mobiHdrView = new DataView(mobiHdr.buffer);
+  mobiHdr.set(enc.encode('MOBI'), 0);
+  mobiHdrView.setUint32(4, 232, false);
+  mobiHdrView.setUint32(8, 2, false); // book
+  mobiHdrView.setUint32(12, 65001, false); // UTF-8
+  mobiHdrView.setUint32(16, 7777, false); // unique ID
+  mobiHdrView.setUint32(20, 6, false); // version 6
+  mobiHdrView.setUint32(64, 2, false); // first image index
+  mobiHdrView.setUint32(80, 0x40, false); // EXTH flag
+  mobiHdrView.setUint32(112, 3, false); // first non-book index
+  rec0Parts.push(mobiHdr);
+
+  // EXTH header:
+  const exthParts = [];
+  const aBytes = enc.encode(author);
+  const aLen = (8 + aBytes.length + 3) & ~3;
+  const aRec = new Uint8Array(aLen);
+  new DataView(aRec.buffer).setUint32(0, 100, false);
+  new DataView(aRec.buffer).setUint32(4, aLen, false);
+  aRec.set(aBytes, 8);
+  exthParts.push(aRec);
+
+  const tBytes = enc.encode(title);
+  const tLen = (8 + tBytes.length + 3) & ~3;
+  const tRec = new Uint8Array(tLen);
+  new DataView(tRec.buffer).setUint32(0, 503, false);
+  new DataView(tRec.buffer).setUint32(4, tLen, false);
+  tRec.set(tBytes, 8);
+  exthParts.push(tRec);
+
+  let exthRecsLen = 0;
+  for (const p of exthParts) exthRecsLen += p.length;
+  rec0Parts.push(enc.encode('EXTH'));
+  pushU32BE(rec0Parts, 12 + exthRecsLen);
+  pushU32BE(rec0Parts, 2);
+  for (const p of exthParts) rec0Parts.push(p);
+
+  let rec0Len = 0;
+  for (const p of rec0Parts) rec0Len += p.length;
+  const rec0 = new Uint8Array(rec0Len);
+  let pos0 = 0;
+  for (const p of rec0Parts) { rec0.set(p, pos0); pos0 += p.length; }
+
+  const rec1 = textBytes;
+  const rec2 = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b]);
+
+  const numRecords = 3;
+  const headerSize = 78 + numRecords * 8 + 2;
+  const off0 = headerSize;
+  const off1 = off0 + rec0.length;
+  const off2 = off1 + rec1.length;
+  const totalSize = off2 + rec2.length;
+
+  const out = new Uint8Array(totalSize);
+  const outView = new DataView(out.buffer);
+
+  // PDB header (78 bytes)
+  const nameBytes = enc.encode('TestMobi');
+  out.set(nameBytes, 0);
+  out.set(enc.encode('BOOK'), 60);
+  out.set(enc.encode('MOBI'), 64);
+  outView.setUint16(76, numRecords, false);
+
+  const offsets = [off0, off1, off2];
+  for (let i = 0; i < numRecords; i++) {
+    const listOff = 78 + i * 8;
+    outView.setUint32(listOff, offsets[i], false);
+    out[listOff + 4] = 0;
+    out[listOff + 5] = 0;
+    out[listOff + 6] = 0;
+    out[listOff + 7] = i;
+  }
+
+  out.set(rec0, off0);
+  out.set(rec1, off1);
+  out.set(rec2, off2);
+
+  return out;
+}
+
 // Builds an N-chapter stress EPUB in-page (app's own JSZip), stashing the
 // buffer on window.__sbuf. Split from opening so tests can observe (or spy
 // on) the open while it is still in flight — page.evaluate calls serialize,

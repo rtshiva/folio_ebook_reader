@@ -36,9 +36,9 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["epub"],
+        "ext": ["epub", "mobi", "azw", "azw3"],
         "name": "Electronic Publication",
-        "description": "EPUB E-Book",
+        "description": "E-Book",
         "role": "Viewer"
       }
     ]

@@ -1,12 +1,13 @@
 # Folio — A Beautiful Reading Experience for Windows
 
-> **Folio** is a beautifully crafted, offline-first EPUB reader for Windows, built with Tauri, Rust, WebView2 and epub.js. Featuring realistic page-turn animations, refined typography, immersive reading environments, botanical page ornaments, annotations, bookmarks, full-book search and neural text-to-speech. Designed to recreate the pleasure of reading a beautifully printed physical book.
+> **Folio** is a beautifully crafted, offline-first ebook reader for Windows (supporting EPUB, MOBI, and AZW3), built with Tauri, Rust, WebView2 and epub.js. Featuring realistic page-turn animations, refined typography, immersive reading environments, botanical page ornaments, annotations, bookmarks, full-book search and neural text-to-speech. Designed to recreate the pleasure of reading a beautifully printed physical book.
 
-Folio is a desktop EPUB reader designed around a simple idea: reading a digital book should feel as comfortable, immersive and beautiful as reading a well-crafted physical book.
+Folio is a desktop ebook reader designed around a simple idea: reading a digital book should feel as comfortable, immersive and beautiful as reading a well-crafted physical book.
 
 Built with Tauri 2, Rust, WebView2 and epub.js, Folio combines a lightweight native desktop application with a carefully designed reading interface. Rather than treating an ebook as just another document displayed on a screen, Folio recreates the visual experience of a traditional book — from carefully tuned typography and realistic page turns to textured paper, elegant book stands, decorative chapter openings and botanical page ornaments.
 
 ### What makes Folio different?
+- **Format versatility**: Native support for DRM-free **EPUB**, **MOBI** (Mobi 6/7), and **AZW3 / KF8** ebooks.
 - **A book-like reading experience**: Realistic page-fold animations, single-page and two-page layouts, and carefully tuned typography.
 - **Beautiful reading environments**: Choose from curated paper, ink and desk themes, with independent control over the surrounding Reading Room.
 - **Decorative book aesthetics**: Chapter-opening ornaments, botanical side vines, gold corner decorations and traditional book-inspired details.

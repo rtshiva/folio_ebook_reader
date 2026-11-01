@@ -7,16 +7,21 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 use tauri::Manager;
 
+pub mod mobi;
+
 #[tauri::command]
 fn get_initial_file() -> Option<String> {
     first_epub_arg(std::env::args())
 }
 
-// First existing .epub path in an argv iterator (used for cold start and
-// single-instance forwards alike).
+// First existing ebook (.epub, .mobi, .azw, .azw3) path in an argv iterator
+// (used for cold start and single-instance forwards alike).
 fn first_epub_arg(args: impl IntoIterator<Item = String>) -> Option<String> {
     for arg in args {
-        if arg.to_lowercase().ends_with(".epub") && Path::new(&arg).exists() {
+        let l = arg.to_lowercase();
+        if (l.ends_with(".epub") || l.ends_with(".mobi") || l.ends_with(".azw") || l.ends_with(".azw3"))
+            && Path::new(&arg).exists()
+        {
             return Some(arg);
         }
     }
@@ -151,7 +156,7 @@ fn read_file_bytes(
 #[tauri::command]
 fn pick_file() -> Option<String> {
     let file = rfd::FileDialog::new()
-        .add_filter("EPUB Books", &["epub"])
+        .add_filter("E-Books (*.epub, *.mobi, *.azw3)", &["epub", "mobi", "azw", "azw3"])
         .pick_file();
     file.map(|p| p.to_string_lossy().to_string())
 }
@@ -400,6 +405,9 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
         .join("folio-unzip");
     let target_dir = cache_root.join(&hash);
 
+    let lower = path.to_lowercase();
+    let is_mobi = lower.ends_with(".mobi") || lower.ends_with(".azw") || lower.ends_with(".azw3");
+
     let manifest_path = target_dir.join("manifest.json");
     let manifest = if manifest_path.exists() {
         match fs::read(&manifest_path).ok().and_then(|b| serde_json::from_slice::<BookManifest>(&b).ok()) {
@@ -415,12 +423,20 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
             _ => {
                 let _ = fs::remove_dir_all(&target_dir);
                 fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
-                unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+                if is_mobi {
+                    mobi::unpack_mobi(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+                } else {
+                    unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+                }
             }
         }
     } else {
         fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
-        unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+        if is_mobi {
+            mobi::unpack_mobi(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+        } else {
+            unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+        }
     };
 
     // Spawn background eviction
@@ -1257,12 +1273,14 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let upper = tmp.join("BOOK.EPUB");
+        let mobi = tmp.join("STORY.MOBI");
         let txt = tmp.join("note.txt");
         fs::write(&upper, b"fake epub").unwrap();
+        fs::write(&mobi, b"fake mobi").unwrap();
         fs::write(&txt, b"not a book").unwrap();
         let missing = tmp.join("ghost.epub");
 
-        // argv[0] is the exe itself; picks the first *existing* .epub,
+        // argv[0] is the exe itself; picks the first *existing* ebook (.epub, .mobi, .azw3),
         // case-insensitively, skipping text files and missing paths.
         let args = vec![
             "folio.exe".to_string(),
@@ -1272,7 +1290,14 @@ mod tests {
         ];
         assert_eq!(first_epub_arg(args), Some(upper.to_string_lossy().to_string()));
 
-        // No existing epub at all -> None (never a bogus path).
+        let args_mobi = vec![
+            "folio.exe".to_string(),
+            txt.to_string_lossy().to_string(),
+            mobi.to_string_lossy().to_string(),
+        ];
+        assert_eq!(first_epub_arg(args_mobi), Some(mobi.to_string_lossy().to_string()));
+
+        // No existing ebook at all -> None (never a bogus path).
         let args_none = vec![
             "folio.exe".to_string(),
             txt.to_string_lossy().to_string(),
@@ -1483,5 +1508,186 @@ mod tests {
         let (h_slash, r_slash) = parse_cache_uri_hash_and_rel("localhost", "/");
         assert_eq!(h_slash, "");
         assert_eq!(r_slash, "");
+    }
+
+    #[test]
+    fn test_u23_palmdoc_lz77_decompression() {
+        use crate::mobi::decompress_palmdoc;
+
+        // 1. Literal run and single bytes
+        // 0x04 followed by "test", then '!', then 0xC1 (space + 'A')
+        let compressed = vec![4, b't', b'e', b's', b't', b'!', 0xC1];
+        let decompressed = decompress_palmdoc(&compressed).unwrap();
+        assert_eq!(decompressed, b"test! A");
+
+        // 2. LZ77 backreference
+        // "abcde" followed by backreference to "cde"
+        // In PalmDOC, distance = 3, length = 3
+        // compound = (distance << 3) | (length - 3) = (3 << 3) | 0 = 24
+        // compound is 14-bit: high 6 bits in byte 1 (with 0x80 bit set), low 8 bits in byte 2
+        // compound = 24 -> byte1 = 0x80 | (24 >> 8) = 0x80, byte2 = 24 & 0xFF = 0x18
+        let ref_compressed = vec![5, b'a', b'b', b'c', b'd', b'e', 0x80, 0x18];
+        let ref_decomp = decompress_palmdoc(&ref_compressed).unwrap();
+        assert_eq!(ref_decomp, b"abcdecde");
+    }
+
+    #[test]
+    fn test_u24_trailing_bytes_and_cp1252() {
+        use crate::mobi::{cp1252_to_utf8, strip_trailing_entries};
+
+        // Test CP1252 encoding conversion for typographic quotes and dashes
+        let cp1252_bytes = vec![0x93, b'H', b'i', 0x94, 0x97, 0x80];
+        let utf8_res = cp1252_to_utf8(&cp1252_bytes);
+        assert_eq!(utf8_res, "“Hi”—€");
+
+        // Test trailing bytes stripping with bit 0 (multibyte)
+        // If flag bit 0 is set: size is (last_byte & 3) + 1
+        // E.g., last_byte = 0x02 -> extra size = 3 bytes
+        let data = vec![b'H', b'e', b'l', b'l', b'o', 0xAA, 0xBB, 0x02];
+        let stripped = strip_trailing_entries(&data, 1);
+        assert_eq!(stripped, b"Hello");
+    }
+
+    fn create_synthetic_mobi(title: &str, author: &str, text: &str, encryption_type: u16) -> Vec<u8> {
+        let mut rec0 = Vec::new();
+        rec0.extend_from_slice(&2u16.to_be_bytes()); // compression = 2
+        rec0.extend_from_slice(&0u16.to_be_bytes());
+        rec0.extend_from_slice(&(text.len() as u32).to_be_bytes());
+        rec0.extend_from_slice(&1u16.to_be_bytes()); // 1 text record
+        rec0.extend_from_slice(&4096u16.to_be_bytes());
+        rec0.extend_from_slice(&0u16.to_be_bytes());
+        rec0.extend_from_slice(&encryption_type.to_be_bytes());
+
+        let mobi_hdr_len = 232usize;
+        let mut mobi_hdr = vec![0u8; mobi_hdr_len];
+        mobi_hdr[0..4].copy_from_slice(b"MOBI");
+        mobi_hdr[4..8].copy_from_slice(&(mobi_hdr_len as u32).to_be_bytes());
+        mobi_hdr[8..12].copy_from_slice(&2u32.to_be_bytes());
+        mobi_hdr[12..16].copy_from_slice(&65001u32.to_be_bytes()); // UTF-8
+        mobi_hdr[16..20].copy_from_slice(&9999u32.to_be_bytes());
+        mobi_hdr[20..24].copy_from_slice(&6u32.to_be_bytes());
+        mobi_hdr[64..68].copy_from_slice(&2u32.to_be_bytes()); // first image index = 2
+        mobi_hdr[80..84].copy_from_slice(&0x40u32.to_be_bytes()); // EXTH flag
+        mobi_hdr[112..116].copy_from_slice(&3u32.to_be_bytes()); // first non book index
+        rec0.extend_from_slice(&mobi_hdr);
+
+        // EXTH header
+        let mut exth_records = Vec::new();
+        let a_bytes = author.as_bytes();
+        let a_len = (8 + a_bytes.len() + 3) & !3;
+        let mut a_rec = vec![0u8; a_len];
+        a_rec[0..4].copy_from_slice(&100u32.to_be_bytes());
+        a_rec[4..8].copy_from_slice(&(a_len as u32).to_be_bytes());
+        a_rec[8..8 + a_bytes.len()].copy_from_slice(a_bytes);
+        exth_records.extend_from_slice(&a_rec);
+
+        let t_bytes = title.as_bytes();
+        let t_len = (8 + t_bytes.len() + 3) & !3;
+        let mut t_rec = vec![0u8; t_len];
+        t_rec[0..4].copy_from_slice(&503u32.to_be_bytes());
+        t_rec[4..8].copy_from_slice(&(t_len as u32).to_be_bytes());
+        t_rec[8..8 + t_bytes.len()].copy_from_slice(t_bytes);
+        exth_records.extend_from_slice(&t_rec);
+
+        let exth_total_len = 12 + exth_records.len();
+        rec0.extend_from_slice(b"EXTH");
+        rec0.extend_from_slice(&(exth_total_len as u32).to_be_bytes());
+        rec0.extend_from_slice(&2u32.to_be_bytes());
+        rec0.extend_from_slice(&exth_records);
+
+        let rec1 = text.as_bytes().to_vec();
+        // 1x1 GIF
+        let rec2 = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;".to_vec();
+
+        let num_records = 3usize;
+        let header_size = 78 + num_records * 8 + 2;
+        let mut out = Vec::new();
+
+        let mut pdb_hdr = vec![0u8; 78];
+        let name = b"SyntheticMobi";
+        pdb_hdr[..name.len()].copy_from_slice(name);
+        pdb_hdr[60..64].copy_from_slice(b"BOOK");
+        pdb_hdr[64..68].copy_from_slice(b"MOBI");
+        pdb_hdr[76..78].copy_from_slice(&(num_records as u16).to_be_bytes());
+        out.extend_from_slice(&pdb_hdr);
+
+        let off0 = header_size;
+        let off1 = off0 + rec0.len();
+        let off2 = off1 + rec1.len();
+        let offsets = [off0, off1, off2];
+
+        for (i, &off) in offsets.iter().enumerate() {
+            out.extend_from_slice(&(off as u32).to_be_bytes());
+            out.push(0);
+            out.push(0);
+            out.push(0);
+            out.push(i as u8);
+        }
+        out.extend_from_slice(&[0, 0]);
+
+        out.extend_from_slice(&rec0);
+        out.extend_from_slice(&rec1);
+        out.extend_from_slice(&rec2);
+
+        out
+    }
+
+    #[test]
+    fn test_u25_mobi_unpack_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_roundtrip_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let mobi_file = tmp.join("book.mobi");
+        let content = "<h1>Chapter One</h1><p>Welcome to Folio reading MOBI files.</p><img recindex=\"1\"><mbp:pagebreak/><h1>Chapter Two</h1><p>Second chapter is readable.</p>";
+        let bytes = create_synthetic_mobi("Folio Story", "Arthur Conan Doyle", content, 0);
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+
+        let manifest = crate::mobi::unpack_mobi(&mobi_file, &target, "book.mobi", &meta, 12345).unwrap();
+        assert_eq!(manifest.files.len() > 0, true);
+
+        // Verify structure
+        assert!(target.join("META-INF/container.xml").exists());
+        assert!(target.join("content.opf").exists());
+        assert!(target.join("toc.ncx").exists());
+        assert!(target.join("manifest.json").exists());
+        assert!(target.join("images/img_0001.gif").exists());
+        assert!(target.join("ch_0001.xhtml").exists());
+        assert!(target.join("ch_0002.xhtml").exists());
+
+        // Check content of OPF and chapters
+        let opf_text = fs::read_to_string(target.join("content.opf")).unwrap();
+        assert!(opf_text.contains("Folio Story"));
+        assert!(opf_text.contains("Arthur Conan Doyle"));
+
+        let ch1_text = fs::read_to_string(target.join("ch_0001.xhtml")).unwrap();
+        assert!(ch1_text.contains("Chapter One"));
+        assert!(ch1_text.contains("images/img_0001.gif"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u26_mobi_drm_protection_detected() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_drm_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let mobi_file = tmp.join("drm_book.mobi");
+        let bytes = create_synthetic_mobi("Encrypted Book", "Unknown", "secret", 2);
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+
+        let res = crate::mobi::unpack_mobi(&mobi_file, &target, "drm_book.mobi", &meta, 12345);
+        assert!(res.is_err());
+        let err = res.err().unwrap();
+        assert!(err.contains("DRM-protected"));
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
