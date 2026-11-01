@@ -81,7 +81,7 @@ Seven curated environments, each with its own desk, cloth, and side-vine dressin
 - **Word definitions** on selection (online API with an offline cache of previously fetched words), plus copy and speak selection actions.
 
 ### Read aloud & stats
-- **Text-to-speech** — play/pause (`R`), stop (`Shift+R`), speed (`-` / `=`), sentence highlighting, and auto page advance.
+- **Text-to-speech, two engines** — *System voices* (whatever the OS provides) and *Kitten neural* (Bella, Jasper & 6 more, ~92 MB model installed once in-app, then offline). Play/pause (`R`), stop (`Shift+R`), speed (`-` / `=`), sentence highlighting, auto page advance, and per-engine voice selection.
 - **Reading stats** — session/day minutes, pages turned, and day streak, shown on the landing page.
 
 ### Chrome & polish
@@ -118,11 +118,8 @@ npm run build        # optimized release build
 Build artifacts:
 
 - Standalone executable: `tauri_epub_reader/src-tauri/target/release/app.exe`
-- Two installer SKUs (same app — pick per audience):
-  - **Full (with offline TTS voices)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-TTS.exe` (~333 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-TTS.msi`
-  - **Lite (system speech voices only)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-lite.exe` (~4 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-lite.msi`
-- The lite build is produced from `src-tauri/tauri.conf.lite.json` (drops the bundled Piper voices; read-aloud falls back to Windows speech): `npx tauri build --config src-tauri/tauri.conf.lite.json`. Both SKUs share the same app identity, so the full installer upgrades a lite install in place.
-- **CI**: `.github/workflows/build-installers.yml` builds both SKUs on GitHub runners (lite always; TTS needs the Piper bundle uploaded once as a `piper-bundle` release asset, or a self-hosted runner with `bin/piper`). Run it from the Actions tab, or push a `v*` tag to build + attach both to a GitHub release.
+- Single installer for everyone: `bundle/nsis/Folio_1.0.0_x64-setup.exe` and `bundle/msi/Folio_1.0.0_x64_en-US.msi` (~15 MB). The KittenTTS neural voices (~92 MB) install once on demand inside the app (Settings → Read aloud → Kitten neural), then work offline. The old Piper bundle and the lite/TTS SKU split are gone.
+- **CI**: `.github/workflows/build-installers.yml` builds the installer on GitHub runners; push a `v*` tag to also attach it to a GitHub release.
 
 ### Tests
 

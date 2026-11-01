@@ -39,6 +39,7 @@
   --fit-fs:19.5px; --fit-lh:1.65; --fit-mw:660px; --gut:64px;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%}
 body{margin:0;background:var(--desk);color:var(--ink);font-family:var(--sans);
   -webkit-font-smoothing:antialiased;overflow:hidden;touch-action:manipulation}
@@ -1543,15 +1544,17 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       <label class="sw" style="margin-top:10px"><input type="checkbox" id="swPerBook"><span class="tr"></span>Remember typography per book</label>
     </section>
 
-    <section id="secTtsVoice"><h4 class="lbl">Read aloud voice</h4>
-      <div class="seg" id="voiceSeg">
-        <button data-voice="lessac" type="button" class="sel">👩 Female (Lessac High)</button>
-        <button data-voice="bryce" type="button">👨 Male (Ryan High)</button>
+    <section id="secTtsVoice"><h4 class="lbl">Read aloud</h4>
+      <div class="seg" id="engineSeg">
+        <button data-engine="system" type="button" class="sel">System voices</button>
+        <button data-engine="kitten" type="button">Kitten neural</button>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
-        <span class="fine" id="voiceStatusBadge" style="margin:0;color:var(--accent)">● Natural Neural Voice</span>
+        <span class="fine" id="voiceStatusBadge" style="margin:0">○ System voices</span>
         <button class="chip" id="btnPreviewVoice" type="button">▶ Test voice</button>
       </div>
+      <button class="btn btn-ghost" id="btnKittenInstall" type="button" style="width:100%;justify-content:center;margin-top:8px" hidden>Install neural voices (~92 MB)</button>
+      <div class="seg" id="voiceSeg" style="margin-top:8px"></div>
       <p class="fine" style="margin-top:6px">Press <kbd>V</kbd> while reading aloud to switch narrator anytime.</p>
     </section>
 
@@ -7123,6 +7126,67 @@ addEventListener('touchmove',e=>{ if(settings.guide&&e.touches[0])moveGuide(e.to
    epub.js DOM Range of the current page (precise, not char-sliced), highlight
    rides the CSS Custom Highlight API (no DOM mutation, safe across nodes),
    and page ends auto-advance through the normal turn engine. */
+const KITTEN_MODEL = 'KittenML/kitten-tts-mini-0.8';
+const KITTEN_VOICES = [
+  ['bella', 'Bella', 'female'],
+  ['jasper', 'Jasper', 'male'],
+  ['rosie', 'Rosie', 'female'],
+  ['luna', 'Luna', 'female'],
+  ['bruno', 'Bruno', 'male'],
+  ['hugo', 'Hugo', 'male'],
+  ['kiki', 'Kiki', 'female'],
+  ['leo', 'Leo', 'male']
+];
+/* KittenTTS runner: Transformers.js text-to-speech pipeline over the
+   onnx-community Mini v0.8 export (StyleTTS-2, int8, ~92MB, 24kHz). The
+   model downloads once through progress_callback, caches in the WebView,
+   and works offline afterward. WASM backend — int8 ops have no WebGPU
+   kernels; WebView2 falls back to single-threaded WASM automatically. */
+const KittenRunner = {
+  pipe: null, loadP: null, installed: false, installPct: -1,
+  ready(){ return this.installed; },
+  progress(){ return this.installPct; },
+  install(onProgress){
+    if(this.pipe) return Promise.resolve(this.pipe);
+    if(this.loadP) return this.loadP;
+    this.loadP = (async () => {
+      const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
+      const tts = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8', { runtime: 'cpu' });
+      this.pipe = tts; this.installed = true; this.installPct = 100;
+      TTS.syncVoiceUI();
+      return tts;
+    })().catch((e) => { this.loadP = null; throw e; });
+    return this.loadP;
+  },
+  async generate(text, voice){
+    const tts = await this.install();
+    // kitten-tts-js wants capitalized preset names (Bella, Jasper…)
+    const cap = (voice || 'bella').charAt(0).toUpperCase() + (voice || 'bella').slice(1);
+    const audio = await tts.generate(text, { voice: cap, speed: 1.0 });
+    if(audio.encodeWAV) return new Uint8Array(audio.encodeWAV());
+    if(audio.audio) return float32ToWav(audio.audio, audio.sampleRate || 24000);
+    if(audio.toBlob) return new Uint8Array(await (await audio.toBlob()).arrayBuffer());
+    throw new Error('unrecognized audio output');
+  }
+};
+/* Float32 mono samples -> PCM16 WAV bytes (KittenTTS outputs 24kHz). */
+function float32ToWav(f32, sampleRate){
+  const sr = sampleRate || 24000;
+  const buf = new ArrayBuffer(44 + f32.length * 2);
+  const v = new DataView(buf);
+  const wstr = (off, s2) => { for(let i = 0; i < s2.length; i++) v.setUint8(off + i, s2.charCodeAt(i)); };
+  wstr(0, 'RIFF'); v.setUint32(4, 36 + f32.length * 2, true); wstr(8, 'WAVE');
+  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wstr(36, 'data'); v.setUint32(40, f32.length * 2, true);
+  let o = 44;
+  for(let i = 0; i < f32.length; i++, o += 2){
+    const s2 = Math.max(-1, Math.min(1, f32[i]));
+    v.setInt16(o, s2 < 0 ? s2 * 0x8000 : s2 * 0x7FFF, true);
+  }
+  return new Uint8Array(buf);
+};
 const TTS = {
   active: false, paused: false, stopped: true,
   sents: [], si: 0,
@@ -7130,23 +7194,10 @@ const TTS = {
   utt: null, rate: 1, relocT: null, gen: 0,
   currentCfi: '',
   ttsCtx: null, srcNode: null, srcDone: true,
-  piperAvailable: null,
-
-  supported(){
-    return ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) || (typeof tauriInvoke === 'function' && !!tauriInvoke());
-  },
-
-  async checkPiper(){
-    if(this.piperAvailable !== null) return this.piperAvailable;
-    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
-    if(!inv){ this.piperAvailable = false; return false; }
-    try{
-      this.piperAvailable = !!(await inv('tts_piper_status'));
-    }catch(e){
-      this.piperAvailable = false;
-    }
-    return this.piperAvailable;
-  },
+  engine: (function(){ try { return localStorage.getItem('fio_tts_engine') === 'kitten' ? 'kitten' : 'system'; } catch(e){ return 'system'; } })(),
+  voice: (function(){ try { return localStorage.getItem('fio_tts_voice') || 'bella'; } catch(e){ return 'bella'; } })(),
+  systemVoiceURI: (function(){ try { return localStorage.getItem('fio_tts_sysvoice') || ''; } catch(e){ return ''; } })(),
+  paused: false, stopped: true,
 
   /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
   toggle(){
@@ -7166,12 +7217,11 @@ const TTS = {
     this.currentCfi = cfi;
     body.classList.add('tts-on');
     this.syncUI();
-    const hasPiper = await this.checkPiper();
-    if(hasPiper){
-      const vName = (this.voice === 'bryce') ? 'Ryan (Male)' : 'Lessac High (Female)';
-      toast(`Read aloud on: ${vName} · V switches voice · - / = speed`);
+    if(this.engine === 'kitten' && !KittenRunner.installed){
+      toast('Installing Kitten neural voices (~92 MB, once)…');
+      try{ await this.kittenInstall(); }catch(e){ this.stop(true); return; }
     } else {
-      toast('Read aloud on — R pauses · Shift+R stops · - / = speed');
+      toast('Read aloud on: ' + this.engineLabel() + ' · V switches voice · - / = speed');
     }
     this.loadPageAndSpeak();
   },
@@ -7231,84 +7281,175 @@ const TTS = {
     this.syncUI();
     if(!silent) toast('Read aloud stopped');
   },
-  voice: (function(){
-    try { return localStorage.getItem('fio_tts_voice') || 'lessac'; } catch(e){ return 'lessac'; }
-  })(),
-
-  setVoice(v){
-    this.voice = (v === 'bryce') ? 'bryce' : 'lessac';
-    try { localStorage.setItem('fio_tts_voice', this.voice); } catch(e){}
+  supported(){
+    return ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) || !!window.PAGE_ART;
+  },
+  kittenVoiceName(){
+    const hit = KITTEN_VOICES.find(v => v[0] === this.voice);
+    return hit ? hit[1] : 'Bella';
+  },
+  systemVoice(){
+    if(!('speechSynthesis' in window)) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find(v => v.voiceURI === this.systemVoiceURI) ||
+           voices.find(v => v.default) || voices[0] || null;
+  },
+  engineLabel(){
+    if(this.engine === 'kitten') return 'Kitten neural (' + this.kittenVoiceName() + ')';
+    const v = this.systemVoice();
+    return v ? ('System: ' + v.name) : 'System voices';
+  },
+  kittenInstall(){
+    return KittenRunner.install((pct) => this.syncVoiceUI());
+  },
+  setEngine(e){
+    const eng = (e === 'kitten') ? 'kitten' : 'system';
+    if(eng === this.engine) return;
+    this.engine = eng;
+    try { localStorage.setItem('fio_tts_engine', eng); } catch(err){}
+    if(eng === 'kitten' && !KITTEN_VOICES.some(v => v[0] === this.voice)){
+      this.voice = 'bella';
+      try { localStorage.setItem('fio_tts_voice', 'bella'); } catch(err){}
+    }
     this.syncVoiceUI();
     this.syncUI();
-    const voiceName = (this.voice === 'bryce') ? 'Ryan High (Natural Male)' : 'Lessac High (Natural Female)';
-    toast('Narrator voice: ' + voiceName);
+    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
     if(this.active && !this.paused){
-      // Invalidate any pending inter-sentence gap timer, or it would fire and
-      // start a second voice chain on top of the one we begin below.
       this.gen++;
       this.clearPcm();
       this.stopWav();
-      try{ speechSynthesis.cancel(); }catch(e){}
+      try{ speechSynthesis.cancel(); }catch(err){}
+      if(eng === 'kitten' && !KittenRunner.ready()){
+        KittenRunner.install(() => this.syncVoiceUI()).then(() => { if(this.active && !this.paused) this.speakNext(); });
+        return;
+      }
       this.speakNext();
     }
   },
 
-  cycleVoice(){
-    if(!this.piperAvailable){
-      toast('Natural neural voices are active in the desktop app');
+  setVoice(v){
+    if(this.engine === 'kitten'){
+      this.voice = KITTEN_VOICES.some(k => k[0] === v) ? v : 'bella';
+      try { localStorage.setItem('fio_tts_voice', this.voice); } catch(err){}
+      this.syncVoiceUI();
+      this.syncUI();
+      toast('Narrator voice: ' + this.kittenVoiceName());
+      if(this.active && !this.paused){
+        this.gen++;
+        this.clearPcm();
+        this.stopWav();
+        try{ speechSynthesis.cancel(); }catch(err){}
+        this.speakNext();
+      }
       return;
     }
-    this.setVoice(this.voice === 'lessac' ? 'bryce' : 'lessac');
+    this.systemVoiceURI = v || '';
+    try { localStorage.setItem('fio_tts_sysvoice', this.systemVoiceURI); } catch(err){}
+    this.syncVoiceUI();
+    this.syncUI();
+    const vn = this.systemVoice();
+    toast('Narrator voice: ' + (vn ? vn.name : 'System default'));
+  },
+
+  cycleVoice(){
+    if(this.engine !== 'kitten'){ this.setEngine('kitten'); return; }
+    const i2 = KITTEN_VOICES.findIndex(v => v[0] === this.voice);
+    this.setVoice(KITTEN_VOICES[(i2 + 1) % KITTEN_VOICES.length][0]);
   },
 
   syncVoiceUI(){
-    document.querySelectorAll('#voiceSeg button').forEach(b => {
-      b.classList.toggle('sel', b.dataset.voice === this.voice);
+    document.querySelectorAll('#engineSeg button').forEach(b => {
+      b.classList.toggle('sel', b.dataset.engine === this.engine);
     });
+    const seg = el('voiceSeg');
+    if(seg){
+      seg.innerHTML = '';
+      if(this.engine === 'kitten'){
+        KITTEN_VOICES.forEach(([id, name, gender]) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.dataset.voice = id;
+          b.textContent = (gender === 'female' ? '♀ ' : '♂ ') + name;
+          if(id === this.voice) b.classList.add('sel');
+          seg.appendChild(b);
+        });
+      } else {
+        const voices = ('speechSynthesis' in window) ? speechSynthesis.getVoices() : [];
+        if(!voices.length){
+          const d = document.createElement('span');
+          d.className = 'fine';
+          d.textContent = 'No system voices found';
+          seg.appendChild(d);
+        }
+        voices.slice(0, 12).forEach((v) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.dataset.voice = v.voiceURI;
+          b.textContent = v.name.slice(0, 30);
+          if(v.voiceURI === this.systemVoiceURI || (!this.systemVoiceURI && v.default)) b.classList.add('sel');
+          seg.appendChild(b);
+        });
+      }
+    }
     const badge = el('voiceStatusBadge');
     if(badge){
-      if(this.piperAvailable){
-        badge.textContent = '● Natural Neural Engine Active';
-        badge.style.color = 'var(--accent, #1a9955)';
-      } else if(!('speechSynthesis' in window) || speechSynthesis.getVoices().length === 0){
-        badge.textContent = '✕ No speech voices available (Piper engine missing)';
-        badge.style.color = '#c0392b';
+      if(this.engine === 'kitten'){
+        if(KittenRunner.ready()){
+          badge.textContent = '● Kitten neural ready (' + this.kittenVoiceName() + ')';
+          badge.style.color = 'var(--accent, #1a9955)';
+        } else if(KittenRunner.progress() >= 0 && KittenRunner.progress() < 100){
+          badge.textContent = '↓ Installing Kitten neural voices… ' + KittenRunner.progress() + '%';
+          badge.style.color = '#b8860b';
+        } else {
+          badge.textContent = '○ Kitten neural voices not installed (~92 MB download)';
+          badge.style.color = 'var(--muted, #888)';
+        }
       } else {
-        badge.textContent = '○ Browser Speech Synthesis';
-        badge.style.color = 'var(--muted, #888)';
+        const n = ('speechSynthesis' in window) ? speechSynthesis.getVoices().length : 0;
+        if(!n){
+          badge.textContent = '✕ No system speech voices found';
+          badge.style.color = '#c0392b';
+        } else {
+          badge.textContent = '○ System voices (' + n + ')';
+          badge.style.color = 'var(--muted, #888)';
+        }
       }
+    }
+    const ib = el('btnKittenInstall');
+    if(ib){
+      ib.hidden = !(this.engine === 'kitten' && !KittenRunner.ready());
+      ib.textContent = (KittenRunner.progress() >= 0 && KittenRunner.progress() < 100)
+        ? 'Installing… ' + KittenRunner.progress() + '%' : 'Install neural voices (~92 MB)';
     }
   },
 
   async previewVoice(v){
-    const voiceId = v || this.voice || 'lessac';
-    const text = (voiceId === 'bryce')
-      ? 'This is the Ryan natural male voice, ready for your books.'
-      : 'This is the Lessac natural female voice, ready for your books.';
-    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
-    const hasPiper = await this.checkPiper();
-    if(hasPiper && inv){
-      try {
-        toast(`Playing sample: ${voiceId === 'bryce' ? 'Ryan (Male)' : 'Lessac High (Female)'}…`);
-        const wavBytes = await inv('tts_piper_speak', { text, rate: 1.0, voice: voiceId });
-        const buf = ipcToBuffer(wavBytes);
-        if(buf && buf.byteLength > 0){
-          const blob = new Blob([buf], { type: 'audio/wav' });
-          const url = URL.createObjectURL(blob);
-          const aud = new Audio(url);
-          aud.onended = () => URL.revokeObjectURL(url);
-          aud.onerror = () => URL.revokeObjectURL(url);
-          await aud.play();
-          return;
-        }
-      } catch(e) {
-        console.warn('Voice preview failed:', e);
+    const prevEngine = this.engine, prevVoice = this.voice;
+    const target = v || this.voice || 'bella';
+    try{
+      if(this.engine === 'kitten' || KITTEN_VOICES.some(k => k[0] === target)){
+        this.voice = KITTEN_VOICES.some(k => k[0] === target) ? target : 'bella';
+        toast('Generating sample: ' + this.kittenVoiceName() + '…');
+        const wav = await KittenRunner.generate('Hello. This is ' + this.kittenVoiceName() + ', reading your books aloud.', this.voice);
+        const blob = new Blob([wav], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        const aud = new Audio(url);
+        aud.onended = () => URL.revokeObjectURL(url);
+        await aud.play();
+        return;
       }
-    }
-    if('speechSynthesis' in window){
-      toast('Previewing browser voice (desktop app enables natural neural voices)…');
-      const u = new SpeechSynthesisUtterance(text);
-      speechSynthesis.speak(u);
+      if('speechSynthesis' in window){
+        toast('Previewing system voice…');
+        const u = new SpeechSynthesisUtterance('This is your system voice, reading your books aloud.');
+        const sv = speechSynthesis.getVoices().find(x => x.voiceURI === target);
+        if(sv) u.voice = sv;
+        speechSynthesis.speak(u);
+      }
+    }catch(e){
+      console.warn('Voice preview failed:', e);
+      toast('Preview needs the Kitten voices installed, or a system voice');
+    } finally {
+      this.engine = prevEngine; this.voice = prevVoice;
     }
   },
 
@@ -7318,7 +7459,7 @@ const TTS = {
     b.classList.toggle('active', this.active && !this.paused);
     b.classList.toggle('paused', this.active && this.paused);
     b.setAttribute('aria-pressed', this.active ? 'true' : 'false');
-    const voiceLabel = (this.piperAvailable && this.voice === 'bryce') ? ' [Ryan - Male]' : (this.piperAvailable ? ' [Lessac - Female]' : '');
+    const voiceLabel = this.engine === 'kitten' ? ' [' + this.kittenVoiceName() + ']' : '';
     b.setAttribute('title', this.active ? (this.paused ? `Resume read aloud (R)${voiceLabel}` : `Pause read aloud (R)${voiceLabel}`) : `Read aloud (R)${voiceLabel}`);
   },
   nudgeRate(d){
@@ -7335,17 +7476,15 @@ const TTS = {
     }
   },
 
-  /* Narration breath, matched to the per-voice bench profiles: the high
-     voices were tuned with 0.56s / 0.71s sentence silence. Rate keys scale it.
-     A heading (chapter/section title) just spoken earns an extra beat before
-     the body text starts. */
+  /* Narration breath: rate-scaled sentence gap; a heading just spoken earns
+     an extra beat before the body text starts. */
   sentGapMs(afterHeading){
-    const base = (this.voice === 'bryce' ? 710 : 560) / this.rate;
+    const base = 600 / this.rate;
     return Math.round(afterHeading ? base + 700 / this.rate : base);
   },
 
-  /* Synthesize sentence si+1 while si plays, so the pause between sentences is
-     the tuned gap instead of piper's latency. Entries are keyed by sentence
+  /* Generate sentence si+1 while si plays, so the pause between sentences is
+     the tuned gap instead of engine latency. Entries are keyed by sentence
      index and invalidated wherever voice/rate/page changes (gen bump alone is
      not enough: a stored clip outlives its chain). */
   pcmCache: new Map(),
@@ -7354,21 +7493,20 @@ const TTS = {
     const nxt = this.si + 1;
     const sent = this.sents[nxt];
     if(!sent || this.pcmCache.has(nxt)) return;
-    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
-    if(!inv) return;
+    if(this.engine !== 'kitten') return; // system voices synthesize instantly
     const voice = this.voice, rate = this.rate;
-    inv('tts_piper_speak', { text: sent.text, rate, voice }).then(bytes => {
+    KittenRunner.generate(sent.text, voice).then(bytes => {
       if(this.gen !== gu || this.stopped) return;
       if(this.voice !== voice || this.rate !== rate) return; // stale params
       this.pcmCache.set(nxt, bytes);
     }).catch(() => {});
   },
 
-  /* Piper audio renders through WebAudio instead of an <audio> element: the
-     media-element blob path produced static on some WebView2 setups even with
-     byte-perfect WAVs, while the AudioContext pipeline renders cleanly. The
-     Rust side now also widens to 44.1kHz stereo, so decode is trivial.
-     Resolves true when playback started (onended advances the chain). */
+  /* Neural + system audio render through WebAudio instead of an <audio>
+     element: the media-element blob path produced static on some WebView2
+     setups even with byte-perfect WAVs, while the AudioContext pipeline
+     renders cleanly. Resolves true when playback started (onended advances
+     the chain). */
   playWav(buf, gu){
     return new Promise((resolve) => {
       try{
@@ -7555,29 +7693,28 @@ const TTS = {
 
     const gu = this.gen;
     const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
-    const hasPiper = await this.checkPiper();
-
-    if(hasPiper && inv){
+    if(this.engine === 'kitten'){
       try{
-        /* Prefetched audio (synthesized while the previous sentence played)
-           makes the inter-sentence pause exactly sentGapMs; synthesizing only
-           on demand adds the full piper latency (1-3s per high-voice sentence)
-           to every pause, which read as a 3-4s gap. */
+        /* Prefetched audio (generated while the previous sentence played)
+           makes the inter-sentence pause exactly sentGapMs; generating only
+           on demand adds the full model latency to every pause. */
         let wavBytes = this.pcmCache.get(this.si);
         if(wavBytes) this.pcmCache.delete(this.si);
         else{
-          wavBytes = await inv('tts_piper_speak', { text: sent.text, rate: this.rate, voice: this.voice });
+          wavBytes = await KittenRunner.generate(sent.text, this.voice);
           if(this.gen !== gu || this.stopped || !this.active) return;
         }
-        const buf = ipcToBuffer(wavBytes);
+        const buf = (wavBytes instanceof Uint8Array)
+          ? wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength) : wavBytes;
         if(buf && buf.byteLength > 0){
           const started = await this.playWav(buf, gu);
           if(started){ this.prefetch(gu); return; }
         }
       }catch(e){
-        console.warn('Piper invoke failed:', e);
-        // Piper invocation failed (e.g. unsupported text), fall back to SpeechSynthesis
+        console.warn('Kitten generation failed, falling back to system voice:', e);
+        toast('Kitten voice failed here — using the system voice for this sentence');
       }
+      if(this.gen !== gu || this.stopped || !this.active) return;
     }
 
     if(this.gen !== gu || this.stopped || !this.active) return;
@@ -7595,7 +7732,7 @@ const TTS = {
       const failMute = () => {
         if(this.gen !== gu2 || this.stopped || !this.active) return;
         this.stop(true);
-        toast('No speech voices in this window and the Piper engine was not found — reinstall Folio so bin\\piper ships next to the exe');
+        toast('No system speech voices available. Install the Kitten neural voices from Settings → Read aloud.');
       };
       let done = false;
       const onVoices = () => { if(done) return; done = true; clearTimeout(t); if(voicesNow()) this.speakWebSpeech(sent, gu2); else failMute(); };
@@ -7605,6 +7742,7 @@ const TTS = {
     }
     const u = new SpeechSynthesisUtterance(sent.text);
     u.rate = this.rate;
+    const sysV = this.systemVoice(); if(sysV) u.voice = sysV;
     u.onend = () => {
       if(this.gen !== gu || this.stopped || !this.active) return;
       const afterHeading = !!(sent && sent.isHeading);
@@ -9182,9 +9320,16 @@ document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('clic
   settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
 }));
-document.querySelectorAll('#voiceSeg button').forEach(b => b.addEventListener('click', () => {
-  TTS.setVoice(b.dataset.voice);
+/* voiceSeg buttons are re-rendered per engine — delegate the clicks */
+el('voiceSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-voice]');
+  if(b) TTS.setVoice(b.dataset.voice);
+});
+document.querySelectorAll('#engineSeg button').forEach(b => b.addEventListener('click', () => {
+  TTS.setEngine(b.dataset.engine);
 }));
+const btnKittenInstall = el('btnKittenInstall');
+if(btnKittenInstall) btnKittenInstall.addEventListener('click', () => { TTS.kittenInstall(); });
 const btnPrevVoice = el('btnPreviewVoice');
 if(btnPrevVoice){
   btnPrevVoice.addEventListener('click', () => {
@@ -9612,10 +9757,7 @@ applyFit();
 updateLandingUI();
 poke();
 checkStartupFile();
-TTS.checkPiper().then(() => {
-  TTS.syncVoiceUI();
-  TTS.syncUI();
-});
+  TTS.syncVoiceUI(); TTS.syncUI();
 /* Speech voices populate asynchronously in browsers (voiceschanged) — refresh
    the engine badge when they land so "no voices" doesn't stick wrongly. */
 if('speechSynthesis' in window){

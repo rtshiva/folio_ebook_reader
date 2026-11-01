@@ -11,11 +11,14 @@
     "test:rust": "cd src-tauri && cargo test"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0"
+    "@huggingface/transformers": "^3.8.1",
+    "@tauri-apps/api": "^2.0.0",
+    "kitten-tts-js": "^0.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.0.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-plugin-html": "^8.2.1",
     "http-server": "^14.1.1",
