@@ -1,13 +1,19 @@
 name: build-installers
 
-# Builds the Folio installer (single SKU). The KittenTTS neural voice model
-# (~92MB) is NOT bundled — it downloads once on demand inside the app and
-# caches offline, so no large assets are needed at build time.
+# Builds the Folio standalone executable, NSIS installer, and MSI installer for Windows.
+# The KittenTTS neural voice model (~92MB) is installed once on demand inside the app
+# and cached offline, so no large external assets are required at build time.
 
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: build-installers-${{ github.ref }}
@@ -22,18 +28,24 @@ defaults:
 
 jobs:
   build:
-    name: Installer
+    name: Build Installer & Executable
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: tauri_epub_reader/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: tauri_epub_reader/src-tauri
 
@@ -41,40 +53,62 @@ jobs:
         working-directory: tauri_epub_reader
         run: npm ci
 
-      - name: Build installer
+      - name: Run backend unit tests
+        working-directory: tauri_epub_reader/src-tauri
+        run: cargo test
+
+      - name: Build Tauri app & installers
         working-directory: tauri_epub_reader
         run: npx tauri build
 
-      - name: Rename artifacts
-        working-directory: tauri_epub_reader/src-tauri/target/release/bundle
+      - name: Organize release artifacts
+        working-directory: tauri_epub_reader/src-tauri/target/release
         run: |
-          mv "nsis/Folio Reader_1.0.0_x64-setup.exe" "nsis/Folio_1.0.0_x64-setup.exe"
-          mv "msi/Folio Reader_1.0.0_x64_en-US.msi" "msi/Folio_1.0.0_x64_en-US.msi"
+          mkdir -p dist
+          # Copy standalone portable executable
+          if [ -f "app.exe" ]; then
+            cp "app.exe" "dist/Folio.exe"
+          fi
+          # Copy NSIS installer
+          if compgen -G "bundle/nsis/*.exe" > /dev/null; then
+            for f in bundle/nsis/*.exe; do
+              cp "$f" "dist/Folio_1.0.0_x64-setup.exe"
+            done
+          fi
+          # Copy MSI installer
+          if compgen -G "bundle/msi/*.msi" > /dev/null; then
+            for f in bundle/msi/*.msi; do
+              cp "$f" "dist/Folio_1.0.0_x64_en-US.msi"
+            done
+          fi
+          echo "Release artifacts:"
+          ls -lh dist/
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload installer & executable artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: folio-installer
+          name: folio-windows-binaries
           retention-days: 30
-          path: |
-            tauri_epub_reader/src-tauri/target/release/bundle/nsis/Folio_*-setup.exe
-            tauri_epub_reader/src-tauri/target/release/bundle/msi/Folio_*.msi
+          path: tauri_epub_reader/src-tauri/target/release/dist/*
 
   release:
-    name: Attach the installer to the release
+    name: Attach artifacts to GitHub Release
     runs-on: ubuntu-latest
     needs: [build]
-    if: always() && !cancelled() && !failure() && startsWith(github.ref, 'refs/tags/v')
+    if: success() && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: folio-installer
+          name: folio-windows-binaries
           path: dist
 
-      - name: List dist
+      - name: List artifacts
         run: find dist -type f | sort
 
-      - name: Attach to the release
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/**/*
           fail_on_unmatched_files: true
+          generate_release_notes: true
