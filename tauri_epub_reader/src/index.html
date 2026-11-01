@@ -4,12 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Folio — EPUB reader for your books</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="./vendor/jszip.min.js"></script>
 <script src="./vendor/epub.min.js"></script>
 <style>
+/* Space Grotesk UI font bundled locally for offline operation; system-ui fallback */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./vendor/fonts/space-grotesk-latin.woff2') format('woff2');
+}
 :root{
   --desk:#e8dfca; --page:#f7f1e3; --ink:#26211a; --muted:#7a6c56;
   --accent:#b23c17; --hair:rgba(38,33,26,.15); --hairS:rgba(38,33,26,.34);
@@ -34,7 +39,7 @@
      paper environment's tokens */
   --rr-gold:#c9a45c;
   --rr-ornament-opacity:.9;
-  --sans:'Space Grotesk',ui-sans-serif,sans-serif;
+  --sans:'Space Grotesk',ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --serif:'Literata',Georgia,serif;
   --fit-fs:19.5px; --fit-lh:1.65; --fit-mw:660px; --gut:64px;
 }
@@ -1727,6 +1732,37 @@ const el = id => document.getElementById(id);
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const body = document.body;
 
+/* ---------------- security & sanitization ---------------- */
+function isSafeImageUrl(url){
+  if(typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  return /^(data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,|blob:|folio-cache:\/\/|https:\/\/|http:\/\/|\.\/|\/)/i.test(trimmed);
+}
+
+function sanitizeDomNode(root){
+  if(!root) return;
+  const cleanElement = el => {
+    if(!el || !el.attributes) return;
+    for(let i = el.attributes.length - 1; i >= 0; i--){
+      const attr = el.attributes[i];
+      const name = attr.name.toLowerCase();
+      const val = attr.value.trim().toLowerCase();
+      if(name.startsWith('on') || val.startsWith('javascript:')){
+        el.removeAttribute(attr.name);
+      }
+    }
+  };
+  if(root.nodeType === 1 /* Node.ELEMENT_NODE */){
+    cleanElement(root);
+  }
+  if(root.querySelectorAll){
+    const dangerous = root.querySelectorAll('script, iframe, object, embed');
+    dangerous.forEach(el => el.remove());
+    const all = root.querySelectorAll('*');
+    all.forEach(cleanElement);
+  }
+}
+
 /* ---------------- settings ---------------- */
 const DEFAULTS = {
   theme:'paper', font:'literata', auto:true, size:19.5,
@@ -3403,8 +3439,8 @@ function wireContents(contents){
       if(a){
         const href = a.getAttribute('href') || '';
         const rel = (a.getAttribute('epub:type') || a.getAttribute('role') || a.getAttribute('rel') || '').toLowerCase();
-        const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '');
         const id = href.startsWith('#') ? decodeURIComponent(href.slice(1)) : '';
+        const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '') || /^(fn|note|footnote)/i.test(id);
         if(href.startsWith('#') && isNoteRef){
           const t = d.getElementById(id) || d.querySelector(href);
           if(t && t.textContent.trim()){
@@ -4388,7 +4424,7 @@ function flyCoverToReader(fromEl){
         c.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
         ghost.appendChild(c);
       } else {
-        ghost.innerHTML = fromEl.innerHTML;
+        ghost.appendChild(fromEl.cloneNode(true));
       }
       document.body.appendChild(ghost);
       const dx = (t.left + t.width / 2) - (r.left + r.width / 2);
@@ -4420,21 +4456,54 @@ function renderRecentShelf(){
   recents.forEach(b => {
     const card = document.createElement('div');
     card.className = 'recent-card';
-    const initial = (b.title || 'F')[0].toUpperCase();
-    const art = b.thumb
-      ? `<img src="${b.thumb}" alt="" loading="lazy">`
-      : `<div class="recent-spine-edge"></div><span>${initial}</span>`;
-    card.innerHTML = `
-      <div class="recent-cover-art">
-        ${art}
-      </div>
-      <div class="recent-info">
-        <div class="recent-book-title" title="${b.title}">${b.title}</div>
-        <div class="recent-book-author">${b.author}</div>
-        <div class="recent-progress-bar"><div class="recent-progress-fill" style="width:${b.pct}%"></div></div>
-        <div class="recent-meta">${b.pct}% completed</div>
-      </div>
-    `;
+
+    const coverArt = document.createElement('div');
+    coverArt.className = 'recent-cover-art';
+    if(b.thumb && isSafeImageUrl(b.thumb)){
+      const img = document.createElement('img');
+      img.src = b.thumb;
+      img.alt = '';
+      img.loading = 'lazy';
+      coverArt.appendChild(img);
+    } else {
+      const spine = document.createElement('div');
+      spine.className = 'recent-spine-edge';
+      const span = document.createElement('span');
+      span.textContent = (b.title || 'F')[0].toUpperCase();
+      coverArt.appendChild(spine);
+      coverArt.appendChild(span);
+    }
+    card.appendChild(coverArt);
+
+    const info = document.createElement('div');
+    info.className = 'recent-info';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'recent-book-title';
+    titleEl.title = b.title || '';
+    titleEl.textContent = b.title || '';
+    info.appendChild(titleEl);
+
+    const authorEl = document.createElement('div');
+    authorEl.className = 'recent-book-author';
+    authorEl.textContent = b.author || '';
+    info.appendChild(authorEl);
+
+    const pctNum = Math.max(0, Math.min(100, parseFloat(b.pct) || 0));
+    const progBar = document.createElement('div');
+    progBar.className = 'recent-progress-bar';
+    const progFill = document.createElement('div');
+    progFill.className = 'recent-progress-fill';
+    progFill.style.width = pctNum + '%';
+    progBar.appendChild(progFill);
+    info.appendChild(progBar);
+
+    const meta = document.createElement('div');
+    meta.className = 'recent-meta';
+    meta.textContent = pctNum + '% completed';
+    info.appendChild(meta);
+
+    card.appendChild(info);
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', 'Open ' + (b.title || 'book'));
@@ -4852,22 +4921,44 @@ function renderBookmarks(){
   if(!bmListEl) return;
   const list = getBookmarksForCurrentBook();
   syncBookmarkBadge();
+  bmListEl.innerHTML = '';
   if(!list.length){
-    bmListEl.innerHTML = '<li class="empty">No bookmarks yet.<br><small style="opacity:0.7">Click ribbon on top right or press B to bookmark.</small></li>';
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'empty';
+    emptyLi.textContent = 'No bookmarks yet.';
+    const small = document.createElement('small');
+    small.style.opacity = '0.7';
+    small.style.display = 'block';
+    small.textContent = 'Click ribbon on top right or press B to bookmark.';
+    emptyLi.appendChild(small);
+    bmListEl.appendChild(emptyLi);
     return;
   }
-  bmListEl.innerHTML = '';
   list.forEach(b => {
     const li = document.createElement('li');
     li.className = 'bm-item';
-    li.innerHTML = `
-      <div class="bm-item-head">
-        <span>${b.chapter} ${b.pct ? '· ' + b.pct : ''}</span>
-        <button class="bm-del-btn" title="Delete bookmark">✕</button>
-      </div>
-      <div class="bm-item-text">“${b.snippet}”</div>
-    `;
-    li.querySelector('.bm-del-btn').addEventListener('click', (e) => deleteBookmark(b.id, e));
+
+    const head = document.createElement('div');
+    head.className = 'bm-item-head';
+
+    const span = document.createElement('span');
+    span.textContent = (b.chapter || 'Chapter') + (b.pct ? ' · ' + b.pct : '');
+    head.appendChild(span);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'bm-del-btn';
+    delBtn.title = 'Delete bookmark';
+    delBtn.textContent = '✕';
+    delBtn.addEventListener('click', (e) => deleteBookmark(b.id, e));
+    head.appendChild(delBtn);
+
+    const text = document.createElement('div');
+    text.className = 'bm-item-text';
+    text.textContent = '“' + (b.snippet || '') + '”';
+
+    li.appendChild(head);
+    li.appendChild(text);
+
     li.addEventListener('click', () => {
       closePanels();
       state.rendition.display(b.cfi);
@@ -4949,9 +5040,18 @@ const Highlights = {
     if(!listEl) return;
     const all = this.forBook();
     this.syncBadge();
+    listEl.innerHTML = '';
     if(!all.length){
       this._hlFilter = null;
-      listEl.innerHTML = '<li class="empty">No highlights yet.<br><small style="opacity:0.7">Select text in the book and press Highlight.</small></li>';
+      const emptyLi = document.createElement('li');
+      emptyLi.className = 'empty';
+      emptyLi.textContent = 'No highlights yet.';
+      const small = document.createElement('small');
+      small.style.opacity = '0.7';
+      small.style.display = 'block';
+      small.textContent = 'Select text in the book and press Highlight.';
+      emptyLi.appendChild(small);
+      listEl.appendChild(emptyLi);
       return;
     }
     // Feature: color legend + filter — dots show per-color counts; clicking
@@ -4961,16 +5061,23 @@ const Highlights = {
     if(this._hlFilter && !counts[this._hlFilter]) this._hlFilter = null;
     const legend = document.createElement('li');
     legend.className = 'hl-legend';
-    legend.innerHTML = Object.keys(this.COLOR_FILL).map(c => {
+    Object.keys(this.COLOR_FILL).forEach(c => {
       const n = counts[c] || 0;
-      return `<button class="hl-legend-dot${this._hlFilter === c ? ' on' : ''}${n ? '' : ' empty'}" data-color="${c}" title="${c} (${n})" style="background:${this.COLOR_FILL[c]}${n ? '' : ';opacity:.25'}">${n || ''}</button>`;
-    }).join('');
-    listEl.innerHTML = '';
+      const dot = document.createElement('button');
+      dot.className = 'hl-legend-dot' + (this._hlFilter === c ? ' on' : '') + (n ? '' : ' empty');
+      dot.dataset.color = c;
+      dot.title = `${c} (${n})`;
+      dot.style.background = this.COLOR_FILL[c] || c;
+      if(!n) dot.style.opacity = '.25';
+      dot.textContent = n ? String(n) : '';
+      dot.addEventListener('click', () => {
+        this._hlFilter = (this._hlFilter === c) ? null : c;
+        this.renderList();
+      });
+      legend.appendChild(dot);
+    });
     listEl.appendChild(legend);
-    legend.querySelectorAll('.hl-legend-dot').forEach(dot => dot.addEventListener('click', () => {
-      this._hlFilter = (this._hlFilter === dot.dataset.color) ? null : dot.dataset.color;
-      this.renderList();
-    }));
+
     const list = this._hlFilter ? all.filter(h => h.color === this._hlFilter) : all;
     if(!list.length){
       const li = document.createElement('li');
@@ -4982,14 +5089,42 @@ const Highlights = {
     list.forEach(h => {
       const li = document.createElement('li');
       li.className = 'bm-item';
-      li.innerHTML = `
-        <div class="bm-item-head">
-          <span><i style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${this.COLOR_FILL[h.color]||this.COLOR_FILL.yellow};margin-right:6px"></i>${h.chapter} ${h.date ? '· ' + h.date : ''}</span>
-          <button class="bm-del-btn" title="Delete highlight">✕</button>
-        </div>
-        <div class="bm-item-text">${h.note ? '<b>' + h.note + '</b> — ' : ''}${h.snippet || ''}</div>
-      `;
-      li.querySelector('.bm-del-btn').addEventListener('click', (e) => { e.stopPropagation(); this.remove(h.id); });
+
+      const head = document.createElement('div');
+      head.className = 'bm-item-head';
+
+      const span = document.createElement('span');
+      const dot = document.createElement('i');
+      dot.style.display = 'inline-block';
+      dot.style.width = '9px';
+      dot.style.height = '9px';
+      dot.style.borderRadius = '50%';
+      dot.style.background = this.COLOR_FILL[h.color] || this.COLOR_FILL.yellow;
+      dot.style.marginRight = '6px';
+      span.appendChild(dot);
+      span.appendChild(document.createTextNode((h.chapter || 'Chapter') + (h.date ? ' · ' + h.date : '')));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'bm-del-btn';
+      delBtn.title = 'Delete highlight';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', (e) => { e.stopPropagation(); this.remove(h.id); });
+      head.appendChild(span);
+      head.appendChild(delBtn);
+
+      const text = document.createElement('div');
+      text.className = 'bm-item-text';
+      if(h.note){
+        const b = document.createElement('b');
+        b.textContent = h.note;
+        text.appendChild(b);
+        text.appendChild(document.createTextNode(' — '));
+      }
+      text.appendChild(document.createTextNode(h.snippet || ''));
+
+      li.appendChild(head);
+      li.appendChild(text);
+
       li.addEventListener('click', () => {
         closePanels();
         state.rendition.display(h.cfi);
@@ -5020,35 +5155,59 @@ const Highlights = {
     if(!h || !p) return;
     const x = (e && e.clientX) || this.lastPtr.x;
     const y = (e && e.clientY) || this.lastPtr.y;
-    p.innerHTML = `
-      <div class="hl-pop-dots">
-        ${Object.entries(this.COLOR_FILL).map(([k, c]) =>
-          `<button class="hl-dot${k===h.color?' sel':''}" data-hl="${k}" style="background:${c}" title="${k}"></button>`).join('')}
-      </div>
-      <textarea placeholder="Add a note…">${h.note || ''}</textarea>
-      <div class="hl-pop-row">
-        <button class="hl-pop-btn" data-act="save">Save note</button>
-        <button class="hl-pop-btn danger" data-act="del">Delete</button>
-      </div>
-    `;
-    p.querySelectorAll('.hl-dot').forEach(d => d.addEventListener('click', ev => {
-      ev.stopPropagation();
-      this.setColor(id, d.dataset.hl);
-      this.openPop(id, { clientX: x, clientY: y });
-    }));
-    const ta = p.querySelector('textarea');
-    p.querySelector('[data-act="save"]').addEventListener('click', ev => {
+
+    p.innerHTML = '';
+
+    const dots = document.createElement('div');
+    dots.className = 'hl-pop-dots';
+    Object.entries(this.COLOR_FILL).forEach(([k, c]) => {
+      const d = document.createElement('button');
+      d.className = 'hl-dot' + (k === h.color ? ' sel' : '');
+      d.dataset.hl = k;
+      d.style.background = c;
+      d.title = k;
+      d.addEventListener('click', ev => {
+        ev.stopPropagation();
+        this.setColor(id, k);
+        this.openPop(id, { clientX: x, clientY: y });
+      });
+      dots.appendChild(d);
+    });
+    p.appendChild(dots);
+
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Add a note…';
+    ta.value = h.note || '';
+    p.appendChild(ta);
+
+    const row = document.createElement('div');
+    row.className = 'hl-pop-row';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'hl-pop-btn';
+    saveBtn.dataset.act = 'save';
+    saveBtn.textContent = 'Save note';
+    saveBtn.addEventListener('click', ev => {
       ev.stopPropagation();
       this.setNote(id, ta.value.trim());
       this.hidePop();
       toast('Note saved');
     });
-    p.querySelector('[data-act="del"]').addEventListener('click', ev => {
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'hl-pop-btn danger';
+    delBtn.dataset.act = 'del';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', ev => {
       ev.stopPropagation();
       this.remove(id);
       this.hidePop();
       toast('Highlight deleted');
     });
+
+    row.appendChild(saveBtn);
+    row.appendChild(delBtn);
+    p.appendChild(row);
     p.hidden = false;
     p.style.left = clamp(x - 140, 10, innerWidth - 292) + 'px';
     p.style.top = clamp(y + 8, 60, innerHeight - 220) + 'px';
@@ -5321,15 +5480,43 @@ function renderSearchResults(matches, q){
   }
   metaEl.textContent = `${matches.length} result${matches.length>1?'s':''} for "${q}"`;
   resultsEl.innerHTML = '';
-  const escRegex = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
   matches.forEach(m => {
     const li = document.createElement('li');
     li.className = 'search-res-item';
-    const highlighted = (m.excerpt || '').replace(escRegex, '<mark>$1</mark>');
-    li.innerHTML = `
-      <div class="search-res-ch">${m.chapter}</div>
-      <div class="search-res-snip">…${highlighted}…</div>
-    `;
+
+    const chEl = document.createElement('div');
+    chEl.className = 'search-res-ch';
+    chEl.textContent = m.chapter || 'Chapter';
+
+    const snipEl = document.createElement('div');
+    snipEl.className = 'search-res-snip';
+    snipEl.appendChild(document.createTextNode('…'));
+
+    const excerpt = m.excerpt || '';
+    if(q) {
+      const lowerSnip = excerpt.toLowerCase();
+      const lowerQ = q.toLowerCase();
+      let lastIdx = 0;
+      let matchIdx;
+      while ((matchIdx = lowerSnip.indexOf(lowerQ, lastIdx)) !== -1) {
+        if (matchIdx > lastIdx) {
+          snipEl.appendChild(document.createTextNode(excerpt.slice(lastIdx, matchIdx)));
+        }
+        const mark = document.createElement('mark');
+        mark.textContent = excerpt.slice(matchIdx, matchIdx + q.length);
+        snipEl.appendChild(mark);
+        lastIdx = matchIdx + q.length;
+      }
+      if (lastIdx < excerpt.length) {
+        snipEl.appendChild(document.createTextNode(excerpt.slice(lastIdx)));
+      }
+    } else {
+      snipEl.appendChild(document.createTextNode(excerpt));
+    }
+    snipEl.appendChild(document.createTextNode('…'));
+
+    li.appendChild(chEl);
+    li.appendChild(snipEl);
     li.addEventListener('click', () => {
       const curLoc = state.rendition ? state.rendition.currentLocation() : null;
       const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
@@ -7858,8 +8045,19 @@ const TTS = {
     try{
       let loc = null;
       try{ loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null; }catch(e){}
-      if(loc && isLastPage(loc)){ this.stop(true); toast('The end — read aloud finished'); return; }
+      if((loc && isLastPage(loc)) || (typeof atEdge === 'function' && atEdge(1))){
+        this.stop(true);
+        toast('The end — read aloud finished');
+        return;
+      }
+      const locBefore = loc && loc.start ? loc.start.cfi : '';
       await turn(1);
+      const locAfter = (state.rendition && state.rendition.currentLocation && state.rendition.currentLocation().start) ? state.rendition.currentLocation().start.cfi : '';
+      if(locBefore && locBefore === locAfter){
+        this.stop(true);
+        toast('The end — read aloud finished');
+        return;
+      }
     }catch(e){ this.stop(true); }
   },
   onRelocated(){
@@ -7954,11 +8152,14 @@ function addGrain(parent){
 const Lightbox = {
   el(){ return document.getElementById('lightbox'); },
   open(src){
+    if(!src || !isSafeImageUrl(src)) return;
     let lb = this.el();
     if(!lb){
       lb = document.createElement('div');
       lb.id = 'lightbox';
-      lb.innerHTML = '<img alt="">';
+      const img = document.createElement('img');
+      img.alt = '';
+      lb.appendChild(img);
       lb.addEventListener('click', () => this.close());
       document.body.appendChild(lb);
     }
@@ -7987,15 +8188,36 @@ const Footnotes = {
     let p = this.el();
     if(!p){
       p = document.createElement('div'); p.id = 'fnPop';
-      p.innerHTML = '<button class="fn-close" title="Close">✕</button><div class="fn-body"></div>';
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'fn-close';
+      closeBtn.title = 'Close';
+      closeBtn.textContent = '✕';
+      const bodyDiv = document.createElement('div');
+      bodyDiv.className = 'fn-body';
+      p.appendChild(closeBtn);
+      p.appendChild(bodyDiv);
       document.body.appendChild(p);
-      p.querySelector('.fn-close').addEventListener('click', () => this.close());
+      closeBtn.addEventListener('click', () => this.close());
     }
     const bodyEl = p.querySelector('.fn-body');
     bodyEl.innerHTML = '';
-    // importNode (not innerHTML): book content moves in as real nodes.
-    Array.from(node.childNodes).forEach(n => { try{ bodyEl.appendChild(document.importNode(n, true)); }catch(e){} });
-    if(!bodyEl.textContent.trim()){ bodyEl.innerHTML = '<i>(empty note)</i>'; }
+    // importNode with sanitization: book content moves in safely without script or handler injection
+    Array.from(node.childNodes).forEach(n => {
+      try{
+        const imported = document.importNode(n, true);
+        if(imported.nodeType === Node.ELEMENT_NODE){
+          if(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED'].includes(imported.nodeName)) return;
+          sanitizeDomNode(imported);
+        }
+        bodyEl.appendChild(imported);
+      }catch(e){}
+    });
+    sanitizeDomNode(bodyEl);
+    if(!bodyEl.textContent.trim()){
+      const em = document.createElement('i');
+      em.textContent = '(empty note)';
+      bodyEl.appendChild(em);
+    }
     p.classList.add('show');
     p.style.left = clamp(cx - 140, 10, innerWidth - 300) + 'px';
     p.style.top = clamp(cy + 14, 60, innerHeight - 200) + 'px';
@@ -8615,7 +8837,15 @@ function buildFontGrid(){
   Object.entries(FONTS).forEach(([k,f])=>{
     const b=document.createElement('button');
     b.className='f-btn'; b.dataset.font=k;
-    b.innerHTML=`<span class="f-name" style="font-family:${f.stack}">${f.name}</span><span class="f-note">${f.note}</span>`;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'f-name';
+    nameSpan.style.fontFamily = f.stack;
+    nameSpan.textContent = f.name;
+    const noteSpan = document.createElement('span');
+    noteSpan.className = 'f-note';
+    noteSpan.textContent = f.note;
+    b.appendChild(nameSpan);
+    b.appendChild(noteSpan);
     b.addEventListener('click',()=>{ settings.font=k; save(); syncFontSel(); relayout(); });
     g.appendChild(b);
   });
@@ -8632,14 +8862,21 @@ function buildThemeRow(){
   const r=el('themeRow'); r.innerHTML='';
   const auto=document.createElement('button');
   auto.className='t-btn'; auto.dataset.theme='auto';
-  auto.innerHTML=`<i style="background:linear-gradient(135deg,#f7f1e3 50%,#171410 50%)"></i>Auto`;
+  const autoIcon = document.createElement('i');
+  autoIcon.style.background = 'linear-gradient(135deg,#f7f1e3 50%,#171410 50%)';
+  auto.appendChild(autoIcon);
+  auto.appendChild(document.createTextNode('Auto'));
   auto.title='Follow the system day/night theme';
   auto.addEventListener('click',()=>{ settings.themeAuto=true; save(); applyTheme(); relayout(); });
   r.appendChild(auto);
   Object.entries(THEMES).forEach(([k,t])=>{
     const b=document.createElement('button');
     b.className='t-btn'; b.dataset.theme=k;
-    b.innerHTML=`<i style="background:${t.page};box-shadow:inset 0 0 0 3px ${t.page},inset 0 0 0 20px ${t.ink}"></i>${t.label}`;
+    const icon = document.createElement('i');
+    icon.style.background = t.page;
+    icon.style.boxShadow = `inset 0 0 0 3px ${t.page},inset 0 0 0 20px ${t.ink}`;
+    b.appendChild(icon);
+    b.appendChild(document.createTextNode(t.label));
     b.addEventListener('click',()=>{ settings.theme=k; settings.themeAuto=false; save(); applyTheme(); relayout(); });
     r.appendChild(b);
   });
@@ -9305,16 +9542,36 @@ function renderVocabList(){
   try{ vocab = JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]'); }catch(e){}
   listEl.innerHTML = '';
   if(!vocab.length){
-    listEl.innerHTML = '<li class="empty">No words looked up yet.<br><small style="opacity:0.7">Select a word in the book and tap Define.</small></li>';
+    const emptyLi = document.createElement('li');
+    emptyLi.className = 'empty';
+    emptyLi.textContent = 'No words looked up yet.';
+    const small = document.createElement('small');
+    small.style.opacity = '0.7';
+    small.style.display = 'block';
+    small.textContent = 'Select a word in the book and tap Define.';
+    emptyLi.appendChild(small);
+    listEl.appendChild(emptyLi);
     return;
   }
   vocab.slice().reverse().forEach(v => {
     const li = document.createElement('li');
     li.className = 'bm-item';
+    const strong = document.createElement('strong');
+    strong.textContent = v.word || '';
+    li.appendChild(strong);
+    if(v.chapter){
+      const ch = document.createElement('div');
+      ch.className = 'bm-ch';
+      ch.textContent = v.chapter;
+      li.appendChild(ch);
+    }
     const def = (typeof DictCache !== 'undefined') ? DictCache.get(v.word) : null;
-    li.innerHTML = '<strong>' + (v.word || '').replace(/</g, '&lt;') + '</strong>' +
-      (v.chapter ? '<div class="bm-ch">' + v.chapter.replace(/</g, '&lt;') + '</div>' : '') +
-      (def ? '<div class="bm-snip">' + def.replace(/</g, '&lt;') + '</div>' : '');
+    if(def){
+      const defEl = document.createElement('div');
+      defEl.className = 'bm-snip';
+      defEl.textContent = def;
+      li.appendChild(defEl);
+    }
     li.style.cursor = v.cfi ? 'pointer' : 'default';
     li.addEventListener('click', () => {
       if(v.cfi && state.rendition){

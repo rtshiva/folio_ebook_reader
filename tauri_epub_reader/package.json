@@ -1,7 +1,7 @@
 {
   "name": "folio-reader",
   "version": "1.0.0",
-  "description": "Folio EPUB Reader Desktop Application",
+  "description": "A beautifully crafted, offline-first EPUB reader for Windows, built with Tauri, Rust, WebView2 and epub.js",
   "private": true,
   "scripts": {
     "dev": "tauri dev",

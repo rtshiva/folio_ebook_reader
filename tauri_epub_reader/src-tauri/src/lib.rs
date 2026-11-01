@@ -33,67 +33,104 @@ struct CachedBook {
     bytes: Vec<u8>,
 }
 
-#[derive(Default)]
+struct BookCacheInner {
+    entries: HashMap<String, CachedBook>,
+    order: Vec<String>, // LRU order, least recently used first
+    max_entries: usize,
+    max_bytes: usize,
+}
+
+impl BookCacheInner {
+    fn total_bytes(&self) -> usize {
+        self.entries.values().map(|e| e.bytes.len()).sum()
+    }
+}
+
 pub struct BookCache {
-    entries: Mutex<HashMap<String, CachedBook>>,
-    order: Mutex<Vec<String>>, // LRU order, least recently used first
+    inner: Mutex<BookCacheInner>,
 }
 
 const BOOK_CACHE_MAX_ENTRIES: usize = 4;
 const BOOK_CACHE_MAX_BYTES: usize = 160 * 1024 * 1024;
 
+impl Default for BookCache {
+    fn default() -> Self {
+        Self::new(BOOK_CACHE_MAX_ENTRIES, BOOK_CACHE_MAX_BYTES)
+    }
+}
+
 impl BookCache {
+    pub fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            inner: Mutex::new(BookCacheInner {
+                entries: HashMap::new(),
+                order: Vec::new(),
+                max_entries,
+                max_bytes,
+            }),
+        }
+    }
+
     pub fn get(&self, path: &str, meta: &fs::Metadata) -> Option<Vec<u8>> {
-        let entries = self.entries.lock().ok()?;
-        let hit = entries.get(path)?;
-        if hit.len != meta.len() || hit.mtime != meta.modified().ok() {
-            return None; // file changed on disk — caller re-reads
-        }
-        if let Ok(mut order) = self.order.lock() {
-            if let Some(pos) = order.iter().position(|p| p == path) {
-                let p = order.remove(pos);
-                order.push(p);
+        let mut inner = self.inner.lock().ok()?;
+        let bytes = {
+            let hit = inner.entries.get(path)?;
+            if hit.len != meta.len() || hit.mtime != meta.modified().ok() {
+                return None; // file changed on disk — caller re-reads
             }
+            hit.bytes.clone()
+        };
+        if let Some(pos) = inner.order.iter().position(|p| p == path) {
+            let p = inner.order.remove(pos);
+            inner.order.push(p);
         }
-        Some(hit.bytes.clone())
+        Some(bytes)
     }
 
     pub fn put(&self, path: String, meta: &fs::Metadata, bytes: Vec<u8>) {
+        let mut inner = match self.inner.lock() {
+            Ok(i) => i,
+            Err(_) => return,
+        };
+
+        // Don't cache entries that exceed the configured byte budget.
+        if bytes.len() > inner.max_bytes {
+            if inner.entries.remove(&path).is_some() {
+                if let Some(pos) = inner.order.iter().position(|p| p == &path) {
+                    inner.order.remove(pos);
+                }
+            }
+            return;
+        }
+
         let entry = CachedBook {
             len: meta.len(),
             mtime: meta.modified().ok(),
             bytes,
         };
-        let mut order = match self.order.lock() {
-            Ok(o) => o,
-            Err(_) => return,
-        };
-        let mut entries = match self.entries.lock() {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        entries.insert(path.clone(), entry);
-        if !order.contains(&path) {
-            order.push(path.clone());
+
+        inner.entries.insert(path.clone(), entry);
+        if let Some(pos) = inner.order.iter().position(|p| p == &path) {
+            inner.order.remove(pos);
         }
+        inner.order.push(path);
+
         // Evict least-recently-used entries until within entry and byte caps.
-        loop {
-            let total: usize = entries.values().map(|e| e.bytes.len()).sum();
-            if (order.len() <= BOOK_CACHE_MAX_ENTRIES && total <= BOOK_CACHE_MAX_BYTES)
-                || order.len() <= 1
-            {
+        while inner.order.len() > inner.max_entries || inner.total_bytes() > inner.max_bytes {
+            if inner.order.is_empty() {
                 break;
             }
-            if let Some(evict) = order.first().cloned() {
-                if evict == path {
-                    break; // never evict the entry we just added
-                }
-                order.remove(0);
-                entries.remove(&evict);
-            } else {
-                break;
-            }
+            let evict = inner.order.remove(0);
+            inner.entries.remove(&evict);
         }
+    }
+
+    pub fn total_bytes(&self) -> usize {
+        self.inner.lock().map(|i| i.total_bytes()).unwrap_or(0)
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.lock().map(|i| i.order.len()).unwrap_or(0)
     }
 }
 
@@ -1312,5 +1349,139 @@ mod tests {
         let (h4, r4) = parse_cache_uri_hash_and_rel("folio-cache.localhost", "/abc123def456/OEBPS/ch1.xhtml");
         assert_eq!(h4, "abc123def456");
         assert_eq!(r4, "OEBPS/ch1.xhtml");
+    }
+
+    #[test]
+    fn test_u19_book_cache_oversized_and_byte_budget() {
+        let temp_dir = std::env::temp_dir().join(format!("folio_test_u19_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        // Cache with max 3 entries and budget of 3000 bytes
+        let cache = BookCache::new(3, 3000);
+
+        let f_oversized = temp_dir.join("oversized.epub");
+        fs::write(&f_oversized, vec![0u8; 3500]).unwrap();
+        let m_oversized = fs::metadata(&f_oversized).unwrap();
+        let p_oversized = f_oversized.to_string_lossy().to_string();
+
+        // 1. Oversized entry (> 3000 bytes) must never be cached
+        cache.put(p_oversized.clone(), &m_oversized, vec![0u8; 3500]);
+        assert_eq!(cache.get(&p_oversized, &m_oversized), None);
+        assert_eq!(cache.total_bytes(), 0);
+        assert_eq!(cache.len(), 0);
+
+        // 2. Add two 1200-byte books (2400 bytes total <= 3000 bytes budget)
+        let f1 = temp_dir.join("b1.epub");
+        let f2 = temp_dir.join("b2.epub");
+        fs::write(&f1, b"b1").unwrap();
+        fs::write(&f2, b"b2").unwrap();
+        let m1 = fs::metadata(&f1).unwrap();
+        let m2 = fs::metadata(&f2).unwrap();
+        let p1 = f1.to_string_lossy().to_string();
+        let p2 = f2.to_string_lossy().to_string();
+
+        cache.put(p1.clone(), &m1, vec![1u8; 1200]);
+        cache.put(p2.clone(), &m2, vec![2u8; 1200]);
+        assert_eq!(cache.total_bytes(), 2400);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.get(&p1, &m1).is_some());
+        assert!(cache.get(&p2, &m2).is_some());
+
+        // 3. Adding a third 1200-byte book would reach 3600 bytes (> 3000 bytes),
+        // so b1 (oldest LRU) must be evicted even though entry count (3) is within max_entries (3).
+        let f3 = temp_dir.join("b3.epub");
+        fs::write(&f3, b"b3").unwrap();
+        let m3 = fs::metadata(&f3).unwrap();
+        let p3 = f3.to_string_lossy().to_string();
+
+        cache.put(p3.clone(), &m3, vec![3u8; 1200]);
+        assert_eq!(cache.total_bytes(), 2400); // 1200 + 1200 = 2400 bytes <= 3000 bytes
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.get(&p1, &m1), None); // b1 evicted
+        assert!(cache.get(&p2, &m2).is_some());
+        assert!(cache.get(&p3, &m3).is_some());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_u20_book_cache_concurrent_no_deadlock() {
+        use std::sync::Arc;
+        let temp_dir = std::env::temp_dir().join(format!("folio_test_u20_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let test_file = temp_dir.join("test.epub");
+        fs::write(&test_file, b"thread test").unwrap();
+        let meta = fs::metadata(&test_file).unwrap();
+        let path_str = test_file.to_string_lossy().to_string();
+
+        let cache = Arc::new(BookCache::new(5, 100_000));
+        let mut handles = Vec::new();
+
+        // Spawn multiple concurrent reader and writer threads to verify no lock inversions or deadlocks
+        for i in 0..10 {
+            let c = Arc::clone(&cache);
+            let p = path_str.clone();
+            let m = meta.clone();
+            handles.push(std::thread::spawn(move || {
+                for j in 0..100 {
+                    if (i + j) % 2 == 0 {
+                        c.put(p.clone(), &m, vec![(j % 255) as u8; 256]);
+                    } else {
+                        let _ = c.get(&p, &m);
+                    }
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("Thread should not deadlock or panic");
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_u21_unzip_malformed_archive() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_u21_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let corrupted_file = tmp.join("corrupted.epub");
+        // Non-zip garbage bytes
+        fs::write(&corrupted_file, b"NOT_A_VALID_ZIP_ARCHIVE_DATA_TRUNCATED").unwrap();
+        let meta = fs::metadata(&corrupted_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+
+        let res = unzip_epub(&corrupted_file, &target, "corrupted.epub", &meta, 1);
+        assert!(res.is_err(), "Corrupted archive must return an error");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u22_percent_decode_and_custom_protocol_paths() {
+        // Test malformed percent encodings
+        assert_eq!(percent_decode("%"), "%");
+        assert_eq!(percent_decode("%2"), "%2");
+        assert_eq!(percent_decode("%ZZ"), "%ZZ");
+        assert_eq!(percent_decode("hello%20world"), "hello world");
+
+        // Cache hash validation
+        assert!(!is_valid_cache_hash(""));
+        assert!(!is_valid_cache_hash("../escape"));
+        assert!(!is_valid_cache_hash("has spaces"));
+        assert!(!is_valid_cache_hash("a/b"));
+        assert!(is_valid_cache_hash("valid_hash-123_456"));
+
+        // Malformed URI handling
+        let (h_empty, r_empty) = parse_cache_uri_hash_and_rel("", "");
+        assert_eq!(h_empty, "");
+        assert_eq!(r_empty, "");
+
+        let (h_slash, r_slash) = parse_cache_uri_hash_and_rel("localhost", "/");
+        assert_eq!(h_slash, "");
+        assert_eq!(r_slash, "");
     }
 }

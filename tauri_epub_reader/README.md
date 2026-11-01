@@ -5,7 +5,7 @@ A high-performance, lightweight desktop EPUB reader built with Tauri 2.0 and nat
 ## Features
 
 - **Ultralight Desktop Binary**: Complete standalone executable under ~9 MB.
-- **True Offline Support**: Bundles `jszip.min.js`, `epub.min.js`, and core reading styles locally—zero internet or CDN required.
+- **Offline-First Support**: Bundles `jszip.min.js`, `epub.min.js`, `Space Grotesk`, and local WOFF2 reading fonts—no internet required for reading.
 - **Native `.epub` File Association**: Configured in `tauri.conf.json` so double-clicking any `.epub` file on Windows launches the reader directly.
 - **Single Instance with File Forwarding**: A second launch (e.g. another double-clicked `.epub`) forwards its path to the running window instead of spawning a duplicate.
 - **Instant Re-opens & Unzipped Disk Cache**: Re-opening previously read books uses a zip-slip-safe Rust disk cache served via custom `folio-cache://` protocol, bypassing JSZip decompression in the JS heap with 600 MB / 30-book LRU disk eviction and in-memory raw binary IPC fallback.
