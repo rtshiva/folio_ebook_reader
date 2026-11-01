@@ -7313,7 +7313,11 @@ const TTS = {
     }
     this.syncVoiceUI();
     this.syncUI();
-    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
+    if(eng === 'kitten' && !KittenRunner.installed){
+      // install immediately on selection — no need to start read aloud first
+      this.kittenInstall();
+    }
+    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
     if(this.active && !this.paused){
       this.gen++;
       this.clearPcm();
@@ -7429,6 +7433,10 @@ const TTS = {
     try{
       if(this.engine === 'kitten' || KITTEN_VOICES.some(k => k[0] === target)){
         this.voice = KITTEN_VOICES.some(k => k[0] === target) ? target : 'bella';
+        if(!KittenRunner.installed){
+          toast('Installing Kitten neural voices (~92 MB, once)…');
+          await this.kittenInstall();
+        }
         toast('Generating sample: ' + this.kittenVoiceName() + '…');
         const wav = await KittenRunner.generate('Hello. This is ' + this.kittenVoiceName() + ', reading your books aloud.', this.voice);
         const blob = new Blob([wav], { type: 'audio/wav' });
@@ -7447,7 +7455,7 @@ const TTS = {
       }
     }catch(e){
       console.warn('Voice preview failed:', e);
-      toast('Preview needs the Kitten voices installed, or a system voice');
+      toast('Preview failed: ' + ((e && e.message) ? e.message.slice(0, 120) : 'unknown error'));
     } finally {
       this.engine = prevEngine; this.voice = prevVoice;
     }
