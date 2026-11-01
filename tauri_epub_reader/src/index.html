@@ -7276,6 +7276,7 @@ const TTS = {
       this.utt = null;
     }
     try{ speechSynthesis.cancel(); }catch(e){}
+    this.stopGroupHighlight();
     this.clearHighlight();
     body.classList.remove('tts-on');
     this.syncUI();
@@ -7497,25 +7498,69 @@ const TTS = {
      not enough: a stored clip outlives its chain). */
   pcmCache: new Map(),
   clearPcm(){ this.pcmCache.clear(); },
+  /* Prefetch the NEXT paragraph group (and, when it is already cached, the
+     one after — long paragraphs leave plenty of playback time to fill). */
   prefetch(gu){
-    const nxt = this.si + 1;
-    const sent = this.sents[nxt];
-    if(!sent || this.pcmCache.has(nxt)) return;
     if(this.engine !== 'kitten') return; // system voices synthesize instantly
+    const gi = this.gi;
+    const nxt = gi + 1;
+    if(nxt >= this.groups.length || this.pcmCache.has(nxt)){
+      const after = nxt + 1;
+      if(after < this.groups.length && !this.pcmCache.has(after)){
+        this.genGroup(after, gu);
+      }
+      return;
+    }
+    this.genGroup(nxt, gu);
+  },
+  genGroup(gi, gu){
+    const g = this.groups[gi];
+    if(!g) return;
     const voice = this.voice, rate = this.rate;
-    KittenRunner.generate(sent.text, voice).then(bytes => {
+    const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
+    KittenRunner.generate(text, voice).then(bytes => {
       if(this.gen !== gu || this.stopped) return;
       if(this.voice !== voice || this.rate !== rate) return; // stale params
-      this.pcmCache.set(nxt, bytes);
+      this.pcmCache.set(gi, bytes);
     }).catch(() => {});
   },
+  /* Sentence highlight that follows a playing paragraph clip: sentence
+     boundaries are estimated proportionally by char length, tracked against
+     the AudioContext clock (freezes on pause, resumes with it). */
+  startGroupHighlight(g, gu){
+    clearInterval(this.hlT);
+    const bounds = [];
+    let total = 0;
+    for(let i = g.start; i <= g.end; i++){
+      bounds.push({ si: i, at: total });
+      total += this.sents[i].text.length + 1;
+    }
+    if(!total) return;
+    const t0 = this.ttsCtx ? this.ttsCtx.currentTime : 0;
+    let lastSi = -1;
+    this.hlT = setInterval(() => {
+      if(this.gen !== gu || this.stopped || !this.active){ clearInterval(this.hlT); return; }
+      if(this.paused) return; // AudioContext clock freezes on suspend anyway
+      const el = (this.ttsCtx ? this.ttsCtx.currentTime : 0) - t0;
+      const dur = (this._gDur || 0);
+      let cur = bounds[0];
+      for(const b of bounds){ if(dur && el >= (b.at / total) * dur) cur = b; }
+      if(cur.si !== lastSi){
+        lastSi = cur.si;
+        this.si = cur.si;
+        const sent = this.sents[cur.si];
+        if(sent) this.applyHighlight(sent);
+      }
+    }, 180);
+  },
+  stopGroupHighlight(){ clearInterval(this.hlT); },
 
   /* Neural + system audio render through WebAudio instead of an <audio>
      element: the media-element blob path produced static on some WebView2
      setups even with byte-perfect WAVs, while the AudioContext pipeline
      renders cleanly. Resolves true when playback started (onended advances
      the chain). */
-  playWav(buf, gu){
+  playWav(buf, gu, endSi, group){
     return new Promise((resolve) => {
       try{
         if(!this.ttsCtx) this.ttsCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -7528,15 +7573,19 @@ const TTS = {
             const d = decoded.getChannelData(c);
             for(let i = 0; i < d.length; i++){ if(d[i] > 1) d[i] = 1; else if(d[i] < -1) d[i] = -1; }
           }
+          this._gDur = decoded.duration;
+          if(group) this.startGroupHighlight(group, gu, ctx.currentTime);
           const src = ctx.createBufferSource();
           src.buffer = decoded;
           src.connect(ctx.destination);
           this.srcNode = src; this.srcDone = false;
           src.onended = () => {
             this.srcDone = true;
+            this.stopGroupHighlight();
             if(this.gen !== gu || this.stopped || !this.active) return;
-            const afterHeading = !!(this.sents[this.si] && this.sents[this.si].isHeading);
-            this.si++;
+            const lastSi = (endSi != null) ? endSi - 1 : this.si;
+            const afterHeading = !!(this.sents[lastSi] && this.sents[lastSi].isHeading);
+            this.si = (endSi != null) ? endSi : this.si + 1;
             setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
           };
           Promise.resolve(kick).then(() => {
@@ -7635,12 +7684,19 @@ const TTS = {
         }
         // Heading tag? Titles get a longer breath after them (sentGapMs).
         let isHeading = false;
+        let block = null;
         try{
           const bel = segs[0] && segs[0].node && segs[0].node.parentElement &&
             segs[0].node.parentElement.closest('h1,h2,h3,h4,h5,h6');
           isHeading = !!bel;
+          // block container = paragraph grouping key (kitten engine generates
+          // one clip per paragraph; consecutive sentences sharing the same
+          // block element belong to the same group)
+          block = segs[0] && segs[0].node && segs[0].node.parentElement &&
+            segs[0].node.parentElement.closest('p,li,dd,dt,blockquote,h1,h2,h3,h4,h5,h6,td,figcaption,pre') ||
+            (segs[0] && segs[0].node && segs[0].node.parentElement) || null;
         }catch(err){}
-        allSents.push({ doc, text: text.trim(), segs, isHeading });
+        allSents.push({ doc, text: text.trim(), segs, isHeading, block });
         if(m.index === re.lastIndex) re.lastIndex++;
       }
     }
@@ -7689,6 +7745,23 @@ const TTS = {
     if(this.gen !== g || this.stopped || !this.active) return;
     this.si = 0;
     if(!this.sents.length){ setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
+    /* Paragraph groups (kitten engine): consecutive sentences sharing the
+       same block element form one generation unit; a run longer than 600
+       chars splits so no single synthesis call dominates. */
+    this.groups = [];
+    let start = 0, cur = this.sents[0].block, chars = 0;
+    for(let i = 0; i < this.sents.length; i++){
+      const len = this.sents[i].text.length;
+      if(i > start && (this.sents[i].block !== cur || chars + len > 600)){
+        this.groups.push({ start, end: i - 1 });
+        start = i; chars = 0;
+      }
+      cur = this.sents[i].block; chars += len;
+    }
+    if(this.sents.length) this.groups.push({ start, end: this.sents.length - 1 });
+    this.gi = 0;
+    // Warm the first paragraph during the lead-in breath.
+    this.prefetch(g);
     // Lead-in breath on every page start: launching straight into the first
     // sentence felt rushed, especially right after a page turn.
     setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs());
@@ -7700,22 +7773,27 @@ const TTS = {
     this.applyHighlight(sent);
 
     const gu = this.gen;
-    const inv = (typeof tauriInvoke === 'function') ? tauriInvoke() : null;
     if(this.engine === 'kitten'){
+      /* Paragraph-level synthesis: one clip per paragraph group, seamless
+         audio within the paragraph, and the NEXT paragraph generates while
+         this one plays (prefetch). Sentence highlight follows the clip by
+         proportional timing (startGroupHighlight). */
+      const gi = this.groups.findIndex(g2 => this.si >= g2.start && this.si <= g2.end);
+      if(gi < 0){ this.autoAdvance(); return; }
+      this.gi = gi;
+      const g = this.groups[gi];
       try{
-        /* Prefetched audio (generated while the previous sentence played)
-           makes the inter-sentence pause exactly sentGapMs; generating only
-           on demand adds the full model latency to every pause. */
-        let wavBytes = this.pcmCache.get(this.si);
-        if(wavBytes) this.pcmCache.delete(this.si);
+        let wavBytes = this.pcmCache.get(gi);
+        if(wavBytes) this.pcmCache.delete(gi);
         else{
-          wavBytes = await KittenRunner.generate(sent.text, this.voice);
+          const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
+          wavBytes = await KittenRunner.generate(text, this.voice);
           if(this.gen !== gu || this.stopped || !this.active) return;
         }
         const buf = (wavBytes instanceof Uint8Array)
           ? wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength) : wavBytes;
         if(buf && buf.byteLength > 0){
-          const started = await this.playWav(buf, gu);
+          const started = await this.playWav(buf, gu, g.end + 1, g);
           if(started){ this.prefetch(gu); return; }
         }
       }catch(e){
@@ -7775,6 +7853,7 @@ const TTS = {
       this.utt.onerror = null;
       this.utt = null;
     }
+    this.stopGroupHighlight();
     this.clearHighlight();
     try{
       let loc = null;
