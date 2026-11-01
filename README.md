@@ -2,9 +2,13 @@
 
 Folio is a lightweight desktop EPUB reader built with **Tauri 2.0** and the native Edge WebView2 — no bundled browser, ~9 MB standalone executable, fully offline. It opens any DRM-free `.epub` and sets the text the way a good paperback would: type sized to your screen, a measure your eye can hold, leading with room to breathe. Wide windows open into a two-page spread on its stand.
 
-![Folio reading The Time Machine in a two-page spread](docs/screenshots/spread.png)
+![Folio's Reading Room — The Time Machine in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
 
 ## Screenshots
+
+| Reading Room (Royal Maroon) | Two-page spread |
+|---|---|
+| ![Reading Room with side vines and page corner art](docs/screenshots/reading-room.png) | ![Two-page spread](docs/screenshots/spread.png) |
 
 | Landing | Single page |
 |---|---|
@@ -33,6 +37,13 @@ Folio is a lightweight desktop EPUB reader built with **Tauri 2.0** and the nati
 - **Per-book typography memory** — each book remembers its own settings.
 - **Paper-grade page turns** — a GPU-composited fold-sheet flip (paper texture, warm fold light, crease sheen, damped-spring physics, drag-to-turn with fling) plus slide and instant FX modes, and a toggleable page-turn sound. Render path animates `transform`/opacity only, with GPU rasterization forced in WebView2.
 - **Reading ruler** — a guide line that follows the pointer for focus reading.
+
+### Reading Room & page ornamentation
+- **Two-axis theming** — pick your paper environment (fonts, ink, page tone) and your **Reading Room** (the desk the book rests on) independently. Royal Maroon leads the set: burgundy damask wallpaper, gilt book stand, and embossed cover lettering, with more rooms cut from the same tokens.
+- **Per-chapter page art** — every chapter opens with a grand set of gold corner frames and a headpiece; continuation pages carry a small centered fleuron. Twelve gold corner designs are picked deterministically per chapter, so each chapter keeps its own identity across sessions.
+- **Side vines** — full-height botanical columns (three designs with true left/right pairs) climbing the desk on both sides of the book, one design per chapter.
+- **Inside-page margins** — independent top/bottom/side sliders (per book) that reserve real empty space around the text block; the ornament bands and sliders cooperate automatically.
+- **All dressing is toggleable** from the Reading Room settings section, loads offline, and never touches pagination — ornaments live outside the text layout entirely.
 
 ### Layout
 - **Single page / two-page spread** (`D`) — auto (width-based), forced on, or off, with independent width memory per mode.
@@ -87,7 +98,10 @@ npm run build        # optimized release build
 Build artifacts:
 
 - Standalone executable: `tauri_epub_reader/src-tauri/target/release/app.exe`
-- Installers: `src-tauri/target/release/bundle/nsis/Folio Reader_1.0.0_x64-setup.exe` and `bundle/msi/Folio Reader_1.0.0_x64_en-US.msi`
+- Two installer SKUs (same app — pick per audience):
+  - **Full (with offline TTS voices)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-TTS.exe` (~333 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-TTS.msi`
+  - **Lite (system speech voices only)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-lite.exe` (~4 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-lite.msi`
+- The lite build is produced from `src-tauri/tauri.conf.lite.json` (drops the bundled Piper voices; read-aloud falls back to Windows speech): `npx tauri build --config src-tauri/tauri.conf.lite.json`. Both SKUs share the same app identity, so the full installer upgrades a lite install in place.
 
 ### Tests
 
