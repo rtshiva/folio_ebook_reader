@@ -122,6 +122,7 @@ Build artifacts:
   - **Full (with offline TTS voices)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-TTS.exe` (~333 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-TTS.msi`
   - **Lite (system speech voices only)**: `bundle/nsis/Folio Reader_1.0.0_x64-setup-lite.exe` (~4 MB) and `bundle/msi/Folio Reader_1.0.0_x64_en-US-lite.msi`
 - The lite build is produced from `src-tauri/tauri.conf.lite.json` (drops the bundled Piper voices; read-aloud falls back to Windows speech): `npx tauri build --config src-tauri/tauri.conf.lite.json`. Both SKUs share the same app identity, so the full installer upgrades a lite install in place.
+- **CI**: `.github/workflows/build-installers.yml` builds both SKUs on GitHub runners (lite always; TTS needs the Piper bundle uploaded once as a `piper-bundle` release asset, or a self-hosted runner with `bin/piper`). Run it from the Actions tab, or push a `v*` tag to build + attach both to a GitHub release.
 
 ### Tests
 
