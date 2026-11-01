@@ -2236,12 +2236,12 @@ html body{padding:${pgTe}px ${pgS}px ${pgBe}px ${pgS}px !important;}
    grand set shows on the chapter's opening page (.opening on the wrapper,
    driven by the relocation page state); the small fleuron shows on every
    continuation page. Both live inside the reserved top/bottom bands. */
-.folio-pg{position:absolute;width:210px;height:210px;pointer-events:none;display:none;
+.folio-pg{position:absolute;width:64px;height:64px;pointer-events:none;display:none;
   background-repeat:no-repeat;background-position:center;background-size:contain}
-.folio-pg.tl{top:2px;left:2px}
-.folio-pg.tr{top:2px;right:2px;transform:scaleX(-1)}
-.folio-pg.bl{bottom:2px;left:2px;transform:scaleY(-1)}
-.folio-pg.br{bottom:2px;right:2px;transform:scale(-1,-1)}
+.folio-pg.tl{top:0;left:0}
+.folio-pg.tr{top:0;right:0;transform:scaleX(-1)}
+.folio-pg.bl{bottom:0;left:0;transform:scaleY(-1)}
+.folio-pg.br{bottom:0;right:0;transform:scale(-1,-1)}
 .folio-ph{position:absolute;top:6px;left:50%;transform:translateX(-50%);width:340px;height:58px;
   pointer-events:none;display:none;opacity:.8;
   mask-repeat:no-repeat;mask-position:center;mask-size:contain;
@@ -3260,12 +3260,17 @@ function trackPageOrnRun(d, w){
       if(f){
         const v = el('viewer').getBoundingClientRect();
         const fr = f.getBoundingClientRect();
-        const key = [v.left.toFixed(1), v.width.toFixed(1), (v.left - fr.left).toFixed(1), (v.top - fr.top).toFixed(1)].join('|');
+        // two page-position mechanisms to compensate: the iframe element is
+        // PARKED horizontally in spread mode (fr.left moves), and the body
+        // is SCROLLED horizontally in single-page mode (scrollLeft moves).
+        const se = d.scrollingElement || d.documentElement;
+        const sx = se.scrollLeft || 0, sy = se.scrollTop || 0;
+        const key = [v.left.toFixed(1), v.width.toFixed(1), (v.left - fr.left).toFixed(1), (v.top - fr.top).toFixed(1), sx, sy].join('|');
         if(key !== last){
           last = key;
           w.style.width = v.width + 'px';
           w.style.height = v.height + 'px';
-          w.style.transform = 'translate(' + (v.left - fr.left).toFixed(1) + 'px,' + (v.top - fr.top).toFixed(1) + 'px)';
+          w.style.transform = 'translate(' + ((v.left - fr.left) + sx).toFixed(1) + 'px,' + ((v.top - fr.top) + sy).toFixed(1) + 'px)';
         }
       }
     }catch(e){}
