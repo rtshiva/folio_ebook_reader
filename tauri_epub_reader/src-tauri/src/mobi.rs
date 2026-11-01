@@ -625,7 +625,9 @@ pub fn unpack_mobi(
         &pdb.name,
     );
 
-    // Decompress text records
+    // Decompress text records (bounded by 256 MB to guard against decompression bombs)
+    const MAX_MOBI_TEXT_BYTES: usize = 256 * 1024 * 1024;
+    const MAX_MOBI_IMAGE_TOTAL_BYTES: usize = 256 * 1024 * 1024;
     let text_start = active_rec_0_idx + 1;
     let text_end = (text_start + active_doc_hdr.record_count).min(pdb.records.len());
     let mut uncompressed_text_bytes = Vec::new();
@@ -637,11 +639,17 @@ pub fn unpack_mobi(
         match active_doc_hdr.compression {
             1 => {
                 // No compression
+                if uncompressed_text_bytes.len().saturating_add(stripped.len()) > MAX_MOBI_TEXT_BYTES {
+                    return Err("MOBI text uncompressed size exceeds 256 MB limit".to_string());
+                }
                 uncompressed_text_bytes.extend_from_slice(stripped);
             }
             2 => {
                 // PalmDOC LZ77 compression
                 let chunk = decompress_palmdoc(stripped)?;
+                if uncompressed_text_bytes.len().saturating_add(chunk.len()) > MAX_MOBI_TEXT_BYTES {
+                    return Err("MOBI text uncompressed size exceeds 256 MB limit".to_string());
+                }
                 uncompressed_text_bytes.extend_from_slice(&chunk);
             }
             17480 => {
@@ -676,9 +684,15 @@ pub fn unpack_mobi(
             pdb.records.len()
         };
 
+        let mut total_image_bytes = 0usize;
         for rec_idx in first_img..max_img {
             let rec_data = pdb.records[rec_idx].data;
             if let Some((ext, mime)) = detect_image_format(rec_data) {
+                if total_image_bytes.saturating_add(rec_data.len()) > MAX_MOBI_IMAGE_TOTAL_BYTES {
+                    log::warn!("MOBI image total size exceeded 256 MB; skipping remainder");
+                    break;
+                }
+                total_image_bytes += rec_data.len();
                 let rel_1 = (rec_idx - first_img) + 1;
                 let rel_0 = rec_idx - first_img;
                 let fname = format!("img_{:04}.{}", rel_1, ext);
@@ -1214,13 +1228,150 @@ fn extract_chapter_title(text: &str, num: usize) -> String {
     format!("Chapter {}", num)
 }
 
-/// Cleans legacy Mobipocket tags and repairs void tags for XML compliance.
+/// Sanitizes an HTML element tag by stripping inline event handlers (on*) and dangerous URI schemes.
+fn sanitize_html_tag(tag: &str) -> String {
+    let lower = tag.to_lowercase();
+    if !lower.contains(" on")
+        && !lower.contains("javascript:")
+        && !lower.contains("vbscript:")
+        && !lower.contains("data:text/html")
+    {
+        return tag.to_string();
+    }
+    let is_self_closing = tag.ends_with("/>");
+    let inner = if is_self_closing {
+        &tag[1..tag.len() - 2]
+    } else {
+        &tag[1..tag.len() - 1]
+    };
+    let tag_name = inner.split_whitespace().next().unwrap_or("");
+    if tag_name.is_empty() {
+        return tag.to_string();
+    }
+
+    let mut clean_attrs = String::new();
+    let mut rest = &inner[tag_name.len()..];
+    while !rest.is_empty() {
+        let trimmed = rest.trim_start();
+        if trimmed.is_empty() {
+            break;
+        }
+        let name_end = trimmed
+            .find(|c: char| c.is_whitespace() || c == '=' || c == '/' || c == '>')
+            .unwrap_or(trimmed.len());
+        let attr_name = &trimmed[..name_end];
+        let after_name = trimmed[name_end..].trim_start();
+        if after_name.starts_with('=') {
+            let after_eq = after_name[1..].trim_start();
+            if after_eq.starts_with('"') {
+                let val_end = after_eq[1..].find('"').map(|idx| idx + 2).unwrap_or(after_eq.len());
+                let attr_val = &after_eq[..val_end];
+                rest = &after_eq[val_end..];
+                let attr_lower = attr_name.to_lowercase();
+                let val_lower = attr_val.to_lowercase();
+                if !attr_lower.starts_with("on")
+                    && !val_lower.contains("javascript:")
+                    && !val_lower.contains("vbscript:")
+                    && !val_lower.contains("data:text/html")
+                {
+                    clean_attrs.push(' ');
+                    clean_attrs.push_str(attr_name);
+                    clean_attrs.push('=');
+                    clean_attrs.push_str(attr_val);
+                }
+            } else if after_eq.starts_with('\'') {
+                let val_end = after_eq[1..].find('\'').map(|idx| idx + 2).unwrap_or(after_eq.len());
+                let attr_val = &after_eq[..val_end];
+                rest = &after_eq[val_end..];
+                let attr_lower = attr_name.to_lowercase();
+                let val_lower = attr_val.to_lowercase();
+                if !attr_lower.starts_with("on")
+                    && !val_lower.contains("javascript:")
+                    && !val_lower.contains("vbscript:")
+                    && !val_lower.contains("data:text/html")
+                {
+                    clean_attrs.push(' ');
+                    clean_attrs.push_str(attr_name);
+                    clean_attrs.push('=');
+                    clean_attrs.push_str(attr_val);
+                }
+            } else {
+                let val_end = after_eq
+                    .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+                    .unwrap_or(after_eq.len());
+                let attr_val = &after_eq[..val_end];
+                rest = &after_eq[val_end..];
+                let attr_lower = attr_name.to_lowercase();
+                let val_lower = attr_val.to_lowercase();
+                if !attr_lower.starts_with("on")
+                    && !val_lower.contains("javascript:")
+                    && !val_lower.contains("vbscript:")
+                    && !val_lower.contains("data:text/html")
+                {
+                    clean_attrs.push(' ');
+                    clean_attrs.push_str(attr_name);
+                    clean_attrs.push('=');
+                    clean_attrs.push_str(attr_val);
+                }
+            }
+        } else {
+            rest = after_name;
+            let attr_lower = attr_name.to_lowercase();
+            if !attr_lower.starts_with("on") {
+                clean_attrs.push(' ');
+                clean_attrs.push_str(attr_name);
+            }
+        }
+    }
+
+    if is_self_closing {
+        format!("<{}{}/>", tag_name, clean_attrs)
+    } else {
+        format!("<{}{}>", tag_name, clean_attrs)
+    }
+}
+
+/// Cleans legacy Mobipocket tags and repairs void tags for XML compliance,
+/// while stripping scripts, dangerous embeds, and event handlers.
 fn clean_chapter_body(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 128);
     let mut i = 0usize;
 
     while i < text.len() {
         if text[i..].starts_with('<') {
+            let lower_rem = text[i..].to_lowercase();
+            // Completely strip script tags and their inner content
+            if lower_rem.starts_with("<script") {
+                if let Some(close_idx) = lower_rem.find("</script") {
+                    if let Some(end_gt) = text[i + close_idx..].find('>') {
+                        i = i + close_idx + end_gt + 1;
+                        continue;
+                    }
+                }
+                break;
+            }
+            // Completely strip iframe, object, embed tags
+            let mut stripped_tag = false;
+            for dangerous_tag in &["<iframe", "<object", "<embed"] {
+                if lower_rem.starts_with(dangerous_tag) {
+                    let close_tag = format!("</{}", &dangerous_tag[1..]);
+                    if let Some(close_idx) = lower_rem.find(&close_tag) {
+                        if let Some(end_gt) = text[i + close_idx..].find('>') {
+                            i = i + close_idx + end_gt + 1;
+                            stripped_tag = true;
+                            break;
+                        }
+                    } else if let Some(self_close) = text[i..].find('>') {
+                        i = i + self_close + 1;
+                        stripped_tag = true;
+                        break;
+                    }
+                }
+            }
+            if stripped_tag {
+                continue;
+            }
+
             if let Some(close) = text[i..].find('>') {
                 let tag_end = i + close + 1;
                 let tag = &text[i..tag_end];
@@ -1238,12 +1389,13 @@ fn clean_chapter_body(text: &str) -> String {
 
                 // Ensure void elements are self-closed
                 if (tag_lower.starts_with("<br") || tag_lower.starts_with("<hr")) && !tag.ends_with("/>") {
-                    out.push_str(&format!("{}/>", &tag[..tag.len() - 1].trim_end()));
+                    let repaired = format!("{}/>", &tag[..tag.len() - 1].trim_end());
+                    out.push_str(&sanitize_html_tag(&repaired));
                     i = tag_end;
                     continue;
                 }
 
-                out.push_str(tag);
+                out.push_str(&sanitize_html_tag(tag));
                 i = tag_end;
                 continue;
             }

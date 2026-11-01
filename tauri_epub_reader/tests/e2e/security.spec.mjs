@@ -182,4 +182,64 @@ test.describe('Security & XSS sanitization tests', () => {
     });
     expect(isLbShown).toBe(false);
   });
+
+  test('Snapshot and warm iframes enforce sandbox=allow-same-origin', async ({ page }) => {
+    await fresh(page);
+
+    const sandboxAttrs = await page.evaluate(() => {
+      // Create a test snap box
+      const snapInfo = {
+        docHtml: '<html><body>Test</body></html>',
+        pageCSS: null,
+        vRect: { left: 0, top: 0, width: 800, height: 600 },
+        fRect: { width: 800, height: 600 },
+        relLeft: 0,
+        relTop: 0,
+        isSpread: false
+      };
+      const { snap } = createSnapBox(snapInfo, 0, 800);
+      return snap.getAttribute('sandbox');
+    });
+
+    expect(sandboxAttrs).toBe('allow-same-origin');
+  });
+
+  test('sanitizeChapterHtml completely strips script tags, iframes, and on* attributes', async ({ page }) => {
+    await fresh(page);
+
+    const cleaned = await page.evaluate(() => {
+      const dirty = '<div class="body"><script>alert(1)</script><p>Text</p><iframe src="evil.html"></iframe><img src="pic.jpg" onerror="alert(2)" /><a href="javascript:void(0)" onclick="evil()">link</a></div>';
+      return sanitizeChapterHtml(dirty);
+    });
+
+    expect(cleaned).not.toContain('<script');
+    expect(cleaned).not.toContain('alert(1)');
+    expect(cleaned).not.toContain('<iframe');
+    expect(cleaned).not.toContain('evil.html');
+    expect(cleaned).not.toContain('onerror');
+    expect(cleaned).not.toContain('onclick');
+    expect(cleaned).toContain('<p>Text</p>');
+  });
+
+  test('isSafeImageUrl strips control characters and rejects insecure http image URLs', async ({ page }) => {
+    await fresh(page);
+
+    const results = await page.evaluate(() => {
+      return {
+        plainHttp: isSafeImageUrl('http://attacker.com/evil.png'),
+        controlCharBypass: isSafeImageUrl('java\x00script:alert(1)'),
+        tabBypass: isSafeImageUrl('java\tscript:alert(1)'),
+        safeHttps: isSafeImageUrl('https://example.com/cover.jpg'),
+        safeData: isSafeImageUrl('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='),
+        safeFolioCache: isSafeImageUrl('http://folio-cache.localhost/abc123def456/cover.jpg')
+      };
+    });
+
+    expect(results.plainHttp).toBe(false);
+    expect(results.controlCharBypass).toBe(false);
+    expect(results.tabBypass).toBe(false);
+    expect(results.safeHttps).toBe(true);
+    expect(results.safeData).toBe(true);
+    expect(results.safeFolioCache).toBe(true);
+  });
 });

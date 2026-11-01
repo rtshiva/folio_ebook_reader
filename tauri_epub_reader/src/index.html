@@ -1735,8 +1735,9 @@ const body = document.body;
 /* ---------------- security & sanitization ---------------- */
 function isSafeImageUrl(url){
   if(typeof url !== 'string') return false;
-  const trimmed = url.trim();
-  return /^(data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,|blob:|folio-cache:\/\/|https:\/\/|http:\/\/|\.\/|\/)/i.test(trimmed);
+  // Strip control chars and whitespace to prevent scheme bypasses
+  const clean = url.replace(/[\u0000-\u0020]/g, '').trim();
+  return /^(data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,|blob:|folio-cache:\/\/|http:\/\/folio-cache\.localhost\/|https:\/\/|\.\/|\/)/i.test(clean);
 }
 
 function sanitizeDomNode(root){
@@ -1746,8 +1747,9 @@ function sanitizeDomNode(root){
     for(let i = el.attributes.length - 1; i >= 0; i--){
       const attr = el.attributes[i];
       const name = attr.name.toLowerCase();
-      const val = attr.value.trim().toLowerCase();
-      if(name.startsWith('on') || val.startsWith('javascript:')){
+      // Strip control chars and whitespace to prevent obfuscated scheme bypasses (e.g. java\tscript:)
+      const val = attr.value.replace(/[\u0000-\u0020]/g, '').toLowerCase();
+      if(name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')){
         el.removeAttribute(attr.name);
       }
     }
@@ -1756,11 +1758,20 @@ function sanitizeDomNode(root){
     cleanElement(root);
   }
   if(root.querySelectorAll){
-    const dangerous = root.querySelectorAll('script, iframe, object, embed');
+    const dangerous = root.querySelectorAll('script, iframe, object, embed, base');
     dangerous.forEach(el => el.remove());
     const all = root.querySelectorAll('*');
     all.forEach(cleanElement);
   }
+}
+
+function sanitizeChapterHtml(rawHtml){
+  if(!rawHtml || typeof rawHtml !== 'string') return '';
+  return rawHtml
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/<(object|embed)\b[^<]*(?:(?!<\/(object|embed)>)<[^<]*)*<\/(object|embed)>/gi, '');
 }
 
 /* ---------------- settings ---------------- */
@@ -3346,7 +3357,7 @@ function onContent(contents){
     }
   }catch(e){}
   try{
-    const cleanHtml = '<!DOCTYPE html>' + d.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
+    const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
     // Key by the rendered section, not currentSpine: relocated() runs after
     // this hook, so the unkeyed write would file the new chapter under the
     // previous spine and feed the turn compositor the wrong adjacent page.
@@ -3436,12 +3447,12 @@ function wireContents(contents){
   d.addEventListener('wheel', onWheel, { passive:false });
   d.addEventListener('pointerdown', onDocPointerDown);
   d.addEventListener('pointermove', e => AutoScroll.move(e), { passive:true });
-  // Image lightbox + same-document footnote popups (EPUB3 noterefs).
+  // Image lightbox + same-document footnote popups (EPUB3 noterefs) + external link interception.
   d.addEventListener('click', e => {
     try{
       const a = e.target.closest && e.target.closest('a');
       if(a){
-        const href = a.getAttribute('href') || '';
+        const href = (a.getAttribute('href') || '').trim();
         const rel = (a.getAttribute('epub:type') || a.getAttribute('role') || a.getAttribute('rel') || '').toLowerCase();
         const id = href.startsWith('#') ? decodeURIComponent(href.slice(1)) : '';
         const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '') || /^(fn|note|footnote)/i.test(id);
@@ -3452,6 +3463,27 @@ function wireContents(contents){
             Footnotes.show(t, e.clientX || Highlights.lastPtr.x, e.clientY || Highlights.lastPtr.y);
             return;
           }
+        }
+        // Intercept external links or top-level window navigation
+        if(/^(https?:|mailto:)/i.test(href)){
+          e.preventDefault(); e.stopPropagation();
+          try{
+            if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){
+              window.__TAURI__.opener.openUrl(href);
+            } else if(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.shell.open){
+              window.__TAURI__.shell.open(href);
+            } else {
+              window.open(href, '_blank', 'noopener,noreferrer');
+            }
+          }catch(_){
+            window.open(href, '_blank', 'noopener,noreferrer');
+          }
+          return;
+        }
+        // Block dangerous schemes
+        if(/^javascript:/i.test(href) || /^data:/i.test(href) || /^file:/i.test(href) || /^vbscript:/i.test(href)){
+          e.preventDefault(); e.stopPropagation();
+          return;
         }
       }
       const im = e.target.closest && e.target.closest('img');
@@ -5777,7 +5809,7 @@ class PageCacheManager {
               let s = sectionDoc.getElementById('folio-dyn');
               if(!s){ s = sectionDoc.createElement('style'); s.id = 'folio-dyn'; (sectionDoc.head||sectionDoc.documentElement).appendChild(s); }
               s.textContent = buildCSS();
-              const cleanHtml = '<!DOCTYPE html>' + sectionDoc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,'');
+              const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(sectionDoc.documentElement.outerHTML);
               this.chapterHtmls.set(spineIndex, cleanHtml);
               // Feature 6: pre-render the neighbor chapter off-screen — fonts,
               // CSS and column layout warm before the reader ever crosses.
@@ -5820,6 +5852,7 @@ class PageCacheManager {
         document.body.appendChild(host);
       }
       const fr = document.createElement('iframe');
+      fr.setAttribute('sandbox', 'allow-same-origin');
       fr.setAttribute('aria-hidden', 'true');
       fr.setAttribute('tabindex', '-1');
       fr.style.cssText = 'width:900px;height:600px;border:none;visibility:hidden;';
@@ -5891,7 +5924,7 @@ function snapshotPage(){
 
   let html = pageCache.getChapterHtml();
   if(!html){
-    try{ html = '<!DOCTYPE html>' + doc.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/gi,''); }catch(e){ return null; }
+    try{ html = '<!DOCTYPE html>' + sanitizeChapterHtml(doc.documentElement.outerHTML); }catch(e){ return null; }
     pageCache.setChapterHtml(html);
   }
 
@@ -5956,6 +5989,7 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
     box.className = 'snap-box';
     snap = document.createElement('iframe');
     snap.className = 'snap-iframe';
+    snap.setAttribute('sandbox', 'allow-same-origin');
     snap.setAttribute('scrolling','no');
     snap.setAttribute('aria-hidden','true');
     snap.setAttribute('tabindex','-1');

@@ -139,17 +139,48 @@ impl BookCache {
     }
 }
 
+pub const MAX_BOOK_FILE_BYTES: u64 = 512 * 1024 * 1024; // 512 MB
+
+pub fn validate_book_path(path_str: &str) -> Result<PathBuf, String> {
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() || trimmed.len() > 4096 {
+        return Err("Invalid file path".to_string());
+    }
+    // Reject UNC / network shares to avoid SMB negotiation and credential leaking
+    if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+        return Err("Network and UNC paths are not permitted".to_string());
+    }
+    let lower = trimmed.to_lowercase();
+    let is_valid_ext = lower.ends_with(".epub")
+        || lower.ends_with(".mobi")
+        || lower.ends_with(".azw")
+        || lower.ends_with(".azw3");
+    if !is_valid_ext {
+        return Err("Only .epub, .mobi, .azw, and .azw3 files are permitted".to_string());
+    }
+    let p = PathBuf::from(trimmed);
+    if !p.is_file() {
+        return Err("Path does not exist or is not a regular file".to_string());
+    }
+    Ok(p)
+}
+
 #[tauri::command]
 fn read_file_bytes(
     path: String,
     state: tauri::State<BookCache>,
 ) -> Result<tauri::ipc::Response, String> {
-    let meta = fs::metadata(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-    if let Some(hit) = state.get(&path, &meta) {
+    let clean_path = validate_book_path(&path)?;
+    let clean_str = clean_path.to_string_lossy().to_string();
+    let meta = fs::metadata(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    if meta.len() > MAX_BOOK_FILE_BYTES {
+        return Err("File exceeds maximum allowable size (512 MB)".to_string());
+    }
+    if let Some(hit) = state.get(&clean_str, &meta) {
         return Ok(tauri::ipc::Response::new(hit));
     }
-    let bytes = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-    state.put(path, &meta, bytes.clone());
+    let bytes = fs::read(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    state.put(clean_str, &meta, bytes.clone());
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -184,16 +215,54 @@ pub struct BookHandle {
     pub manifest: BookManifest,
 }
 
+pub fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = match name.split('.').next() {
+        Some(s) => s.trim(),
+        None => return false,
+    };
+    matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
+}
+
 pub fn sanitize_entry(name: &str) -> Option<PathBuf> {
-    // Reject Windows drive letters (e.g. C:foo, C:/foo)
-    if name.len() >= 2 && name.as_bytes()[1] == b':' {
+    // Reject Windows drive letters and alternate data streams (any colon in name)
+    if name.contains(':') {
         return None;
     }
     let p = Path::new(name);
     let mut clean = PathBuf::new();
     for comp in p.components() {
         match comp {
-            std::path::Component::Normal(c) => clean.push(c),
+            std::path::Component::Normal(c) => {
+                let s = c.to_string_lossy();
+                if is_windows_reserved_name(&s) {
+                    return None;
+                }
+                clean.push(c);
+            }
             std::path::Component::CurDir => continue,
             _ => return None,
         }
@@ -272,19 +341,24 @@ pub fn unzip_epub(
         if entry.size() > MAX_FILE_BYTES {
             return Err(format!("EPUB entry too large: {}", raw_name));
         }
-        total = total.saturating_add(entry.size());
-        if total > MAX_TOTAL_BYTES {
-            return Err("EPUB uncompressed size exceeds limit".to_string());
-        }
         let out_path = target_dir.join(&clean_path);
         if let Some(parent) = out_path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Cannot create dir: {}", e))?;
         }
         let mut outfile = fs::File::create(&out_path).map_err(|e| format!("Cannot create file: {}", e))?;
-        std::io::copy(&mut entry, &mut outfile).map_err(|e| format!("Cannot extract file: {}", e))?;
+        use std::io::Read;
+        let mut limited_entry = (&mut entry).take(MAX_FILE_BYTES + 1);
+        let written = std::io::copy(&mut limited_entry, &mut outfile).map_err(|e| format!("Cannot extract file: {}", e))?;
+        if written > MAX_FILE_BYTES {
+            return Err(format!("EPUB entry exceeded maximum uncompressed size: {}", raw_name));
+        }
+        total = total.saturating_add(written);
+        if total > MAX_TOTAL_BYTES {
+            return Err("EPUB uncompressed size exceeds limit".to_string());
+        }
         files.push(ManifestFile {
             zip_path: clean_path.to_string_lossy().replace('\\', "/"),
-            size: entry.size(),
+            size: written,
         });
     }
 
@@ -396,8 +470,13 @@ pub fn evict_disk_cache(
 
 #[tauri::command]
 fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
-    let meta = fs::metadata(&path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
-    let (hash, len, mtime_ms) = compute_book_key(&path, &meta);
+    let clean_path = validate_book_path(&path)?;
+    let clean_str = clean_path.to_string_lossy().to_string();
+    let meta = fs::metadata(&clean_path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
+    if meta.len() > MAX_BOOK_FILE_BYTES {
+        return Err("Book file exceeds maximum allowable size (512 MB)".to_string());
+    }
+    let (hash, len, mtime_ms) = compute_book_key(&clean_str, &meta);
     let cache_root = app
         .path()
         .app_cache_dir()
@@ -405,7 +484,7 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
         .join("folio-unzip");
     let target_dir = cache_root.join(&hash);
 
-    let lower = path.to_lowercase();
+    let lower = clean_str.to_lowercase();
     let is_mobi = lower.ends_with(".mobi") || lower.ends_with(".azw") || lower.ends_with(".azw3");
 
     let manifest_path = target_dir.join("manifest.json");
@@ -424,18 +503,18 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
                 let _ = fs::remove_dir_all(&target_dir);
                 fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
                 if is_mobi {
-                    mobi::unpack_mobi(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+                    mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
                 } else {
-                    unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+                    unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
                 }
             }
         }
     } else {
         fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
         if is_mobi {
-            mobi::unpack_mobi(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+            mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
         } else {
-            unzip_epub(Path::new(&path), &target_dir, &path, &meta, mtime_ms)?
+            unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
         }
     };
 
@@ -847,6 +926,24 @@ pub fn run() {
                 }
             };
 
+            let req_origin = req
+                .headers()
+                .get("Origin")
+                .or_else(|| req.headers().get("origin"))
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            let allow_origin = if req_origin == "tauri://localhost"
+                || req_origin == "http://localhost"
+                || req_origin == "https://tauri.localhost"
+                || req_origin == "http://folio-cache.localhost"
+                || req_origin.starts_with("http://folio-cache.localhost:")
+                || req_origin.starts_with("http://localhost:")
+            {
+                req_origin
+            } else {
+                "tauri://localhost"
+            };
+
             let uri = req.uri();
             let host = uri.host().unwrap_or("");
             let path_str = uri.path();
@@ -856,7 +953,8 @@ pub fn run() {
             if !is_valid_cache_hash(&hash) {
                 return tauri::http::Response::builder()
                     .status(400)
-                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Origin", allow_origin)
+                    .header("X-Content-Type-Options", "nosniff")
                     .body(vec![])
                     .unwrap();
             }
@@ -867,7 +965,8 @@ pub fn run() {
                 None => {
                     return tauri::http::Response::builder()
                         .status(400)
-                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Origin", allow_origin)
+                        .header("X-Content-Type-Options", "nosniff")
                         .body(vec![])
                         .unwrap();
                 }
@@ -890,15 +989,17 @@ pub fn run() {
                             .status(200)
                             .header("Content-Type", mime)
                             .header("Cache-Control", "max-age=31536000, immutable")
-                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Origin", allow_origin)
                             .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                            .header("X-Content-Type-Options", "nosniff")
                             .body(body)
                             .unwrap()
                     }
                     Err(_) => {
                         tauri::http::Response::builder()
                             .status(500)
-                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Origin", allow_origin)
+                            .header("X-Content-Type-Options", "nosniff")
                             .body(vec![])
                             .unwrap()
                     }
@@ -906,7 +1007,8 @@ pub fn run() {
             } else {
                 tauri::http::Response::builder()
                     .status(404)
-                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Origin", allow_origin)
+                    .header("X-Content-Type-Options", "nosniff")
                     .body(vec![])
                     .unwrap()
             }
@@ -1687,6 +1789,92 @@ mod tests {
         assert!(res.is_err());
         let err = res.err().unwrap();
         assert!(err.contains("DRM-protected"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u27_validate_book_path_security() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_sec_path_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        // 1. Valid existing epub
+        let valid_epub = tmp.join("valid.epub");
+        fs::write(&valid_epub, b"PK0304").unwrap();
+        assert!(validate_book_path(&valid_epub.to_string_lossy()).is_ok());
+
+        // 2. Reject UNC / network paths
+        assert!(validate_book_path(r"\\evil-server\share\book.epub").is_err());
+        assert!(validate_book_path("//evil-server/share/book.epub").is_err());
+
+        // 3. Reject non-ebook extensions
+        let bad_ext = tmp.join("secrets.txt");
+        fs::write(&bad_ext, b"confidential").unwrap();
+        assert!(validate_book_path(&bad_ext.to_string_lossy()).is_err());
+
+        let ssh_key = tmp.join("id_rsa");
+        fs::write(&ssh_key, b"key").unwrap();
+        assert!(validate_book_path(&ssh_key.to_string_lossy()).is_err());
+
+        // 4. Reject non-existent file
+        assert!(validate_book_path(&tmp.join("missing.epub").to_string_lossy()).is_err());
+
+        // 5. Reject directory
+        assert!(validate_book_path(&tmp.to_string_lossy()).is_err());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u28_sanitize_entry_windows_devices_and_streams() {
+        // Windows reserved devices must be rejected
+        assert_eq!(sanitize_entry("CON"), None);
+        assert_eq!(sanitize_entry("con.xhtml"), None);
+        assert_eq!(sanitize_entry("NUL.txt"), None);
+        assert_eq!(sanitize_entry("aux.png"), None);
+        assert_eq!(sanitize_entry("COM1.html"), None);
+        assert_eq!(sanitize_entry("OEBPS/prn.xhtml"), None);
+        assert_eq!(sanitize_entry("sub/lpt1.jpg"), None);
+
+        // NTFS alternate data streams must be rejected
+        assert_eq!(sanitize_entry("file.txt:evil"), None);
+        assert_eq!(sanitize_entry("test::$DATA"), None);
+
+        // Standard clean paths must succeed
+        assert!(sanitize_entry("OEBPS/chapter1.xhtml").is_some());
+        assert!(sanitize_entry("images/cover.jpg").is_some());
+    }
+
+    #[test]
+    fn test_u29_mobi_html_sanitization() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_sec_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let mobi_file = tmp.join("malicious.mobi");
+        let raw_html = "<html><body><h1>Danger</h1><script>alert('xss')</script><iframe src='https://evil.com'></iframe><img src='x.png' onerror='alert(1)' /><a href='javascript:evil()'>Click</a><p>Safe text</p></body></html>";
+        let bytes = create_synthetic_mobi("Safe Title", "Author", raw_html, 0);
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+
+        let res = crate::mobi::unpack_mobi(&mobi_file, &target, "malicious.mobi", &meta, 12345);
+        assert!(res.is_ok());
+
+        let ch0_text = fs::read_to_string(target.join("ch_0001.xhtml")).unwrap();
+        // Script tag and body stripped
+        assert!(!ch0_text.contains("<script"));
+        assert!(!ch0_text.contains("alert('xss')"));
+        // Iframe stripped
+        assert!(!ch0_text.contains("<iframe"));
+        assert!(!ch0_text.contains("evil.com"));
+        // Inline event handler stripped
+        assert!(!ch0_text.contains("onerror"));
+        // Javascript link stripped
+        assert!(!ch0_text.contains("javascript:"));
+        // Safe text remains
+        assert!(ch0_text.contains("Safe text"));
 
         let _ = fs::remove_dir_all(&tmp);
     }
