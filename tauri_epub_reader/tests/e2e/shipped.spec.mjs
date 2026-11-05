@@ -147,7 +147,7 @@ test('R7 highlight add, list, jump', async ({ page }) => {
   expect(await page.evaluate(() => Highlights.lastCfi)).toBe(cfi);
   // F8: the selection bar now carries one-tap quick-highlight dots
   await page.evaluate(() => { selText = 'test snippet'; document.querySelector('#selBar .sel-hl-quick[data-hl="yellow"]').click(); });
-  const n = await page.evaluate(() => JSON.parse(localStorage.getItem('folio-highlights') || '[]').length);
+  const n = await page.evaluate(() => (StoreKV.get('highlights') || []).length);
   expect(n).toBe(1);
   expect(await page.evaluate(() => document.getElementById('hlCountBadge').textContent)).toBe('1');
   await page.evaluate(() => { toggleToc(); setTocTab('hl'); });
@@ -162,7 +162,7 @@ test('R8 highlight popup recolor and delete', async ({ page }) => {
   const id = await page.evaluate(() => {
     const cfi = state.rendition.currentLocation().start.cfi;
     Highlights.add(cfi, 'yellow', 'snip');
-    const all = JSON.parse(localStorage.getItem('folio-highlights') || '[]');
+    const all = StoreKV.get('highlights') || [];
     return all.length ? all[0].id : null;
   });
   expect(id).toBeTruthy();
@@ -179,7 +179,7 @@ test('R8 highlight popup recolor and delete', async ({ page }) => {
   await page.click('#hlPop .hl-dot[data-hl="green"]');
   expect(await page.evaluate(() => window.__addCalls)).toBeGreaterThan(0);
   await page.click('#hlPop [data-act="del"]');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('folio-highlights') || '[]').length)).toBe(0);
+  expect(await page.evaluate(() => (StoreKV.get('highlights') || []).length)).toBe(0);
 });
 
 test('R9 warmth slider, reset, persistence', async ({ page }) => {
@@ -204,8 +204,8 @@ test('R10 per-book typography memory', async ({ page }) => {
   await page.evaluate(() => { settings.perBookType = true; settings.size = 21; save(); });
   await page.waitForFunction((t) => {
     try {
-      const raw = localStorage.getItem('folio-typo:' + t);
-      return raw && JSON.parse(raw).size === 21;
+      const rec = StoreKV.get('typo:' + t);
+      return rec && rec.size === 21;
     } catch (e) { return false; }
   }, title, { timeout: 9000 });
   const before = await page.evaluate(() => localStorage.getItem('folio-settings'));

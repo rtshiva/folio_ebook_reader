@@ -86,8 +86,8 @@ test('BK2 ribbon splits multi-anchor file weights across their sections', async 
 
 test('BK3 finis colophon carries per-book days and minutes', async ({ page }) => {
   await fresh(page);
-  await page.evaluate(() => localStorage.setItem('folio-bstat:The Time Machine',
-    JSON.stringify({ min: 125, days: { '2026-10-27': 30, '2026-10-28': 95 } })));
+  await page.evaluate(() => StoreKV.set('bstat:The Time Machine',
+    { min: 125, days: { '2026-10-27': 30, '2026-10-28': 95 } }));
   await openDemo(page);
   await page.evaluate(() => EdgeStacks.set(1, { page: 2, total: 2 }));
   await page.waitForFunction(() => (document.getElementById('finisMeta').textContent || '').length > 0, null, { timeout: 4000 });

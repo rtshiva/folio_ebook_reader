@@ -1835,16 +1835,16 @@ function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
   // Per-book typography memory: mirror the type channels under the book key.
   if(settings.perBookType && state.currentTitle && state.currentTitle!=='Untitled'){
     const o={}; TYPO_KEYS.forEach(k=>o[k]=settings[k]);
-    localStorage.setItem('folio-typo:'+state.currentTitle,JSON.stringify(o));
+    StoreKV.set('typo:'+state.currentTitle, o);
   }
 }catch(e){} },150); }
 /* Swap in this book's saved typography (when the feature is on) and reflow. */
 function loadPerBookType(title){
   if(!settings.perBookType || !title || title==='Untitled') return;
   try{
-    const raw=localStorage.getItem('folio-typo:'+title);
+    const raw=StoreKV.get('typo:'+title);
     if(!raw) return;
-    const parsed = JSON.parse(raw);
+      const parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
     if(parsed && typeof parsed === 'object'){
       Object.assign(settings, parsed);
       const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
@@ -2332,6 +2332,167 @@ function refreshCSS(){
   }
 }
 
+/* ---------------- StoreKV — versioned key-value persistence (IDB) ----------------
+   Carries the EPUB-derived records that outgrew localStorage: bookmarks,
+   highlights, reading stats, per-book typography, reading positions, vocab.
+   Schema: folio-kv-db v1, stores 'kv' + 'meta'.
+
+   On first run the legacy localStorage keys migrate in (one-time; corrupt
+   legacy JSON is quarantined and skipped), values hydrate into an in-memory
+   mirror so existing synchronous reads keep working, and writes update the
+   mirror + persist async. If IndexedDB is unavailable the same keys fall
+   back to localStorage transparently. Settings, recents and other
+   lightweight preferences intentionally stay in localStorage. */
+const StoreKV = {
+  DB_NAME: 'folio-kv-db',
+  DB_VERSION: 1,
+  db: null,
+  mem: new Map(),
+  ready: false,
+  failed: false,
+  LEGACY_KEYS: ['folio-bookmarks', 'folio-highlights', 'folio-stats'],
+  LEGACY_PREFIXES: ['folio-typo:', 'folio-bstat:', 'folio-pos:', 'folio-vocab:'],
+
+  init(){
+    if(this.ready || this.failed) return Promise.resolve();
+    return new Promise((resolve) => {
+      let req;
+      try { req = indexedDB.open(this.DB_NAME, this.DB_VERSION); }
+      catch(e){ this.failed = true; resolve(); return; }
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+        if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+      };
+      req.onsuccess = () => {
+        this.db = req.result;
+        this.db.onerror = () => {};
+        this.migrateLegacy()
+          .then(() => this.hydrate())
+          .then(() => { this.ready = true; resolve(); })
+          .catch(() => { this.failed = true; resolve(); });
+      };
+      req.onerror = () => { this.failed = true; resolve(); };
+      req.onblocked = () => { this.failed = true; resolve(); };
+    });
+  },
+
+  kvKey(legacyKey){ return legacyKey.replace(/^folio-/, ''); },
+
+  legacyKeys(){
+    const out = [];
+    try{
+      for(let i = 0; i < localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(this.LEGACY_KEYS.includes(k) || this.LEGACY_PREFIXES.some(p => k.startsWith(p))) out.push(k);
+      }
+    }catch(e){}
+    return out;
+  },
+
+  async migrateLegacy(){
+    const keys = this.legacyKeys();
+    for(const k of keys){
+      let raw = null;
+      try{ raw = localStorage.getItem(k); }catch(e){ continue; }
+      if(raw == null) continue;
+      let val;
+      try{ val = JSON.parse(raw); }
+      catch(e){
+        try{ localStorage.removeItem(k); }catch(e2){} // corrupt legacy JSON: quarantine
+        continue;
+      }
+      if(val === undefined) continue;
+      await this.idbPut(this.kvKey(k), val);
+      try{ localStorage.removeItem(k); }catch(e2){}
+    }
+  },
+
+  tx(mode){
+    return this.db.transaction('kv', mode).objectStore('kv');
+  },
+  idbGet(key){
+    return new Promise((res) => {
+      try{
+        const r = this.tx('readonly').get(key);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(undefined);
+      }catch(e){ res(undefined); }
+    });
+  },
+  idbPut(key, val){
+    return new Promise((res) => {
+      try{
+        const r = this.tx('readwrite').put(val, key);
+        r.onsuccess = () => res(true);
+        r.onerror = () => res(false);
+      }catch(e){ res(false); }
+    });
+  },
+  idbDel(key){
+    return new Promise((res) => {
+      try{
+        const r = this.tx('readwrite').delete(key);
+        r.onsuccess = () => res(true);
+        r.onerror = () => res(false);
+      }catch(e){ res(false); }
+    });
+  },
+  async hydrate(){
+    let keys = [];
+    try{
+      const r = this.tx('readonly').getAllKeys();
+      keys = await new Promise((res) => {
+        r.onsuccess = () => res(r.result || []);
+        r.onerror = () => res([]);
+      });
+    }catch(e){ return; }
+    for(const k of keys){
+      const val = await this.idbGet(k);
+      if(this.validShape(k, val)) this.mem.set(k, val);
+    }
+  },
+  /* Shape-check the records the app depends on; a wrong-shaped entry (e.g.
+     corrupted or written by a future version) is skipped, not crashed on. */
+  validShape(k, v){
+    if(v === undefined || v === null) return false;
+    if(k === 'bookmarks' || k === 'highlights') return Array.isArray(v);
+    if(k === 'stats') return (typeof v === 'object' && !Array.isArray(v));
+    return true;
+  },
+
+  /* Sync reads from the hydrated mirror. Fallback (IDB unavailable): read
+     the legacy localStorage value — JSON when possible, raw string otherwise
+     (reading positions were stored unquoted). */
+  get(k){
+    if(this.mem.has(k)) return this.mem.get(k);
+    if(this.failed){
+      try{
+        const raw = localStorage.getItem('folio-' + k);
+        if(raw == null) return undefined;
+        try{ return JSON.parse(raw); }catch(e2){ return raw; }
+      }catch(e){ return undefined; }
+    }
+    return undefined;
+  },
+  set(k, v){
+    this.mem.set(k, v);
+    if(this.failed){
+      try{ localStorage.setItem('folio-' + k, JSON.stringify(v)); }catch(e){}
+      return;
+    }
+    this.idbPut(k, v);
+  },
+  del(k){
+    this.mem.delete(k);
+    if(this.failed){
+      try{ localStorage.removeItem('folio-' + k); }catch(e){}
+      return;
+    }
+    this.idbDel(k);
+  }
+};
+
 /* ---------------- offline book storage (IndexedDB) ---------------- */
 const BookStorage = {
   DB_NAME: 'folio-books-db',
@@ -2587,7 +2748,7 @@ function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('load
 
 async function closeBook(){
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
-  if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
+  if(statsCache) StoreKV.set('stats', statsCache);
   flushBookStat();
   lastStatCfi = null;
   LocEngine.data = null;
@@ -2622,7 +2783,7 @@ async function closeBook(){
 
 function flushPendingPersist(){
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
-  if(statsCache) { try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){} }
+  if(statsCache) StoreKV.set('stats', statsCache);
   flushBookStat();
   if(saveT) { clearTimeout(saveT); try{ localStorage.setItem('folio-settings', JSON.stringify(settings)); }catch(e){} }
 }
@@ -2636,7 +2797,7 @@ function dayKey(d){
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 function loadStats(){
-  try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, JSON.parse(localStorage.getItem('folio-stats') || '{}')); }
+  try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, StoreKV.get('stats') || {}); }
   catch(e){ statsCache = { min: 0, pages: 0, days: {} }; }
   if(!statsCache.days) statsCache.days = {};
 }
@@ -2644,7 +2805,7 @@ function saveStatsSoon(){
   clearTimeout(statsSaveT);
   statsSaveT = setTimeout(() => {
     try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){}
-    if(bookStat){ try{ localStorage.setItem('folio-bstat:'+bookStatTitle, JSON.stringify(bookStat)); }catch(e){} }
+    if(bookStat){ StoreKV.set('bstat:'+bookStatTitle, bookStat); }
   }, 2000);
 }
 /* Per-book reading stats (folio-bstat:<title>) feed the finis colophon —
@@ -2654,12 +2815,12 @@ function loadBookStat(title){
   bookStatTitle = title || '';
   bookStat = null;
   if(!bookStatTitle || bookStatTitle === 'Untitled') return;
-  try{ bookStat = Object.assign({ min: 0, days: {} }, JSON.parse(localStorage.getItem('folio-bstat:' + bookStatTitle) || '{}')); }
+  try{ bookStat = StoreKV.get('bstat:' + bookStatTitle) || { min: 0, days: {} }; }
   catch(e){ bookStat = { min: 0, days: {} }; }
   if(!bookStat.days) bookStat.days = {};
 }
 function flushBookStat(){
-  if(bookStat){ try{ localStorage.setItem('folio-bstat:'+bookStatTitle, JSON.stringify(bookStat)); }catch(e){} }
+  if(bookStat){ StoreKV.set('bstat:'+bookStatTitle, bookStat); }
 }
 function statStreak(){
   let streak = 0;
@@ -2999,7 +3160,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     el('bookTitle').textContent = initialTitle;
     el('bookTitle').setAttribute('title', initialTitle);
-    state.posKey = 'folio-pos:'+initialTitle;
+    state.posKey = 'pos:'+initialTitle;
     loadPerBookType(initialTitle);
 
     // Cache to IndexedDB asynchronously (skipped for very large files)
@@ -3020,7 +3181,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
         if(meta.creator) state.currentAuthor = meta.creator.trim();
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
-        state.posKey = 'folio-pos:'+realTitle;
+        state.posKey = 'pos:'+realTitle;
         // Real title known: retry per-book typography under the right key.
         if(settings.perBookType && realTitle !== initialTitle) loadPerBookType(realTitle);
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
@@ -3064,7 +3225,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     let target = targetCfi || 0;
     if(!targetCfi){
-      try{ const saved=localStorage.getItem(state.posKey); if(saved) target=saved; }catch(e){}
+      try{ const saved=StoreKV.get(state.posKey); if(saved) target=saved; }catch(e){}
     }
 
     body.classList.add('state-reading');
@@ -3105,7 +3266,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     // Feature 2: smart resume — show context snippet from last session
     else if(target && typeof target === 'string'){
       try{
-        const ctx = JSON.parse(localStorage.getItem(state.posKey + ':ctx') || 'null');
+        const ctx = StoreKV.get(state.posKey + ':ctx') || null;
         if(ctx && ctx.text){
           const snip = ctx.text.length > 60 ? ctx.text.slice(0, 60).trimEnd() + '…' : ctx.text;
           toast('You were reading: "' + snip + '"' + (ctx.chapter ? ' — ' + ctx.chapter : ''));
@@ -3818,7 +3979,7 @@ function fillFinisMeta(){
   const t = getActiveTitle();
   let bs = null;
   if(t && t !== 'Untitled'){
-    try{ bs = JSON.parse(localStorage.getItem('folio-bstat:' + t) || 'null'); }catch(e){ bs = null; }
+    try{ bs = StoreKV.get('bstat:' + t) || null; }catch(e){ bs = null; }
   }
   const mins = bs ? Math.round(bs.min || 0) : 0;
   const days = bs ? Object.keys(bs.days || {}).filter(k => (bs.days[k] || 0) > 0).length : 0;
@@ -3950,16 +4111,16 @@ function onRelocated(loc){
 
 function onRelocatedCold(loc, frac, chTitle, d){
   markTocCurrent(loc.start.href, loc.start.cfi);
-  try{ localStorage.setItem(state.posKey, loc.start.cfi); }catch(e){}
+  StoreKV.set(state.posKey, loc.start.cfi);
 
   // Feature 2: save context snippet for smart resume
   try{
     const snippet = (typeof pageCache !== 'undefined' && pageCache.getPage(0))
       ? (pageCache.getPage(0).text || '').slice(0, 80).trim() : '';
     if(snippet){
-      localStorage.setItem(state.posKey + ':ctx', JSON.stringify({
+      StoreKV.set(state.posKey + ':ctx', {
         text: snippet, chapter: chTitle, pct: Math.round(frac * 100)
-      }));
+      });
     }
   }catch(e){}
 
@@ -3970,8 +4131,8 @@ function onRelocatedCold(loc, frac, chTitle, d){
     const pc = (typeof pageCache !== 'undefined') ? pageCache : null;
     const fp = (pc && pc.getPage(0) && (pc.getPage(0).text || ''))
       .split(/[.!?]/)[0].trim().slice(0, 100) || '';
-    if(fp.length >= 20) localStorage.setItem(state.posKey + ':fp', fp);
-    else localStorage.removeItem(state.posKey + ':fp');
+    if(fp.length >= 20) StoreKV.set(state.posKey + ':fp', fp);
+    else StoreKV.del(state.posKey + ':fp');
   }catch(e){}
 
   // Pages-turned stat
@@ -4020,7 +4181,7 @@ let _fpPending = false;
 function nudgeToFingerprint(){
   try{
     if(!state.posKey || !state.rendition) return;
-    const fp = localStorage.getItem(state.posKey + ':fp');
+    const fp = StoreKV.get(state.posKey + ':fp');
     if(!fp || fp.length < 20) return;
     const pc = (typeof pageCache !== 'undefined') ? pageCache : null;
     if(!pc || !pc.getPage) return;
@@ -4609,7 +4770,7 @@ function renderRecentShelf(){
 
 /* ---------------- bookmarks ---------------- */
 function getBookmarks(){
-  try{ const r = JSON.parse(localStorage.getItem('folio-bookmarks')||'[]'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
+  try{ const r = StoreKV.get('bookmarks'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
 }
 function currentBookKey(){
   return getActiveTitle();
@@ -4619,7 +4780,7 @@ function getBookmarksForCurrentBook(){
   return getBookmarks().filter(b => b.bookTitle === k);
 }
 function saveBookmarks(allList){
-  try{ localStorage.setItem('folio-bookmarks', JSON.stringify(allList)); }catch(e){}
+  StoreKV.set('bookmarks', allList);
   syncBookmarkBadge();
   renderBookmarks();
 }
@@ -5011,14 +5172,14 @@ const Highlights = {
   lastPtr: { x: innerWidth/2, y: 120 },
 
   all(){
-    try{ const r = JSON.parse(localStorage.getItem('folio-highlights')||'[]'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
+    try{ const r = StoreKV.get('highlights'); return Array.isArray(r) ? r : []; }catch(e){ return []; }
   },
   forBook(){
     const k = currentBookKey();
     return this.all().filter(h => h.bookTitle === k);
   },
   persist(list){
-    try{ localStorage.setItem('folio-highlights', JSON.stringify(list)); }catch(e){}
+    StoreKV.set('highlights', list);
     this.syncBadge();
     this.renderList();
   },
@@ -9145,19 +9306,19 @@ el('btnDemo').addEventListener('click',loadDemo);
 // per book; the landing stats badge shows the accumulation. No workflow
 // change during reading.
 const VocabLog = {
-  key(){ return 'folio-vocab:' + (state.currentTitle || ''); },
+  key(){ return 'vocab:' + (state.currentTitle || ''); },
   add(word, chapter, cfi){
     try{
       if(!word || word.length < 2) return;
       const key = this.key();
-      const list = JSON.parse(localStorage.getItem(key) || '[]');
-      if(list.some(e => e.word === word)) return;
+      const list = StoreKV.get(key) || [];
+      if(!Array.isArray(list) || list.some(e => e.word === word)) return;
       list.push({ word, chapter: chapter || '', ts: Date.now(), cfi: cfi || '' });
-      localStorage.setItem(key, JSON.stringify(list));
+      StoreKV.set(key, list);
     }catch(e){}
   },
   count(title){
-    try{ return JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]').length; }
+    try{ const v = StoreKV.get('vocab:' + title); return Array.isArray(v) ? v.length : 0; }
     catch(e){ return 0; }
   }
 };
@@ -9577,7 +9738,7 @@ function renderVocabList(){
   if(!listEl) return;
   const title = getActiveTitle();
   let vocab = [];
-  try{ vocab = JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]'); }catch(e){}
+  try{ vocab = StoreKV.get('vocab:' + title) || []; }catch(e){}
   listEl.innerHTML = '';
   if(!vocab.length){
     const emptyLi = document.createElement('li');
@@ -9629,7 +9790,7 @@ async function exportBookData(){
   const hls = Highlights.forBook();
   const bms = getBookmarks().filter(b => b.bookTitle === title);
   let vocab = [];
-  try{ vocab = JSON.parse(localStorage.getItem('folio-vocab:' + title) || '[]'); }catch(e){}
+  try{ vocab = StoreKV.get('vocab:' + title) || []; }catch(e){}
   if(!hls.length && !bms.length && !vocab.length){ toast('Nothing collected yet in this book'); return; }
   const L = ['# ' + title, '', '_' + new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) + ' — exported from Folio_'];
   if(hls.length){
@@ -10131,15 +10292,19 @@ async function loadDemo(){
 }
 
 /* ---------------- init ---------------- */
-loadStats();
 buildFontGrid();
 buildThemeRow();
 syncControls();
 applyFit();
-updateLandingUI();
 poke();
-checkStartupFile();
+/* StoreKV migrates legacy localStorage records into IndexedDB and hydrates
+   the mirror BEFORE anything reads bookmarks/stats/typo/positions. */
+StoreKV.init().then(() => {
+  loadStats();
+  updateLandingUI();
+  checkStartupFile();
   TTS.syncVoiceUI(); TTS.syncUI();
+});
 /* Speech voices populate asynchronously in browsers (voiceschanged) — refresh
    the engine badge when they land so "no voices" doesn't stick wrongly. */
 if('speechSynthesis' in window){

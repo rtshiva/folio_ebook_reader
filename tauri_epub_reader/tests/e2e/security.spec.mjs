@@ -56,7 +56,7 @@ test.describe('Security & XSS sanitization tests', () => {
           pct: '10%'
         }
       ];
-      localStorage.setItem('folio-bookmarks', JSON.stringify(maliciousBookmarks));
+      StoreKV.set('bookmarks', maliciousBookmarks);
       if (typeof renderBookmarks === 'function') {
         renderBookmarks();
       }
@@ -89,7 +89,7 @@ test.describe('Security & XSS sanitization tests', () => {
           date: 'Nov 1'
         }
       ];
-      localStorage.setItem('folio-highlights', JSON.stringify(maliciousHls));
+      StoreKV.set('highlights', maliciousHls);
       if (typeof Highlights !== 'undefined') {
         Highlights.renderList();
       }

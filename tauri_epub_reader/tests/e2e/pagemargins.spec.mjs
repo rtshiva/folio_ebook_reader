@@ -118,7 +118,7 @@ test('PM5 margins are per-book typography channels', async ({ page }) => {
   });
   await page.waitForFunction(() => {
     try {
-      const o = JSON.parse(localStorage.getItem('folio-typo:The Time Machine') || '{}');
+      const o = StoreKV.get('typo:The Time Machine') || {};
       return o.pageMarginTop === 70;
     } catch (e) { return false; }
   }, null, { timeout: 5000 });
