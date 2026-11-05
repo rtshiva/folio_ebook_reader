@@ -259,7 +259,10 @@ pub fn parse_exth_and_metadata(
     // Extract title from Record 0 title_offset if present
     if mobi_hdr.title_offset > 0
         && mobi_hdr.title_len > 0
-        && mobi_hdr.title_offset + mobi_hdr.title_len <= rec0.len()
+        && mobi_hdr
+            .title_offset
+            .checked_add(mobi_hdr.title_len)
+            .map_or(false, |end| end <= rec0.len())
     {
         let raw_title = &rec0[mobi_hdr.title_offset..mobi_hdr.title_offset + mobi_hdr.title_len];
         let t = if mobi_hdr.encoding == 1252 {
@@ -275,7 +278,7 @@ pub fn parse_exth_and_metadata(
 
     // EXTH header begins immediately after the MOBI header
     if (mobi_hdr.exth_flags & 0x40) != 0 {
-        let exth_start = 16 + mobi_hdr.header_len;
+        let exth_start = 16usize.checked_add(mobi_hdr.header_len).unwrap_or(usize::MAX);
         if exth_start + 12 <= rec0.len() && &rec0[exth_start..exth_start + 4] == b"EXTH" {
             let exth_len = u32::from_be_bytes([
                 rec0[exth_start + 4],
@@ -429,7 +432,15 @@ pub fn strip_trailing_entries<'a>(data: &'a [u8], flags: u16) -> &'a [u8] {
 
 /// Decompresses a single chunk of PalmDOC LZ77 compressed bytes.
 pub fn decompress_palmdoc(data: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(data.len() * 2);
+    decompress_palmdoc_capped(data, usize::MAX)
+}
+
+/// Same, but aborts the moment the output would exceed `max_out` bytes —
+/// PalmDOC can expand ~5x per backreference, so checking only after the whole
+/// chunk is decoded lets a crafted chunk force a multi-GB transient alloc.
+pub fn decompress_palmdoc_capped(data: &[u8], max_out: usize) -> Result<Vec<u8>, String> {
+    let headroom = max_out.min(data.len().saturating_mul(2)).min(8 * 1024 * 1024);
+    let mut out = Vec::with_capacity(headroom);
     let mut i = 0;
     while i < data.len() {
         let b = data[i];
@@ -470,6 +481,9 @@ pub fn decompress_palmdoc(data: &[u8]) -> Result<Vec<u8>, String> {
             // 0xC0..=0xFF: space + (b ^ 0x80)
             out.push(b' ');
             out.push(b ^ 0x80);
+        }
+        if out.len() > max_out {
+            return Err("PalmDOC LZ77: decompressed output exceeds budget".to_string());
         }
     }
     Ok(out)
@@ -645,8 +659,10 @@ pub fn unpack_mobi(
                 uncompressed_text_bytes.extend_from_slice(stripped);
             }
             2 => {
-                // PalmDOC LZ77 compression
-                let chunk = decompress_palmdoc(stripped)?;
+                // PalmDOC LZ77 compression — cap each chunk at the remaining
+                // global budget so one crafted chunk can't over-expand
+                let budget = MAX_MOBI_TEXT_BYTES - uncompressed_text_bytes.len();
+                let chunk = decompress_palmdoc_capped(stripped, budget)?;
                 if uncompressed_text_bytes.len().saturating_add(chunk.len()) > MAX_MOBI_TEXT_BYTES {
                     return Err("MOBI text uncompressed size exceeds 256 MB limit".to_string());
                 }
@@ -927,6 +943,25 @@ pub fn unpack_mobi(
     Ok(book_manifest)
 }
 
+/// Next char boundary at or after `i`. All byte-stepping over untrusted HTML
+/// must advance through this helper — slicing a &str mid-UTF-8-char panics.
+fn next_boundary(s: &str, mut i: usize) -> usize {
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
+/// Case-insensitive ASCII prefix match at a char boundary. Tag markup is
+/// ASCII, so `eq_ignore_ascii_case` (length-preserving) is always correct —
+/// `to_lowercase()` is NOT length-preserving (`İ` → 3 bytes) and would shift
+/// every offset taken from the folded copy relative to the original.
+fn ci_starts_at(haystack: &str, at: usize, needle: &str) -> bool {
+    let hb = haystack.as_bytes();
+    let nb = needle.as_bytes();
+    hb.len() >= at + nb.len() && hb[at..at + nb.len()].eq_ignore_ascii_case(nb)
+}
+
 /// Rewrites image tags and filepos links into standard XHTML paths and anchors.
 pub fn rewrite_images_and_links(
     html: &str,
@@ -941,7 +976,7 @@ pub fn rewrite_images_and_links(
             if let Some(tag_end_rel) = html[i..].find('>') {
                 let tag_end = i + tag_end_rel + 1;
                 let tag_str = &html[i..tag_end];
-                let tag_lower = tag_str.to_lowercase();
+                let tag_lower = tag_str.to_ascii_lowercase();
 
                 if tag_lower.starts_with("<img") || tag_lower.starts_with("<image") {
                     let rewritten = rewrite_img_tag(tag_str, img_map_1, img_map_0);
@@ -964,7 +999,8 @@ pub fn rewrite_images_and_links(
                 }
             }
         }
-        let next_tag = html[i + 1..].find('<').map(|p| i + 1 + p).unwrap_or(html.len());
+        let nb = next_boundary(html, i + 1);
+        let next_tag = html[nb..].find('<').map(|p| nb + p).unwrap_or(html.len());
         out.push_str(&html[i..next_tag]);
         i = next_tag;
     }
@@ -979,7 +1015,7 @@ fn rewrite_img_tag(
     img_map_0: &HashMap<usize, String>,
 ) -> String {
     // Look for recindex="123"
-    let lower = tag.to_lowercase();
+    let lower = tag.to_ascii_lowercase();
     let mut target_img_path = None;
 
     if let Some(pos) = lower.find("recindex=") {
@@ -1072,13 +1108,13 @@ fn rewrite_img_tag(
         }
 
         // Replace or add src
-        let clean_lower = clean.to_lowercase();
+        let clean_lower = clean.to_ascii_lowercase();
         let final_tag = if let Some(src_pos) = clean_lower.find("src=") {
             let quote = clean[src_pos + 4..].chars().next().unwrap_or('"');
             let end_quote = clean[src_pos + 5..]
                 .find(if quote == '\'' { '\'' } else { '"' })
                 .map(|p| src_pos + 5 + p + 1)
-                .unwrap_or(clean.len().saturating_sub(1));
+                .unwrap_or(clean.len()); // never slice mid-char on missing quote
             format!("{}src=\"{}\"{}", &clean[..src_pos], new_src, &clean[end_quote..])
         } else {
             let insert_pos = clean.rfind('>').unwrap_or(clean.len());
@@ -1100,7 +1136,7 @@ fn rewrite_img_tag(
 
 /// Helper to rewrite an `<a filepos="...">` link into `<a href="#filepos_...">`.
 fn rewrite_a_tag(tag: &str) -> String {
-    let lower = tag.to_lowercase();
+    let lower = tag.to_ascii_lowercase();
     if let Some(pos) = lower.find("filepos=") {
         let rest = &tag[pos + 8..];
         let digits: String = rest
@@ -1126,15 +1162,14 @@ pub struct ChapterChunk {
 /// Splits raw HTML into chapters and cleans up tags.
 pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
     let mut parts: Vec<&str> = Vec::new();
-    let lower = html.to_lowercase();
     let mut last_end = 0usize;
 
     // Scan for pagebreak markers
     let mut i = 0usize;
     while i < html.len() {
-        if lower[i..].starts_with("<mbp:pagebreak")
-            || lower[i..].starts_with("<pagebreak")
-            || lower[i..].starts_with("<div style=\"page-break-before:always\"")
+        if ci_starts_at(html, i, "<mbp:pagebreak")
+            || ci_starts_at(html, i, "<pagebreak")
+            || ci_starts_at(html, i, "<div style=\"page-break-before:always\"")
         {
             if let Some(close) = html[i..].find('>') {
                 let tag_end = i + close + 1;
@@ -1147,7 +1182,7 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
                 continue;
             }
         }
-        i += 1;
+        i = next_boundary(html, i + 1);
     }
 
     let remainder = html[last_end..].trim();
@@ -1161,7 +1196,7 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
         let mut sub_last = 0usize;
         let mut pos = 0usize;
         while pos < html.len() {
-            if lower[pos..].starts_with("<h1") || lower[pos..].starts_with("<h2") {
+            if ci_starts_at(html, pos, "<h1") || ci_starts_at(html, pos, "<h2") {
                 if pos > sub_last && (pos - sub_last) > 30 * 1024 {
                     let chunk = html[sub_last..pos].trim();
                     if !chunk.is_empty() {
@@ -1170,7 +1205,7 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
                     sub_last = pos;
                 }
             }
-            pos += 1;
+            pos = next_boundary(html, pos + 1);
         }
         let rem = html[sub_last..].trim();
         if !rem.is_empty() {
@@ -1200,7 +1235,7 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
 
 /// Extracts a chapter title from the first heading tag or defaults to Chapter N.
 fn extract_chapter_title(text: &str, num: usize) -> String {
-    let lower = text.to_lowercase();
+    let lower = text.to_ascii_lowercase();
     for heading in ["<h1", "<h2", "<h3", "<b>"] {
         if let Some(pos) = lower.find(heading) {
             if let Some(tag_end) = text[pos..].find('>') {
@@ -1230,7 +1265,7 @@ fn extract_chapter_title(text: &str, num: usize) -> String {
 
 /// Sanitizes an HTML element tag by stripping inline event handlers (on*) and dangerous URI schemes.
 fn sanitize_html_tag(tag: &str) -> String {
-    let lower = tag.to_lowercase();
+    let lower = tag.to_ascii_lowercase();
     if !lower.contains(" on")
         && !lower.contains("javascript:")
         && !lower.contains("vbscript:")
@@ -1339,7 +1374,7 @@ fn clean_chapter_body(text: &str) -> String {
 
     while i < text.len() {
         if text[i..].starts_with('<') {
-            let lower_rem = text[i..].to_lowercase();
+            let lower_rem = text[i..].to_ascii_lowercase();
             // Completely strip script tags and their inner content
             if lower_rem.starts_with("<script") {
                 if let Some(close_idx) = lower_rem.find("</script") {
@@ -1375,7 +1410,7 @@ fn clean_chapter_body(text: &str) -> String {
             if let Some(close) = text[i..].find('>') {
                 let tag_end = i + close + 1;
                 let tag = &text[i..tag_end];
-                let tag_lower = tag.to_lowercase();
+                let tag_lower = tag.to_ascii_lowercase();
 
                 // Strip mobipocket indexing and pagebreak tags
                 if tag_lower.starts_with("<idx:")
@@ -1401,7 +1436,8 @@ fn clean_chapter_body(text: &str) -> String {
             }
         }
 
-        let next_tag = text[i + 1..].find('<').map(|p| i + 1 + p).unwrap_or(text.len());
+        let nb = next_boundary(text, i + 1);
+        let next_tag = text[nb..].find('<').map(|p| nb + p).unwrap_or(text.len());
         out.push_str(&text[i..next_tag]);
         i = next_tag;
     }

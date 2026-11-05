@@ -158,6 +158,20 @@ pub fn validate_book_path(path_str: &str) -> Result<PathBuf, String> {
     if !is_valid_ext {
         return Err("Only .epub, .mobi, .azw, and .azw3 files are permitted".to_string());
     }
+    // Reject NTFS alternate data streams: `file.txt:stream.epub` passes the
+    // extension check but reads a hidden stream on an arbitrary file. Allow
+    // only a single drive prefix (`X:`), never a second colon.
+    {
+        let bytes = trimmed.as_bytes();
+        let after_drive = if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+            &trimmed[2..]
+        } else {
+            trimmed
+        };
+        if after_drive.contains(':') {
+            return Err("Alternate data streams and device paths are not permitted".to_string());
+        }
+    }
     let p = PathBuf::from(trimmed);
     if !p.is_file() {
         return Err("Path does not exist or is not a regular file".to_string());
@@ -172,14 +186,24 @@ fn read_file_bytes(
 ) -> Result<tauri::ipc::Response, String> {
     let clean_path = validate_book_path(&path)?;
     let clean_str = clean_path.to_string_lossy().to_string();
-    let meta = fs::metadata(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    // Open once and stat the handle: stat-then-read on the path alone lets a
+    // concurrent swap grow the file past the size cap between the two calls.
+    let mut file = fs::File::open(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let meta = file.metadata().map_err(|e| format!("Failed to read file: {}", e))?;
     if meta.len() > MAX_BOOK_FILE_BYTES {
         return Err("File exceeds maximum allowable size (512 MB)".to_string());
     }
     if let Some(hit) = state.get(&clean_str, &meta) {
         return Ok(tauri::ipc::Response::new(hit));
     }
-    let bytes = fs::read(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    file.take(MAX_BOOK_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    if bytes.len() as u64 > MAX_BOOK_FILE_BYTES {
+        return Err("File exceeds maximum allowable size (512 MB)".to_string());
+    }
     state.put(clean_str, &meta, bytes.clone());
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -259,6 +283,11 @@ pub fn sanitize_entry(name: &str) -> Option<PathBuf> {
             std::path::Component::Normal(c) => {
                 let s = c.to_string_lossy();
                 if is_windows_reserved_name(&s) {
+                    return None;
+                }
+                // Windows strips trailing dots/spaces on File::create, which
+                // would desync the manifest from the on-disk name (404s).
+                if s.trim_end_matches(['.', ' ']) != s {
                     return None;
                 }
                 clean.push(c);
@@ -518,12 +547,20 @@ fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> 
         }
     };
 
-    // Spawn background eviction
-    let evict_root = cache_root.clone();
-    let protect_hash = hash.clone();
-    std::thread::spawn(move || {
-        evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
-    });
+    // Spawn background eviction — debounced: rapid book_open calls must not
+    // stack eviction threads each walking the whole cache tree.
+    {
+        static EVICT_IN_FLIGHT: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        let evict_root = cache_root.clone();
+        let protect_hash = hash.clone();
+        if !EVICT_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            std::thread::spawn(move || {
+                evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
+                EVICT_IN_FLIGHT.store(false, std::sync::atomic::Ordering::Release);
+            });
+        }
+    }
 
     Ok(BookHandle {
         hash,
@@ -932,12 +969,19 @@ pub fn run() {
                 .or_else(|| req.headers().get("origin"))
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
+            // Allowlist: exact app origins. The wildcard-port localhost
+            // entries exist only for `tauri dev` (vite/webpack dev servers);
+            // a release build must not reflect arbitrary localhost ports.
+            #[cfg(debug_assertions)]
+            let is_dev_origin = req_origin.starts_with("http://localhost:")
+                || req_origin.starts_with("http://folio-cache.localhost:");
+            #[cfg(not(debug_assertions))]
+            let is_dev_origin = false;
             let allow_origin = if req_origin == "tauri://localhost"
                 || req_origin == "http://localhost"
                 || req_origin == "https://tauri.localhost"
                 || req_origin == "http://folio-cache.localhost"
-                || req_origin.starts_with("http://folio-cache.localhost:")
-                || req_origin.starts_with("http://localhost:")
+                || is_dev_origin
             {
                 req_origin
             } else {
@@ -992,6 +1036,14 @@ pub fn run() {
                             .header("Access-Control-Allow-Origin", allow_origin)
                             .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
                             .header("X-Content-Type-Options", "nosniff")
+                            // The top-window CSP does not apply inside these
+                            // iframes (different origin). Restrict to what
+                            // books legitimately use: local + inline styles,
+                            // images (https: matches the app-window policy).
+                            .header(
+                                "Content-Security-Policy",
+                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob: https:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'",
+                            )
                             .body(body)
                             .unwrap()
                     }
@@ -1651,8 +1703,26 @@ mod tests {
     }
 
     fn create_synthetic_mobi(title: &str, author: &str, text: &str, encryption_type: u16) -> Vec<u8> {
+        create_synthetic_mobi_opt(title, author, text, encryption_type, false)
+    }
+
+    // PalmDOC literal-run encoding (control byte 1..=8 + raw bytes) — no
+    // backreferences, but it exercises the compression==2 decode path.
+    fn palmdoc_literal_encode(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for chunk in data.chunks(8) {
+            out.push(chunk.len() as u8);
+            out.extend_from_slice(chunk);
+        }
+        out
+    }
+
+    fn create_synthetic_mobi_opt(title: &str, author: &str, text: &str, encryption_type: u16, palmdoc: bool) -> Vec<u8> {
         let mut rec0 = Vec::new();
-        rec0.extend_from_slice(&2u16.to_be_bytes()); // compression = 2
+        // compression = 1 (none) by default: rec1 below stores the text
+        // UNcompressed, so the header must not claim PalmDOC(2) unless we
+        // actually encode it — the parser would LZ77-decode raw UTF-8.
+        rec0.extend_from_slice(&if palmdoc { 2u16 } else { 1u16 }.to_be_bytes());
         rec0.extend_from_slice(&0u16.to_be_bytes());
         rec0.extend_from_slice(&(text.len() as u32).to_be_bytes());
         rec0.extend_from_slice(&1u16.to_be_bytes()); // 1 text record
@@ -1697,7 +1767,11 @@ mod tests {
         rec0.extend_from_slice(&2u32.to_be_bytes());
         rec0.extend_from_slice(&exth_records);
 
-        let rec1 = text.as_bytes().to_vec();
+        let rec1 = if palmdoc {
+            palmdoc_literal_encode(text.as_bytes())
+        } else {
+            text.as_bytes().to_vec()
+        };
         // 1x1 GIF
         let rec2 = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;".to_vec();
 
@@ -1822,6 +1896,14 @@ mod tests {
         // 5. Reject directory
         assert!(validate_book_path(&tmp.to_string_lossy()).is_err());
 
+        // 6. Reject NTFS alternate data streams and stray colons (even when
+        // the stream name carries a valid ebook extension)
+        assert!(validate_book_path("C:\\notes.txt:sneaky.epub").is_err());
+        assert!(validate_book_path(&tmp.join("book.epub:hidden.mobi").to_string_lossy()).is_err());
+        assert!(validate_book_path("book.epub::$DATA").is_err());
+        // drive prefix itself is fine
+        assert!(validate_book_path(&valid_epub.to_string_lossy()).is_ok());
+
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -1877,5 +1959,93 @@ mod tests {
         assert!(ch0_text.contains("Safe text"));
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // P0 regression: every non-ASCII MOBI used to panic the byte-stepping
+    // scanners (str slicing mid-UTF-8-char) and to_lowercase offset drift.
+    #[test]
+    fn test_u30_mobi_non_ascii_no_panic() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_uni_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        // Curly quotes, accented chars, CJK, an İ (lowercases to 3 bytes),
+        // pagebreak + heading + img + link markup all in the same text.
+        let raw_html = "<html><body><h1>Voil\u{e0} — \u{130}stanbul \u{4f60}\u{597d}</h1>\
+            <p>Don\u{2019}t stop caf\u{e9} cr\u{e8}me \u{1F600}</p>\
+            <mbp:pagebreak/><p>Second part \u{4e16}\u{754c}</p>\
+            <img recindex=\"0001\" src='1' alt\u{2003}caf\u{e9}><a filepos=\"0000000123\">r\u{e9}sum\u{e9}</a></body></html>";
+        let bytes = create_synthetic_mobi("Titre \u{e9}trange", "Auteur \u{e9}", raw_html, 0);
+        let mobi_file = tmp.join("unicode.mobi");
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+
+        // Must not panic; must succeed and keep the non-ASCII text intact.
+        let res = crate::mobi::unpack_mobi(&mobi_file, &target, "unicode.mobi", &meta, 77777);
+        assert!(res.is_ok(), "unpack_mobi failed on non-ASCII content: {:?}", res.err());
+
+        let mut all = String::new();
+        let mut n = 1; // chapter files are 1-based: ch_0001.xhtml …
+        while let Ok(s) = fs::read_to_string(target.join(format!("ch_{:04}.xhtml", n))) {
+            all.push_str(&s);
+            n += 1;
+        }
+        let n = n - 1;
+        assert!(n >= 1, "no chapters produced");
+        assert!(all.contains("caf\u{e9}"), "accented text lost");
+        assert!(all.contains("\u{4f60}\u{597d}"), "CJK text lost");
+        assert!(all.contains("r\u{e9}sum\u{e9}"), "link text lost");
+
+        // Direct scanners too (split/clean/rewrite on raw non-ASCII input)
+        let chunks = crate::mobi::split_into_chapters(raw_html);
+        assert!(!chunks.is_empty());
+        assert!(chunks.iter().all(|c| !c.body.contains("mbp:pagebreak")));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // Coverage: the unpack_mobi compression==2 branch (PalmDOC decode +
+    // per-chunk budget wiring) must work end-to-end, including non-ASCII
+    // text carried through literal-run records.
+    #[test]
+    fn test_u32_mobi_palmdoc_unpack() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_pd_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let content = "<h1>PalmDOC Chapter</h1><p>Caf\u{e9} cr\u{e8}me \u{4f60}\u{597d} readable.</p>";
+        let bytes = create_synthetic_mobi_opt("PalmDOC Book", "Auth \u{f6}r", content, 0, true);
+        let mobi_file = tmp.join("palmdoc.mobi");
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+        let res = crate::mobi::unpack_mobi(&mobi_file, &target, "palmdoc.mobi", &meta, 4242);
+        assert!(res.is_ok(), "PalmDOC unpack failed: {:?}", res.err());
+
+        let ch = fs::read_to_string(target.join("ch_0001.xhtml")).unwrap();
+        assert!(ch.contains("Caf\u{e9}"), "PalmDOC non-ASCII text lost");
+        assert!(ch.contains("\u{4f60}\u{597d}"), "PalmDOC CJK text lost");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // P1 regression: PalmDOC expansion must be capped mid-decode, not after.
+    #[test]
+    fn test_u31_palmdoc_decompression_budget() {
+        // A literal run of N 'A's (control byte 0x08 + 8 literals per group).
+        let mut data = Vec::new();
+        for _ in 0..100 {
+            data.push(0x08);
+            data.extend_from_slice(b"AAAAAAAA");
+        }
+        // Uncapped: 800 bytes out
+        let full = crate::mobi::decompress_palmdoc(&data).unwrap();
+        assert_eq!(full.len(), 800);
+        // Capped at 100: must error mid-decode, not return 800 bytes
+        let capped = crate::mobi::decompress_palmdoc_capped(&data, 100);
+        assert!(capped.is_err(), "budget not enforced");
+        // Capped at exactly the output size: ok
+        assert_eq!(crate::mobi::decompress_palmdoc_capped(&data, 800).unwrap().len(), 800);
     }
 }

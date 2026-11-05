@@ -161,6 +161,61 @@ test.describe('Security & XSS sanitization tests', () => {
     expect(badImgs).toBe(0);
   });
 
+  test('Footnote popup strips style/link/meta/form injections into the top document', async ({ page }) => {
+    await fresh(page);
+
+    await page.evaluate(() => {
+      const doc = new DOMParser().parseFromString(
+        '<aside id="fn1"><style>body{background:red}</style><link rel="stylesheet" href="https://attacker.example/x.css">' +
+        '<meta http-equiv="refresh" content="0; url=https://attacker.example/"><form action="https://attacker.example/"><input name="q"></form>' +
+        '<p class="keep">safe text</p></aside>',
+        'text/html'
+      );
+      const node = doc.getElementById('fn1');
+      if (typeof Footnotes !== 'undefined') {
+        Footnotes.show(node, 200, 200);
+      }
+    });
+
+    await page.waitForTimeout(400);
+
+    // A <meta http-equiv=refresh> that ever enters the live document navigates
+    // the top window even if removed in the same task — the page must still be
+    // on the reader and the popup must exist.
+    const state = await page.evaluate(() => ({
+      url: location.href,
+      hasPop: !!document.getElementById('fnPop'),
+      counts: {
+        style: document.querySelectorAll('#fnPop style').length,
+        link: document.querySelectorAll('#fnPop link').length,
+        meta: document.querySelectorAll('#fnPop meta').length,
+        form: document.querySelectorAll('#fnPop form').length
+      }
+    }));
+    expect(state.url).not.toContain('attacker.example');
+    expect(state.hasPop).toBe(true);
+    expect(state.counts.style).toBe(0);
+    expect(state.counts.link).toBe(0);
+    expect(state.counts.meta).toBe(0);
+    expect(state.counts.form).toBe(0);
+    // legitimate footnote content survives
+    await expect(page.locator('#fnPop .fn-body')).toContainText('safe text');
+  });
+
+  test('settings merge rejects __proto__ keys from stored JSON (prototype pollution)', async ({ page }) => {
+    await fresh(page);
+    const polluted = await page.evaluate(() => {
+      // `oldstyle` survives syncControls/applyFit untouched; `size` gets
+      // recomputed by fit logic, so assert on a stable channel instead.
+      StoreKV.set('typo:The Time Machine', JSON.parse('{"oldstyle":true,"__proto__":{"polluted":"yes"}}'));
+      settings.perBookType = true;
+      loadPerBookType('The Time Machine');
+      return { p: ({}).polluted, oldstyle: settings.oldstyle };
+    });
+    expect(polluted.p).toBeUndefined();
+    expect(polluted.oldstyle).toBe(true); // legitimate keys still apply
+  });
+
   test('Lightbox rejects javascript: and unsafe protocols', async ({ page }) => {
     await fresh(page);
 

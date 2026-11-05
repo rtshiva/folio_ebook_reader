@@ -13,7 +13,7 @@ const THEMES = [
   ['velvet', 'Velvet'],
   ['emerald', 'Emerald'],
 ];
-const OUT = 'F:/Siva_f/ebook_reader_glm53flash/docs/screenshots/';
+const OUT = require('path').resolve(__dirname, '../../docs/screenshots') + '/';
 
 (async () => {
   const browser = await chromium.launch();

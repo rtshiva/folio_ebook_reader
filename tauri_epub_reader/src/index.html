@@ -1758,7 +1758,9 @@ function sanitizeDomNode(root){
     cleanElement(root);
   }
   if(root.querySelectorAll){
-    const dangerous = root.querySelectorAll('script, iframe, object, embed, base');
+    // style/link: app-wide CSS injection & remote beacons via the popup;
+    // meta: http-equiv=refresh navigation hijack; form: phishing/spoof UI
+    const dangerous = root.querySelectorAll('script, iframe, object, embed, base, style, link, meta, form');
     dangerous.forEach(el => el.remove());
     const all = root.querySelectorAll('*');
     all.forEach(cleanElement);
@@ -1791,9 +1793,27 @@ const DEFAULTS = {
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
 let settings = {...DEFAULTS};
+// Stored JSON is untrusted: a __proto__/constructor key would hijack the
+// settings prototype via Object.assign — strip it at the parse boundary.
+function parseSafeJson(raw, fallback){
+  try{
+    const v = JSON.parse(raw, (k, val) => (k === '__proto__' || k === 'constructor') ? undefined : val);
+    return (v && typeof v === 'object') ? v : fallback;
+  }catch(e){ return fallback; }
+}
+// Shallow copy of an already-parsed object without __proto__/constructor keys.
+function stripProtoKeys(obj){
+  if(!obj || typeof obj !== 'object') return {};
+  const out = {};
+  for(const k of Object.keys(obj)){
+    if(k === '__proto__' || k === 'constructor') continue;
+    out[k] = obj[k];
+  }
+  return out;
+}
 try{
   const raw = localStorage.getItem('folio-settings') || '{}';
-  Object.assign(settings, JSON.parse(raw));
+  Object.assign(settings, parseSafeJson(raw, {}));
   // Migration: readers who had explicitly picked a theme keep manual mode;
   // fresh installs default to following the OS day/night theme.
   if(raw.includes('"theme"') && !raw.includes('"themeAuto"')) settings.themeAuto = false;
@@ -1804,6 +1824,12 @@ try{
   if(typeof settings.rrOrnaments !== 'boolean') settings.rrOrnaments = DEFAULTS.rrOrnaments;
   if(typeof settings.rrFrame !== 'boolean') settings.rrFrame = DEFAULTS.rrFrame;
   // Validate numeric settings to guard against corrupt/NaN storage
+  validateSettings();
+}catch(e){}
+// Clamp the typography/geometry channels into their legal ranges. Runs at
+// boot AND after every merge of a stored record into `settings` (a tampered
+// or corrupt per-book record must not smuggle arbitrary values into CSS).
+function validateSettings(){
   if(!Number.isFinite(settings.fontSize) || settings.fontSize < 10 || settings.fontSize > 48) settings.fontSize = DEFAULTS.fontSize;
   if(!Number.isFinite(settings.lineHeight) || settings.lineHeight < 1.0 || settings.lineHeight > 3.0) settings.lineHeight = DEFAULTS.lineHeight;
   if(!Number.isFinite(settings.letterSpacing) || settings.letterSpacing < -50 || settings.letterSpacing > 300) settings.letterSpacing = DEFAULTS.letterSpacing;
@@ -1817,7 +1843,9 @@ try{
   if(typeof settings.pageMarginSidesAuto !== 'boolean') settings.pageMarginSidesAuto = DEFAULTS.pageMarginSidesAuto;
   if(typeof settings.pageOrnaments !== 'boolean') settings.pageOrnaments = DEFAULTS.pageOrnaments;
   if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
-}catch(e){}
+  if(typeof settings.perBookType !== 'boolean') settings.perBookType = DEFAULTS.perBookType;
+  if(typeof settings.justify !== 'boolean') settings.justify = DEFAULTS.justify;
+}
 // Normalise legacy display-name font values saved by older Folio builds.
 {
   const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
@@ -1844,9 +1872,10 @@ function loadPerBookType(title){
   try{
     const raw=StoreKV.get('typo:'+title);
     if(!raw) return;
-      const parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+      const parsed = (typeof raw === 'string') ? parseSafeJson(raw, null) : stripProtoKeys(raw);
     if(parsed && typeof parsed === 'object'){
       Object.assign(settings, parsed);
+      validateSettings(); // stored record is untrusted: re-clamp every channel
       const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
       settings.font = ({'literata':'literata','atkinson hyperlegible':'atkinson','atkinson':'atkinson','lexend':'lexend','opendyslexic':'opendyslexic','open dyslexic':'opendyslexic'})[legacyFont] || (FONTS[legacyFont] ? legacyFont : 'literata');
       if(state.rendition){ syncControls(); relayout(); }
@@ -2797,7 +2826,7 @@ function dayKey(d){
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 function loadStats(){
-  try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, StoreKV.get('stats') || {}); }
+  try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, stripProtoKeys(StoreKV.get('stats') || {})); }
   catch(e){ statsCache = { min: 0, pages: 0, days: {} }; }
   if(!statsCache.days) statsCache.days = {};
 }
@@ -3109,7 +3138,7 @@ async function cacheBookCover(book, title){
   try{
     if(!book || !book.coverUrl || !title || title === 'Untitled') return;
     const url = await book.coverUrl();
-    if(!url) return;
+    if(!url || !isSafeImageUrl(String(url))) return;
     const img = await new Promise((res, rej) => {
       const im = new Image();
       im.onload = () => res(im);
@@ -4539,7 +4568,7 @@ function fetchCoverThumb(book, title){
     try{
       if(!state.book || state.book !== book) return;
       book.coverUrl().then(url => {
-        if(!url) return;
+        if(!url || !isSafeImageUrl(String(url))) return;
         const cleanup = () => {
           if(typeof url === 'string' && url.startsWith('blob:')){
             try{ URL.revokeObjectURL(url); }catch(e){}
@@ -8405,7 +8434,10 @@ const Footnotes = {
       try{
         const imported = document.importNode(n, true);
         if(imported.nodeType === Node.ELEMENT_NODE){
-          if(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED'].includes(imported.nodeName)) return;
+          // Hard-skip BEFORE append: <meta http-equiv=refresh> navigates the
+          // top document even if removed in the same task, and <style>/<link>
+          // inject app-wide CSS. They must never enter the live document.
+          if(['SCRIPT','IFRAME','OBJECT','EMBED','STYLE','LINK','META','BASE','FORM'].includes(imported.nodeName)) return;
           sanitizeDomNode(imported);
         }
         bodyEl.appendChild(imported);
