@@ -1,7 +1,7 @@
 # Folio Reader — Current Capabilities & Roadmap
 
-> Tracking doc for reader features (EPUB reading experience only — no library management).
-> Last updated: 2026-09-23, against `src/index.html` (4,267 lines) + `src-tauri` backend.
+> Tracking doc for reader features (EPUB 2/3, MOBI, AZW, and AZW3 reading experience — no library management).
+> Last updated: 2026-11-10, against `src/index.html` (~10,500 lines) + `src-tauri` backend (`lib.rs` ~2,100 lines, `mobi.rs` ~1,800 lines).
 > ✅ = verified in code · ⚠️ = claimed in README/partially implemented · ❌ = not present
 
 ---
@@ -11,19 +11,20 @@
 | Capability | Status | Notes |
 |---|---|---|
 | Tauri 2.0 + WebView2 (Edge) desktop shell | ✅ | ~9 MB binary, no bundled browser |
-| `.epub` file association (double-click open) | ✅ | `tauri.conf.json` → `fileAssociations` |
+| File associations (double-click open) | ✅ | `tauri.conf.json` maps `.epub`, `.mobi`, `.azw`, `.azw3` |
 | Open via CLI argument | ✅ | `get_initial_file` scans `std::env::args()` |
-| Native file picker dialog | ✅ | Rust `rfd` crate, `pick_file` command |
-| Drag & drop EPUB onto window | ✅ | Tauri `dragDropEnabled` + frontend overlay |
+| Native file picker dialog | ✅ | Rust `rfd` crate, `pick_file` command (EPUB, MOBI, AZW, AZW3) |
+| Drag & drop ebook onto window | ✅ | Tauri `dragDropEnabled` + frontend overlay (EPUB, MOBI, AZW, AZW3) |
 | Book bytes delivered to frontend | ✅ | `read_file_bytes` → raw bytes via `tauri::ipc::Response` binary IPC |
 | Book data cached on disk (Rust side) | ✅ | Fast unzipped disk cache (`book_open`) keyed by sha256+len+mtime in app cache dir, served via custom `folio-cache://` protocol; LRU background eviction (600 MB / 30 books); byte-array fallback |
+| MOBI / AZW / PalmDOC decompression | ✅ | Native Palm Database parser, PalmDOC LZ77 decompressor, Huffman-CDIC, and synthetic EPUB package generator (`mobi.rs`) |
 | Raw IPC for large files | ✅ | `read_file_bytes` returns `tauri::ipc::Response` raw bytes — no JSON number-array serialization |
 
 ## 2. Reading Engine
 
 | Capability | Status | Notes |
 |---|---|---|
-| EPUB 2/3 rendering (reflowable) | ✅ | Vendored epub.js 0.3 + JSZip, fully offline |
+| EPUB 2/3, MOBI, AZW, AZW3 rendering (reflowable) | ✅ | Vendored epub.js 0.3 + JSZip + Rust MOBI/AZW unpacker, fully offline |
 | Paginated layout, continuous spine | ✅ | CSS-column pagination inside sandboxed iframe |
 | Single page / two-page spread | ✅ | `auto` (width-based) / on / off |
 | Page width slider + auto-fit | ✅ | 460–2000 px, independent single/spread widths |
@@ -77,7 +78,7 @@
 | Mouse-wheel page turning | ✅ | Wheel down/up turns pages in the shell and inside chapter iframes; `Ctrl+Wheel` = type size, `Alt+Wheel` = page width |
 | Click-to-turn edge zones | ✅ | Edge zones + drag-to-turn gesture cover click-to-turn |
 | Auto-scroll mode | ✅ | Middle-click toggles auto-scroll (`AutoScroll`) |
-| Dual silk chapter ribbons | ✅ | `#chRibbonPrev` & `#chRibbonNext`: jump to current/previous chapter and next chapter with hover tooltips, smart disabled states, `[` / `]` hotkeys |
+| Edge-hover chapter navigation panels | ✅ | `#chNavLeft` & `#chNavRight`: edge-hover desk panels with clamped margin pills jumping to previous and next chapter, hover tooltips, smart disabled states, `[` / `]` hotkeys |
 | Non-destructive rail preview & safety anchor | ✅ | `#railPreview`: floating chapter, page/pct, and excerpt snippet preview during scrubbing; `#jumpAnchor`: "Return to Page X" safety pill with 9s auto-dismiss |
 
 ## 5. Search & Lookup
@@ -96,7 +97,7 @@
 | Capability | Status | Notes |
 |---|---|---|
 | Sentence pre-tokenization (current + next 3 pages) | ✅ | Infrastructure exists in `PageCacheManager` |
-| Actual TTS engine (speechSynthesis) | ✅ | `TTS` engine: `btnSpeak` + `R` play/pause, `Shift+R` stop, `-`/`=` speed, sentence highlight via CSS Custom Highlight API, auto page advance |
+| Text-to-speech engines (System & Kitten neural) | ✅ | Dual-engine `TTS`: System voices (`window.speechSynthesis`) and offline **KittenTTS neural voices** via local WebAssembly / ONNX runtime (`src/vendor/kitten/`, `ort-wasm-simd-threaded.wasm`, StyleTTS-2 int8 mini model, 24kHz); `btnSpeak` + `R` play/pause, `Shift+R` stop, `-`/`=` speed, sentence highlight via CSS Custom Highlight API, auto page advance |
 
 ## 7. Reading Stats
 
@@ -113,7 +114,7 @@
 |---|---|---|
 | Auto-hiding chrome (3.4 s) | ✅ | Top/bottom bars slide away; any input pokes |
 | Fullscreen (`F`) | ✅ | Tauri window fullscreen + UI sync |
-| Keyboard shortcuts + help overlay (`?`) | ✅ | ←/→/Space/PgUp/PgDn, T, S, B, Ctrl+F, G, D, V, F, H, Esc |
+| Keyboard shortcuts + help overlay (`?`) | ✅ | ←/→/Space/PgUp/PgDn, T (Contents), S (Typography & Settings), B, Ctrl+F, G, D, V, F, H, [, ], Esc |
 | Built-in demo book (The Time Machine) | ✅ | Embedded HTML for instant first-run experience |
 | Toasts, loader with min-display time | ✅ | |
 | Settings persistence | ✅ | Debounced localStorage blob |
@@ -145,7 +146,7 @@
 
 ### P1 — Usability (reader experience)
 
-1. **[DONE]** **Wire up TTS read-aloud.** `speechSynthesis` engine with play/pause (`R`), stop (`Shift+R`), speed (`-`/`=`), sentence highlight via CSS Custom Highlight API, and auto page-turn at page end.
+1. **[DONE]** **Wire up TTS read-aloud.** Dual-engine architecture: System voices (`speechSynthesis`) and KittenTTS neural voices (local ONNX Runtime WebAssembly SIMD) with play/pause (`R`), stop (`Shift+R`), speed (`-`/`=`), sentence highlight via CSS Custom Highlight API, and auto page-turn at page end.
 2. **[PARTIAL]** **Offline dictionary** for the Define action — `DictCache` persists previously fetched definitions for offline re-lookup; a full bundled (WordNet-derived) dict is still absent.
 3. **[DONE]** **Mouse-wheel page turn** (shell + inside chapter iframes; `Ctrl+wheel` = size, `Alt+wheel` = width) + **edge click zones** for turning.
 4. **[DONE]** **Global progress & page numbers**: book-wide "page N of M" from persisted `LocEngine` locations; the progress rail drags at *page* granularity (`railSeek`).
@@ -159,7 +160,7 @@
 
 1. Bionic pass during chapter HTML parse instead of a second DOM rewrite pass.
 2. Persist search index + chapter text cache per book (IndexedDB) so search is instant on re-open.
-3. Rearchitect the single 4,267-line `index.html` into modules (compositor / cache / ui / book) with a build step — safer iteration on P0/P1 items.
+3. Rearchitect the single ~10,500-line `index.html` into modules (compositor / cache / ui / book) with a build step — safer iteration on P0/P1 items.
 4. Error telemetry-free crash safety: persist last CFI on every `relocated` (already done) + window restore.
 5. Optionally replace vendored epub.js pagination with a Rust-side pagination service feeding the same windowed cache — biggest possible perf ceiling, highest effort.
 
@@ -169,7 +170,7 @@
 | Page flip rasterization | ✅ Shipped | GPU-composited `transform`/opacity-only compositor (no per-frame clip-path repaints) |
 | Scroll/pagination paint | ❌ Not shipped | `content-visibility` culling skipped (pagination-correctness risk) |
 | WebView2 raster pipeline | ✅ Shipped | `--enable-gpu-rasterization --enable-zero-copy` flags merged into `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` at startup |
-| Book decode | ✅ Shipped (partial) | Raw binary IPC (`tauri::ipc::Response`) + in-memory LRU book cache; Rust disk cache still TODO |
+| Book decode | ✅ Shipped | Raw binary IPC (`tauri::ipc::Response`), in-memory LRU book cache, Rust disk cache, and native MOBI/AZW PalmDOC decompression |
 
 ---
 
@@ -179,5 +180,6 @@
 |---|---|---|
 | Playwright e2e harness (`npm test`) | ✅ | `tests/e2e/` (helpers, demo-book driven, mocked speechSynthesis, stubbed dictionary API); `playwright.config.mjs` serves `src/` on :8124, 1 worker, failure screenshots to `tests/e2e/artifacts/` |
 | Regression specs R1–R16 | ✅ | Book open, locations persist, turns, rail, TTS lifecycle/advance, highlights, warmth, per-book typo, footnotes, lightbox, dict cache, drawer chrome, boot-open, autoscroll |
-| Design specs D1–D2 | ✅ | Contents pill behavior + closed-drawer hit-testing |
-| Rust unit tests (`cargo test` via `npm run test:rust`) | ✅ | Harness wired; item specs (U1–U5) land with P-A |
+| Design specs D1–D12 | ✅ | Contents pill behavior, closed-drawer hit-testing, ribbon re-weighting, full-spread fold, physics settle, background idle slicing, index resume, disk cache fallback |
+| Static security & invariant tests (`npm run scan`) | ✅ | 27 static scan tests (`tests/scan-file-handling.mjs`) verifying IPC safety, entity handling, desk-dimming, CSP rules, and theme tokens |
+| Rust unit & security tests (`cargo test` via `npm run test:rust`) | ✅ | 42 unit and security tests (U1–U34 + MOBI security tests) covering cache keys, LRU eviction, Zip-Slip, PalmDOC LZ77 decompression, HTML sanitization, and eviction protection |

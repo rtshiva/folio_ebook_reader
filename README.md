@@ -1,19 +1,19 @@
 # Folio — A Beautiful Reading Experience for Windows
 
-> **Folio** is a beautifully crafted, offline-first ebook reader for Windows (supporting EPUB, MOBI, and AZW3), built with Tauri, Rust, WebView2 and epub.js. Featuring realistic page-turn animations, refined typography, immersive reading environments, botanical page ornaments, annotations, bookmarks, full-book search and neural text-to-speech. Designed to recreate the pleasure of reading a beautifully printed physical book.
+> **Folio** is a beautifully crafted, offline-first ebook reader for Windows (supporting **EPUB 2/3, MOBI, AZW, and AZW3**), built with Tauri, Rust, WebView2 and epub.js. Featuring realistic page-turn animations, refined typography, immersive reading environments, botanical page ornaments, annotations, bookmarks, full-book search and neural text-to-speech. Designed to recreate the pleasure of reading a beautifully printed physical book.
 
 Folio is a desktop ebook reader designed around a simple idea: reading a digital book should feel as comfortable, immersive and beautiful as reading a well-crafted physical book.
 
 Built with Tauri 2, Rust, WebView2 and epub.js, Folio combines a lightweight native desktop application with a carefully designed reading interface. Rather than treating an ebook as just another document displayed on a screen, Folio recreates the visual experience of a traditional book — from carefully tuned typography and realistic page turns to textured paper, elegant book stands, decorative chapter openings and botanical page ornaments.
 
 ### What makes Folio different?
-- **Format versatility**: Native support for DRM-free **EPUB**, **MOBI** (Mobi 6/7), and **AZW3 / KF8** ebooks.
+- **Format versatility**: Native support for DRM-free **EPUB 2/3**, **MOBI** (Mobi 6/7), **AZW**, and **AZW3 / KF8** ebooks.
 - **A book-like reading experience**: Realistic page-fold animations, single-page and two-page layouts, and carefully tuned typography.
 - **Beautiful reading environments**: Choose from curated paper, ink and desk themes, with independent control over the surrounding Reading Room.
 - **Decorative book aesthetics**: Chapter-opening ornaments, botanical side vines, gold corner decorations and traditional book-inspired details.
 - **A comfortable reading interface**: Adjustable fonts, line spacing, page width, margins, reading ruler and focus-friendly controls.
 - **Tools for serious readers**: Bookmarks, highlights, annotations, full-book search, dictionary lookup and reading statistics.
-- **Read aloud**: System voices and optional offline neural text-to-speech.
+- **Read aloud**: System voices and offline **KittenTTS neural voices** via local WebAssembly / ONNX runtime.
 - **Local-first design**: Your books and reading experience are designed to work without depending on a cloud service.
 
 ![Folio's Reading Room — The Time Machine in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
@@ -22,11 +22,11 @@ Built with Tauri 2, Rust, WebView2 and epub.js, Folio combines a lightweight nat
 
 Download the latest release for Windows 10/11 (64-bit):
 
-- **[Download Windows Setup (.exe)](https://github.com/your-org/folio/releases/latest)** — Recommended installer (~15 MB).
-- **[Download Windows MSI (.msi)](https://github.com/your-org/folio/releases/latest)** — Enterprise / silent installation package.
-- **[Download Standalone Executable](https://github.com/your-org/folio/releases/latest)** — Portable binary without setup (~9 MB).
+- **[Download Windows Setup (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Recommended installer (~15 MB).
+- **[Download Windows MSI (.msi)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Enterprise / silent installation package.
+- **[Download Standalone Executable](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Portable binary without setup (~9 MB).
 
-*Note: Folio is offline-first. All core fonts and readers are bundled locally. Optional Kitten neural TTS voices (~92 MB) install once on-demand from settings, then work completely offline.*
+*Note: Folio is offline-first. All core fonts and readers are bundled locally. Optional Kitten neural TTS voices (~92 MB) install once on-demand from settings, then work completely offline via local WebAssembly / ONNX runtime.*
 
 ## Architecture Overview
 
@@ -101,7 +101,7 @@ Seven curated environments, each with its own desk, cloth, and side-vine dressin
 ### Implemented Features
 
 #### Getting Books In
-- **Open any DRM-free EPUB 2/3** (reflowable) — native file picker (`Ctrl+O`), drag & drop onto the window, double-click via Windows `.epub` file association, or CLI argument. A second launch forwards its file to the running window instead of spawning a duplicate.
+- **Open any DRM-free EPUB 2/3, MOBI, AZW, and AZW3** (reflowable) — native file picker (`Ctrl+O`), drag & drop onto the window, double-click via Windows file associations, or CLI argument. A second launch forwards its file to the running window instead of spawning a duplicate.
 - **Built-in sample book** — embedded abridgement of *The Time Machine* for an instant first-run experience.
 - **Recent shelf with cover thumbnails** and "Continue reading" resume button (restores exact position via CFI).
 - **Fast re-opens** — books are decompressed once into a zip-slip-safe Rust-side disk cache served over a custom `folio-cache://` protocol (600 MB / 30-book LRU eviction), with single-mutex raw binary IPC for first loads.
@@ -126,7 +126,7 @@ Seven curated environments, each with its own desk, cloth, and side-vine dressin
 - **Running header** with chapter / book title above the page.
 - **Table of contents** (`T`) with windowed rendering for large TOCs and current-chapter marking.
 - **Progress tracking** — draggable progress rail with page-granularity scrubbing, preview card (chapter, page, excerpt), safety anchor ("Return to Page X"), top chapter ribbon, book-wide page numbers, and time-left estimates.
-- **Chapter navigation ribbons** on screen edges for previous/next chapter (`[` / `]`).
+- **Chapter navigation panels** on screen edges with hover pills for previous/next chapter (`[` / `]`).
 - **Bookmarks** (`B`) per book with badge count, plus middle-click auto-scroll and mouse-wheel page turning.
 
 #### Highlights, Notes & Lookup
@@ -135,7 +135,7 @@ Seven curated environments, each with its own desk, cloth, and side-vine dressin
 - **Word definitions** on selection with offline cache for previously fetched words.
 
 #### Read Aloud & Reading Stats
-- **Text-to-speech, two engines** — *System voices* (OS-provided) and *Kitten neural* (offline neural voice engine). Play/pause (`R`), stop (`Shift+R`), speed (`-` / `=`), sentence highlighting, and auto page advance.
+- **Text-to-speech, two engines** — *System voices* (OS-provided via `speechSynthesis`) and *KittenTTS neural voices* (offline neural voice engine via local WebAssembly / ONNX runtime). Play/pause (`R`), stop (`Shift+R`), speed (`-` / `=`), sentence highlighting, and auto page advance.
 - **Reading stats** — session/day minutes, pages turned, and streak tracker on the landing page.
 
 #### Chrome & Polish
@@ -153,13 +153,13 @@ Seven curated environments, each with its own desk, cloth, and side-vine dressin
 | Keys | Action |
 |---|---|
 | `→` / `Space` / `PgDn` · `←` / `PgUp` | Next / previous page |
-| `T` · `S` | Contents · Typography settings |
+| `T` · `S` | Contents · Typography and reader settings |
 | `B` / `Ctrl+B` | Bookmark this page |
 | `Ctrl+F` | Search this book |
 | `G` · `D` · `V` | Reading guide · one/two-page layout · page-turn effect |
 | `F` · `H` | Full screen · Home / continue reading |
 | `R` / `Shift+R` · `-` / `=` | Read aloud pause/stop · speed |
-| `Ctrl+O` | Open an EPUB file |
+| `Ctrl+O` | Open an ebook file (EPUB, MOBI, AZW, AZW3) |
 | Mouse wheel · `Ctrl+Wheel` · `Alt+Wheel` | Turn pages · type size · page width |
 | Middle-click | Auto-scroll |
 | `[` / `]` | Previous / next chapter |
@@ -181,12 +181,20 @@ npm run dev          # launches Tauri development window with hot reload
 npm run build        # compiles release executable and installers
 ```
 
-### Running Tests
+### Running Tests & Security Posture
+
+Folio maintains an uncompromising test and security posture:
+- **42 Rust unit & security tests** (`cargo test` via `npm run test:rust`) covering LRU caching, Zip-Slip path traversal defense, MOBI / AZW / PalmDOC decompression, and active cache eviction protection.
+- **27 invariant regression tests** (`npm run scan`) verifying IPC boundaries, CSP rules, sanitization, and UI contracts.
+- **0 npm audit vulnerabilities** across all production and development dependencies.
+- **Clippy clean** with zero warnings across all targets and test configurations.
 
 ```powershell
-npm test             # runs all Rust unit tests and Playwright e2e suites
-npm run test:rust    # runs Rust unit tests only (BookCache, zip protection, protocol)
+npm test             # runs Rust unit tests, static scan tests, and Playwright e2e suites
+npm run test:rust    # runs 42 Rust unit and security tests
+npm run scan         # runs 27 static invariant and security regression tests
 npm run test:e2e     # runs Playwright browser test suite (serves src/ on port 8124)
+npm run lint         # runs ESLint checks
 ```
 
 ## Project Structure

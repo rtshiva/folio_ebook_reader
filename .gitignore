@@ -24,11 +24,7 @@ tauri_epub_reader/tests/manual/shots/
 
 # user asset downloads + regenerable ornament intermediates (normalized
 # pieces live in src/assets/ornaments/page-art.js + VECTEEZY-LICENSE.txt)
-vecteezy_*.svg
-vecteezy_*.zip
-vine_downloads*
-vintage-corner-vector-set*
-rich_ebook_ornaments/
+design-sources/raw-assets/
 tauri_epub_reader/tests/manual/orn-extracted.json
 tauri_epub_reader/tests/manual/orn-final.json
 

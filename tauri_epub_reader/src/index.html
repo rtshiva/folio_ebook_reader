@@ -50,7 +50,11 @@ body{margin:0;background:var(--desk);color:var(--ink);font-family:var(--sans);
   -webkit-font-smoothing:antialiased;overflow:hidden;touch-action:manipulation}
 ::selection{background:var(--sel)}
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+:focus-visible {
+  outline: 2px solid var(--accent, #a66a38) !important;
+  outline-offset: 2px !important;
+}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{border-radius:6px}
 svg{display:block}
 
 /* ---------- shared type ---------- */
@@ -1316,7 +1320,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       <span class="wm">Folio<span class="dot">.</span></span>
       <svg class="home-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     </button>
-    <button id="posPill" class="pos-pill" title="Contents & position (T)">
+    <button id="posPill" class="pos-pill" title="Contents & position (T)" aria-haspopup="dialog" aria-expanded="false">
       <svg class="pill-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h11M4 17h16"/></svg>
       <i class="pill-dot"></i>
       <span id="posPillCh">—</span>
@@ -1326,7 +1330,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <span id="bookTitle"></span>
   </div>
   <div class="tb-right">
-    <button class="icon-btn" id="btnSearch" title="Search book (Ctrl+F)" aria-label="Search book">
+    <button class="icon-btn" id="btnSearch" title="Search book (Ctrl+F)" aria-label="Search book" aria-haspopup="dialog" aria-expanded="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     </button>
     <button class="icon-btn" id="btnSpread" title="Two pages (D)" aria-label="Toggle two-page spread" aria-pressed="false">
@@ -1339,7 +1343,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <button class="icon-btn" id="btnSpeak" title="Read aloud (R)" aria-label="Read aloud" aria-pressed="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3l5 4V5Z"/><path class="sp-wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12"/></svg>
     </button>
-    <button class="aa-btn" id="btnSheet" title="Typography (S)" aria-label="Typography settings">Aa</button>
+    <button class="aa-btn" id="btnSheet" title="Typography (S)" aria-label="Typography settings" aria-haspopup="dialog" aria-expanded="false">Aa</button>
   </div>
 </header>
 
@@ -1411,7 +1415,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 </div>
 
 <!-- ============ typography sheet ============ -->
-<aside id="sheet" aria-label="Typography and reading tools">
+<aside id="sheet" role="dialog" aria-modal="true" aria-label="Typography and Reader Settings">
   <div class="sh-head"><span class="sh-title">Typography</span>
     <button class="icon-btn" id="sheetClose" aria-label="Close">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -1564,7 +1568,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     </section>
 
     <section><h4 class="lbl">Help</h4>
-      <button class="btn btn-ghost" id="btnHelp" type="button" style="width:100%;justify-content:center">Keyboard shortcuts <kbd>?</kbd></button>
+      <button class="btn btn-ghost" id="btnHelp" type="button" style="width:100%;justify-content:center" aria-haspopup="dialog" aria-expanded="false">Keyboard shortcuts <kbd>?</kbd></button>
     </section>
 
     <section>
@@ -1626,7 +1630,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 </aside>
 
 <!-- ============ toc & bookmarks drawer ============ -->
-<aside id="toc" aria-label="Table of contents and bookmarks">
+<aside id="toc" role="dialog" aria-modal="true" aria-label="Table of Contents">
   <div class="sh-head">
     <div class="toc-tab-row">
       <button class="toc-tab-btn active" id="tabToc">Contents</button>
@@ -1648,7 +1652,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 </aside>
 
 <!-- ============ search drawer ============ -->
-<aside id="searchDrawer" aria-label="Search book">
+<aside id="searchDrawer" role="dialog" aria-modal="true" aria-label="Search Book">
   <div class="sh-head">
     <span class="sh-title">Search Book</span>
     <button class="icon-btn" id="searchClose" aria-label="Close">
@@ -1665,7 +1669,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 </aside>
 
 <div id="scrim"></div>
-<div id="helpOverlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+<div id="helpOverlay" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
   <div class="help-card">
     <div class="sh-head"><span class="sh-title">Keyboard shortcuts</span>
       <button class="icon-btn" id="helpClose" aria-label="Close">
@@ -5561,18 +5565,34 @@ addEventListener('pointerdown', e => { Highlights.lastPtr.x = e.clientX; Highlig
 
 /* ---------------- in-book quick search ---------------- */
 let searchToken = 0;
+let lastFocusedTrigger = null;
 function openSearch(){
+  const trigger = document.activeElement;
   closePanels();
+  lastFocusedTrigger = trigger;
   body.classList.add('search-open');
+  const drawer = el('searchDrawer');
+  if(drawer) drawer.classList.add('open');
+  const btn = el('btnSearch');
+  if(btn) btn.setAttribute('aria-expanded', 'true');
   syncScrim();
   const inp = el('searchInput');
   if(inp){ setTimeout(()=>{ inp.focus(); inp.select(); }, 120); }
   poke();
 }
 function closeSearch(){
-  const inp = el('searchInput');
-  if(inp && document.activeElement === inp) inp.blur();
+  const drawer = el('searchDrawer');
+  if(drawer) drawer.classList.remove('open');
+  const btn = el('btnSearch');
+  if(btn) btn.setAttribute('aria-expanded', 'false');
   body.classList.remove('search-open');
+  if(lastFocusedTrigger && lastFocusedTrigger.focus && lastFocusedTrigger.isConnected){
+    try { lastFocusedTrigger.focus(); } catch(e){}
+    lastFocusedTrigger = null;
+  } else {
+    const inp = el('searchInput');
+    if(inp && document.activeElement === inp) inp.blur();
+  }
   syncScrim();
   poke();
 }
@@ -8659,13 +8679,58 @@ addEventListener('pointermove', e=>{
 
 /* ---------------- panels ---------------- */
 function toggleSheet(){
-  body.classList.toggle('sheet-open');
-  if(body.classList.contains('sheet-open')){
+  const opening = !body.classList.contains('sheet-open');
+  if(opening){
+    lastFocusedTrigger = document.activeElement;
+    body.classList.add('sheet-open');
+    const sheet = el('sheet');
+    if(sheet) sheet.classList.add('open');
+    const btn = el('btnSheet');
+    if(btn) btn.setAttribute('aria-expanded', 'true');
     TTS.syncVoiceUI();
+    if(sheet){
+      const first = sheet.querySelector('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if(first) try{ first.focus(); }catch(e){}
+    }
+  } else {
+    body.classList.remove('sheet-open');
+    const sheet = el('sheet');
+    if(sheet) sheet.classList.remove('open');
+    const btn = el('btnSheet');
+    if(btn) btn.setAttribute('aria-expanded', 'false');
+    if(lastFocusedTrigger && lastFocusedTrigger.focus && lastFocusedTrigger.isConnected){
+      try { lastFocusedTrigger.focus(); } catch(e){}
+      lastFocusedTrigger = null;
+    }
   }
   syncScrim(); poke();
 }
-function toggleToc(){ body.classList.toggle('toc-open'); syncScrim(); poke(); }
+function toggleToc(){
+  const opening = !body.classList.contains('toc-open');
+  if(opening){
+    lastFocusedTrigger = document.activeElement;
+    body.classList.add('toc-open');
+    const toc = el('toc');
+    if(toc) toc.classList.add('open');
+    const pill = el('posPill');
+    if(pill) pill.setAttribute('aria-expanded', 'true');
+    if(toc){
+      const first = toc.querySelector('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if(first) try{ first.focus(); }catch(e){}
+    }
+  } else {
+    body.classList.remove('toc-open');
+    const toc = el('toc');
+    if(toc) toc.classList.remove('open');
+    const pill = el('posPill');
+    if(pill) pill.setAttribute('aria-expanded', 'false');
+    if(lastFocusedTrigger && lastFocusedTrigger.focus && lastFocusedTrigger.isConnected){
+      try { lastFocusedTrigger.focus(); } catch(e){}
+      lastFocusedTrigger = null;
+    }
+  }
+  syncScrim(); poke();
+}
 function closePanels(){
   hideSelBar();
   Highlights.hidePop();
@@ -8673,16 +8738,58 @@ function closePanels(){
   body.classList.remove('toc-open');
   body.classList.remove('search-open');
   body.classList.remove('help-open');
+  const sheet = el('sheet');
+  if(sheet) sheet.classList.remove('open');
+  const toc = el('toc');
+  if(toc) toc.classList.remove('open');
+  const searchDrawer = el('searchDrawer');
+  if(searchDrawer) searchDrawer.classList.remove('open');
+  const helpOverlay = el('helpOverlay');
+  if(helpOverlay){
+    helpOverlay.classList.remove('show');
+    helpOverlay.classList.remove('open');
+  }
+  const posPill = el('posPill');
+  if(posPill) posPill.setAttribute('aria-expanded', 'false');
+  const btnSheet = el('btnSheet');
+  if(btnSheet) btnSheet.setAttribute('aria-expanded', 'false');
+  const btnSearch = el('btnSearch');
+  if(btnSearch) btnSearch.setAttribute('aria-expanded', 'false');
+  const btnHelp = el('btnHelp');
+  if(btnHelp) btnHelp.setAttribute('aria-expanded', 'false');
   if(typeof CmdPalette !== 'undefined' && CmdPalette.open) CmdPalette.close();
-  if(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)){
-    try{ document.activeElement.blur(); }catch(e){}
+  if(lastFocusedTrigger && lastFocusedTrigger.focus && lastFocusedTrigger.isConnected){
+    try { lastFocusedTrigger.focus(); } catch(e){}
+    lastFocusedTrigger = null;
   }
   syncScrim();
   if(body.classList.contains('state-reading')) scheduleHide(1200);
 }
 function toggleHelp(){
   const open = body.classList.toggle('help-open');
-  if(open){ closePanelsExceptHelp(); }
+  const help = el('helpOverlay');
+  const btn = el('btnHelp');
+  if(open){
+    lastFocusedTrigger = document.activeElement;
+    closePanelsExceptHelp();
+    if(help){
+      help.classList.add('show');
+      help.classList.add('open');
+      const first = help.querySelector('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if(first) try{ first.focus(); }catch(e){}
+    }
+    if(btn) btn.setAttribute('aria-expanded', 'true');
+  } else {
+    if(help){
+      help.classList.remove('show');
+      help.classList.remove('open');
+    }
+    if(btn) btn.setAttribute('aria-expanded', 'false');
+    if(lastFocusedTrigger && lastFocusedTrigger.focus && lastFocusedTrigger.isConnected){
+      try { lastFocusedTrigger.focus(); } catch(e){}
+      lastFocusedTrigger = null;
+    }
+  }
   syncScrim();
   if(body.classList.contains('state-reading')){
     if(open) showChrome(); else scheduleHide(1200);
@@ -8692,6 +8799,18 @@ function closePanelsExceptHelp(){
   body.classList.remove('sheet-open');
   body.classList.remove('toc-open');
   body.classList.remove('search-open');
+  const sheet = el('sheet');
+  if(sheet) sheet.classList.remove('open');
+  const toc = el('toc');
+  if(toc) toc.classList.remove('open');
+  const searchDrawer = el('searchDrawer');
+  if(searchDrawer) searchDrawer.classList.remove('open');
+  const posPill = el('posPill');
+  if(posPill) posPill.setAttribute('aria-expanded', 'false');
+  const btnSheet = el('btnSheet');
+  if(btnSheet) btnSheet.setAttribute('aria-expanded', 'false');
+  const btnSearch = el('btnSearch');
+  if(btnSearch) btnSearch.setAttribute('aria-expanded', 'false');
 }
 function syncScrim(){
   const toc = body.classList.contains('toc-open');
@@ -8960,6 +9079,50 @@ function wireCmdPalette(){
 
 /* ---------------- keyboard ---------------- */
 function onKey(e){
+  const openDialog = (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show, aside[role="dialog"], div[role="dialog"]'))
+    || document.querySelector('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show')
+    || (body.classList.contains('sheet-open') && el('sheet'))
+    || (body.classList.contains('toc-open') && el('toc'))
+    || (body.classList.contains('search-open') && el('searchDrawer'))
+    || (body.classList.contains('help-open') && el('helpOverlay'));
+  if(openDialog){
+    if(e.key === 'Escape'){
+      closePanels();
+      e.preventDefault();
+      return;
+    }
+    if(e.key === 'Tab'){
+      const focusable = Array.from(openDialog.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter(el => {
+        if(el.offsetParent !== null) return true;
+        if(el.offsetWidth > 0 || el.offsetHeight > 0) return true;
+        if(el.closest && el.closest('[style*="display:none"], [style*="display: none"], [hidden]')) return false;
+        const s = window.getComputedStyle ? window.getComputedStyle(el) : null;
+        return !s || (s.display !== 'none' && s.visibility !== 'hidden');
+      });
+      if(focusable.length > 0){
+        const firstEl = focusable[0];
+        const lastEl = focusable[focusable.length - 1];
+        if(!openDialog.contains(document.activeElement)){
+          (e.shiftKey ? lastEl : firstEl).focus();
+          e.preventDefault();
+          return;
+        }
+        if(e.shiftKey && document.activeElement === firstEl){
+          lastEl.focus();
+          e.preventDefault();
+          return;
+        } else if(!e.shiftKey && document.activeElement === lastEl){
+          firstEl.focus();
+          e.preventDefault();
+          return;
+        }
+      }
+      return;
+    }
+  }
+
   const isCtrl = e.ctrlKey || e.metaKey;
   if(isCtrl && (e.key==='o' || e.key==='O')){
     e.preventDefault();

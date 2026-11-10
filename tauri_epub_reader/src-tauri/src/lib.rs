@@ -1911,7 +1911,7 @@ mod tests {
         fs::create_dir_all(&target).unwrap();
 
         let manifest = crate::mobi::unpack_mobi(&mobi_file, &target, "book.mobi", &meta, 12345).unwrap();
-        assert_eq!(manifest.files.len() > 0, true);
+        assert!(!manifest.files.is_empty());
 
         // Verify structure
         assert!(target.join("META-INF/container.xml").exists());

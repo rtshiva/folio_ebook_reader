@@ -3,13 +3,13 @@
 > **Audience:** Core developers, new contributors, and maintainers.  
 > **Scope:** Architecture, subsystem low-level design, feature-to-code mapping, data schemas, sequence flows, and testing suite.  
 > **Repository:** `ebook_reader_glm53flash` / `tauri_epub_reader`  
-> **Last Updated:** 2026-09-25
+> **Last Updated:** 2026-11-10
 
 ---
 
 ## 1. Executive Summary & System Architecture
 
-Folio Reader is an ultralight (~9 MB standalone executable), privacy-first, offline-native EPUB reader for Windows. It couples a native **Tauri 2.0 (Rust)** backend with **native Windows Edge WebView2**, completely eliminating the overhead of bundled Chromium browsers while delivering a 60 FPS, GPU-accelerated paper reading experience.
+Folio Reader is an ultralight (~9 MB standalone executable), privacy-first, offline-native ebook reader for Windows (supporting **EPUB 2/3, MOBI, AZW, and AZW3**). It couples a native **Tauri 2.0 (Rust)** backend with **native Windows Edge WebView2**, completely eliminating the overhead of bundled Chromium browsers while delivering a 60 FPS, GPU-accelerated paper reading experience.
 
 ### 1.1 High-Level Architecture
 
@@ -21,13 +21,14 @@ flowchart TB
         FS["Local File System"]
     end
 
-    subgraph Rust_Backend["Tauri 2.0 Rust Core (src-tauri/src/lib.rs)"]
+    subgraph Rust_Backend["Tauri 2.0 Rust Core (src-tauri/src/lib.rs & mobi.rs)"]
         Run["Entry / Lifecycle (run)"]
         SingleInst["Single Instance Plugin\n(File Forwarding)"]
         GPU["merge_gpu_flags\n(Rasterization + Zero-Copy)"]
         Protocol["Custom Scheme: folio-cache://"]
         IPC["Commands: book_open, read_file_bytes,\npick_file, get_initial_file"]
         Unzip["Zip Engine & Sanitizer (unzip_epub)\nZip-Slip Protection"]
+        MobiUnpack["MOBI / AZW Unpacker & PalmDOC Decompressor\n(src-tauri/src/mobi.rs)"]
         DiskLRU["Disk Cache Eviction (evict_disk_cache)\n600 MB / 30 Books Cap"]
         MemLRU["In-Memory LRU (BookCache)\n160 MB / 4 Books Cap"]
     end
@@ -37,6 +38,7 @@ flowchart TB
         Stage["Viewport Stage & Chrome\n(#topbar, #bottombar, #stage)"]
         Pill["Contents Pill (#posPill)"]
         Ribbon["Hairline Chapter Ribbon (#chRibbon)"]
+        EdgeNav["Edge-Hover Chapter Nav (#chNavLeft, #chNavRight)"]
         Drawers["Drawers (#sheet, #toc, #searchDrawer)"]
     end
 
@@ -58,7 +60,7 @@ flowchart TB
     end
 
     subgraph Peripheral_Services["Reader Peripherals & Per-Book State"]
-        TTS_Mod["TTS Engine (speechSynthesis +\nCSS Custom Highlight API)"]
+        TTS_Mod["Dual TTS Engine (speechSynthesis +\nKittenTTS Neural WASM)"]
         Sound_Mod["PageSound (Web Audio Synthesis)"]
         Annot_Mod["Highlights & Notes Manager"]
         Dict_Mod["DictCache (WordNet Offline Fallback)"]
@@ -74,11 +76,14 @@ flowchart TB
 
     Bootstrap -->|"Invoke IPC"| IPC
     IPC --> Unzip
+    IPC --> MobiUnpack
     Unzip --> FS
+    MobiUnpack --> FS
     Protocol -->|"Serve static assets"| FS
     Protocol -->|"folio-cache://"| EpubJS
     IPC -->|"Raw Binary Fallback"| MemLRU
     Unzip --> DiskLRU
+    MobiUnpack --> DiskLRU
 
     EpubJS --> IframeSand
     IframeSand --> TypoHarm
@@ -94,10 +99,10 @@ flowchart TB
 
 ### 1.2 Architectural Invariants & Non-Negotiables
 
-1. **Zero-Copy / Binary IPC Discipline:** EPUB files are never serialized across the JSON bridge as numeric arrays. Unzipped books are served through the native `folio-cache://` protocol scheme directly from disk; fallback opens use `tauri::ipc::Response` raw byte vectors.
+1. **Zero-Copy / Binary IPC Discipline:** Ebook files are never serialized across the JSON bridge as numeric arrays. Unzipped EPUB and unpacked MOBI/AZW books are served through the native `folio-cache://` protocol scheme directly from disk; fallback opens use `tauri::ipc::Response` raw byte vectors.
 2. **GPU-Composited Animation Guarantee:** The 3D paper fold and slide page turns write exclusively to `transform` (`translateX`, `rotateY`, `translateZ`), `opacity`, and `clip-path` CSS properties. Live text inside iframes is never subjected to matrix rotation during reading; pre-rasterized snapshot leaves are used instead.
 3. **Never-Freeze Main Thread:** Heavy background jobs (CFI location generation and full-text search indexing) run in cooperative idle slices (`requestIdleCallback`, 2–6 spines/tick, paused when `document.hidden`).
-4. **Complete Offline Autonomy:** Zero remote CDN dependencies. All reader scripts (`epub.min.js`, `jszip.min.js`), local fonts (Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic), and styling are bundled locally.
+4. **Complete Offline Autonomy:** Zero remote CDN dependencies. All reader scripts (`epub.min.js`, `jszip.min.js`), local fonts (Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic), styling, and neural TTS runtimes are bundled locally.
 
 ---
 
@@ -108,21 +113,24 @@ flowchart TB
 | File Path | Type | Size / Lines | Primary Responsibilities |
 |---|---|---|---|
 | [`tauri_epub_reader/src-tauri/src/main.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/main.rs) | Rust | 7 lines | Windows release subsystem declaration (`windows_subsystem = "windows"`), delegates to `app_lib::run()`. |
-| [`tauri_epub_reader/src-tauri/src/lib.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/lib.rs) | Rust | 671 lines | Tauri commands, custom URI protocol `folio-cache://`, unzipper, zip-slip validator, LRU disk & memory caches, GPU flags, single-instance listener, and Rust unit tests (U1–U5). |
+| [`tauri_epub_reader/src-tauri/src/lib.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/lib.rs) | Rust | ~2,100 lines | Tauri commands, custom URI protocol `folio-cache://`, unzipper, zip-slip validator, LRU disk & memory caches, GPU flags, single-instance listener, and Rust unit tests (U1–U34). |
+| [`tauri_epub_reader/src-tauri/src/mobi.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/mobi.rs) | Rust | ~1,800 lines | MOBI / AZW / PalmDOC decompression subsystem, Palm Database parser, LZ77 decompressor, CP1252 transcoding, HTML sanitization, synthetic EPUB OEBPS packager, and MOBI security tests. |
 | [`tauri_epub_reader/src-tauri/Cargo.toml`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/Cargo.toml) | TOML | 30 lines | Rust crate dependencies: `tauri 2.11`, `tauri-plugin-single-instance`, `rfd 0.17`, `zip 2`, `sha2 0.10`, `serde`, `serde_json`. |
-| [`tauri_epub_reader/src-tauri/tauri.conf.json`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/tauri.conf.json) | JSON | 47 lines | Window configurations (1280x820, min 800x600), security CSP, app bundle icons, and `.epub` Windows file associations. |
+| [`tauri_epub_reader/src-tauri/tauri.conf.json`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/tauri.conf.json) | JSON | 47 lines | Window configurations (1280x820, min 800x600), security CSP, app bundle icons, and `.epub`, `.mobi`, `.azw`, `.azw3` Windows file associations. |
 | [`tauri_epub_reader/src-tauri/capabilities/default.json`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/capabilities/default.json) | JSON | 12 lines | Tauri 2 security capability ACL manifest assigning `core:default` permissions to the `main` window. |
 | [`tauri_epub_reader/src-tauri/build.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/build.rs) | Rust | 3 lines | Tauri build script invoking `tauri_build::build()`. |
-| [`tauri_epub_reader/src/index.html`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html) | HTML/CSS/JS | 5,776 lines (262 KB) | Complete frontend presentation, layout CSS, reading engine, 3D paper turn compositor, progress rail, ribbon, pill, TTS, search, annotations, and UI drawers. |
+| [`tauri_epub_reader/src/index.html`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html) | HTML/CSS/JS | ~10,500 lines (~490 KB) | Complete frontend presentation, layout CSS, reading engine, 3D paper turn compositor, edge-hover chapter navigation, progress rail, ribbon, pill, dual TTS, search, annotations, and UI drawers. |
 | [`tauri_epub_reader/src/vendor/jszip.min.js`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/vendor/jszip.min.js) | JS | 98 KB | Bundled local JSZip library for browser-mode unzipping and EPUB parsing. |
 | [`tauri_epub_reader/src/vendor/epub.min.js`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/vendor/epub.min.js) | JS | 224 KB | Vendored epub.js 0.3 library providing EPUB spine navigation, Rendition, and CFI locations. |
+| [`tauri_epub_reader/src/vendor/kitten/`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/vendor/kitten/) | JS/WASM | ~36 MB | KittenTTS offline neural voice engine (`kitten.bundle.js`, `ort-wasm-simd-threaded.wasm`, `ort-wasm-simd-threaded.jsep.wasm`, ONNX Runtime WebAssembly SIMD runtime). |
 | [`tauri_epub_reader/src/vendor/fonts/`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/vendor/fonts/) | WOFF2 | 11 font files | Offline font assets: Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic (400, 600, 700 weights). |
-| [`tauri_epub_reader/package.json`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/package.json) | JSON | 23 lines | Project scripts (`dev`, `build`, `test`, `test:e2e`, `test:rust`), devDependencies for Playwright and HTTP server. |
+| [`tauri_epub_reader/package.json`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/package.json) | JSON | 30 lines | Project scripts (`dev`, `build`, `test`, `scan`, `lint`, `test:e2e`, `test:rust`), dependencies and devDependencies. |
 | [`tauri_epub_reader/playwright.config.mjs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/playwright.config.mjs) | JS | 32 lines | Playwright E2E configuration serving `src/` on port 8124, 1 worker, single-test isolation. |
+| [`tauri_epub_reader/tests/scan-file-handling.mjs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/tests/scan-file-handling.mjs) | JS | ~160 lines | 27 static invariant and security regression tests verifying IPC boundaries, CSP, entity handling, desk-dimming, and theme tokens. |
 | [`tauri_epub_reader/tests/e2e/helpers.mjs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/tests/e2e/helpers.mjs) | JS | 325 lines | Test utilities: `fresh()`, `openDemoReady()`, `viewerFrame()`, `SPEECH_MOCK`, in-memory synthetic EPUB builders (`buildTestEpub`, `generateStressBuffer`), pointer drag helpers (`slowDrag`, `fastFling`). |
 | [`tauri_epub_reader/tests/e2e/shipped.spec.mjs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/tests/e2e/shipped.spec.mjs) | JS | 312 lines | Regression specs R1–R16 verifying core reader features, wheel turning, rail scrub, TTS lifecycle, annotations, warmth, and drawers. |
 | [`tauri_epub_reader/tests/e2e/design.spec.mjs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/tests/e2e/design.spec.mjs) | JS | 571 lines | Design specs D1–D12 verifying contents pill, chapter ribbon, paper texture benchmark, full-spread two-phase fold, background slicing, index resume, and disk cache fallbacks. |
-| [`tauri_epub_reader/docs/FEATURES.md`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/docs/FEATURES.md) | Markdown | 177 lines | High-level capabilities tracking, roadmap, and GPU budget summary. |
+| [`tauri_epub_reader/docs/FEATURES.md`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/docs/FEATURES.md) | Markdown | 186 lines | High-level capabilities tracking, roadmap, and GPU budget summary. |
 | [`tauri_epub_reader/docs/DESIGN-IMPROVEMENTS.md`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/docs/DESIGN-IMPROVEMENTS.md) | Markdown | 477 lines | Architectural specifications for disk cache (P-A), idle work slicing (P-B), contents pill (A-A), chapter ribbon (A-B), paper flip (A-C), and full-spread flip (A-S). |
 
 ---
@@ -180,6 +188,28 @@ flowchart TB
   * Rust: [`tauri_epub_reader/src-tauri/src/lib.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/lib.rs#L407-L433) — `merge_gpu_flags()`.
   * Environment variable: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist"`.
 
+#### 1.7 MOBI / AZW / PalmDOC Decompression Subsystem (`src-tauri/src/mobi.rs`)
+* **Functionality:** Converts DRM-free Mobipocket (MOBI 6/7) and Kindle Format 8 (KF8 / AZW3) ebooks into standards-compliant synthetic OEBPS packages directly on disk, served transparently to `epub.js` via `folio-cache://`.
+* **Architecture & Decoding Pipeline:**
+  1. **Palm Database (PDB) Parser (`PalmDatabase`):** Validates the 78-byte header, database name, version, and record offsets list.
+  2. **PalmDOC & MOBI Headers:** Record 0 is parsed into `PalmDocHeader` (compression method, record length, record count, encryption) and `MobiHeader` (MOBI magic, encoding, EXTH flags, title offsets, KF8 boundary).
+  3. **Metadata Extraction (`parse_exth_and_metadata`):** Parses EXTH records for author (100), publisher (101), description (103), ISBN (104), cover offset (201), updated title (503), and language (524).
+  4. **PalmDOC LZ77 Decompressor (`decompress_palmdoc_capped`):** Decompresses text runs with memory budget capping (`max_out`) to prevent multi-GB allocation bombs. Processes literals (0x01..0x08), plain ASCII (0x09..0x7F), 2-byte distance/length backreferences (0x80..0xBF) with strict out-of-bounds guards, and space-prefixed chars (0xC0..0xFF).
+  5. **Trailing Entry Stripping (`strip_trailing_entries`):** Strips variable-length multibyte flags from compressed record tails.
+  6. **Encoding Transcoding (`cp1252_to_utf8`):** Transcodes legacy Windows-1252 encoded books to valid UTF-8.
+  7. **HTML Sanitization & Cross-Chapter Links:**
+     - `clean_chapter_body()` and `sanitize_html_tag()` strip dangerous elements (`<script>`, `<iframe>`), neutralize unsafe event handlers (`onload`, `onclick`, `javascript:` URIs), and prevent XSS injection.
+     - Rewrites Mobipocket `filepos:XXXXXXXXXX` internal links and anchors into standard EPUB cross-chapter fragment anchors.
+     - Rewrites `recindex:XXXX` image references to relative synthetic URLs (`images/img_XXXX.ext`).
+  8. **Synthetic OEBPS Package Assembly (`unpack_mobi`):**
+     - Emits `META-INF/container.xml` pointing to `content.opf`.
+     - Emits `content.opf` with complete metadata, manifest, spine items, and guide.
+     - Emits `toc.ncx` for hierarchical navigation.
+     - Slices decompressed HTML into chapters (`ch_0001.xhtml`, `ch_0002.xhtml`, ...).
+     - Extracts and writes image resources (`images/img_XXXX.ext`).
+     - Emits `manifest.json` for Folio's cache protocol.
+* **Code Location:** [`tauri_epub_reader/src-tauri/src/mobi.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/mobi.rs).
+
 ---
 
 ### Subsystem 2: Book Ingestion & State Initialization
@@ -193,14 +223,19 @@ sequenceDiagram
     participant Disk as Cache / Disk
     participant Epub as epub.js Engine
 
-    User->>Shell: Open EPUB (CLI / Drag-Drop / Dialog)
+    User->>Shell: Open Ebook (EPUB, MOBI, AZW, AZW3)
     Shell->>Rust: invoke('book_open', { path })
     alt Cache Hit (manifest mtime matches)
         Rust->>Disk: Touch atime
         Rust-->>Shell: BookHandle { hash, cache_dir, manifest }
         Shell->>Epub: ePub('folio-cache://{hash}/')
-    else Cache Miss / First Open
+    else Cache Miss / First Open (EPUB)
         Rust->>Disk: unzip_epub() (Zip-Slip sanitized)
+        Rust->>Disk: Write manifest.json & atime
+        Rust-->>Shell: BookHandle { hash, cache_dir, manifest }
+        Shell->>Epub: ePub('folio-cache://{hash}/')
+    else Cache Miss / First Open (MOBI / AZW / AZW3)
+        Rust->>Disk: unpack_mobi() (PalmDOC LZ77 + OEBPS assembly)
         Rust->>Disk: Write manifest.json & atime
         Rust-->>Shell: BookHandle { hash, cache_dir, manifest }
         Shell->>Epub: ePub('folio-cache://{hash}/')
@@ -363,12 +398,22 @@ flowchart LR
   * `openPop(id, pos)`: Floating popup positioning within viewport bounds.
   * `renderDrawer()`: Renders snippet list with click-to-jump.
 
-#### 7.2 Read-Aloud TTS Engine (`TTS`)
-* **Functionality:** Text-to-speech reading powered by `window.speechSynthesis`.
-  * **Sentence Highlights:** Uses modern CSS Custom Highlight API (`::highlight(tts-sent)`) to highlight active sentences without altering DOM nodes.
-  * **Auto-Advance:** When the final sentence on a page finishes reading, automatically triggers `rendition.next()` and continues playback seamlessly.
-  * **Hotkeys:** `R` (play/pause), `Shift + R` (stop), `-` / `=` (decrease/increase rate).
-* **Code Location:** [`tauri_epub_reader/src/index.html`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4490-L4696).
+#### 7.2 Read-Aloud TTS & KittenTTS Neural Speech Subsystem (`TTS` & `KittenRunner`)
+* **Functionality:** High-fidelity, offline-first text-to-speech reading with dual-engine architecture:
+  1. **System Voices (`window.speechSynthesis`):** Standard OS-provided speech synthesis with selectable system voices.
+  2. **KittenTTS Neural Voices (`src/vendor/kitten/`):** Local neural voice synthesis running a quantized StyleTTS-2 architecture (`KittenML/kitten-tts-mini-0.8`, ~92 MB) completely offline within the WebView runtime.
+* **Neural Subsystem Architecture (`KittenRunner`):**
+  - **Runtime & Bundles:** Powered by local Transformers.js and ONNX Runtime WebAssembly SIMD (`kitten.bundle.js`, `ort-wasm-simd-threaded.wasm`, `ort-wasm-simd-threaded.jsep.wasm`).
+  - **On-Demand Local Cache:** Model weights install once via a 1-click in-app installer with live download progress reporting, persisting in WebView cache for permanent offline use.
+  - **Voices Supported:** High-quality expressive presets including `Bella`, `Jasper`, `Leo`, and other neural personas.
+  - **Audio Pipeline:** Model outputs Float32 mono 24 kHz audio samples -> transcoded to PCM16 RIFF WAVE bytes via `float32ToWav()` -> decoded and scheduled via Web Audio API (`AudioContext`, `AudioBufferSourceNode`).
+* **Reading Synchrony & Highlighting:**
+  - **CSS Custom Highlight API:** Uses `::highlight(tts-sent)` to paint real-time sentence highlights across the active spine without modifying iframe DOM nodes or provoking layout reflows.
+  - **Continuous Auto-Advance:** When the final sentence of a page finishes playing, triggers `rendition.next()` and smoothly resumes playback on the incoming page.
+  - **Keyboard Controls:** `R` (play / pause), `Shift + R` (stop), `-` / `=` (speed decrement / increment).
+* **Code Location:**
+  - Frontend: [`tauri_epub_reader/src/index.html`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html) — `TTS` and `KittenRunner`.
+  - Neural Runtimes: [`tauri_epub_reader/src/vendor/kitten/`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/vendor/kitten/).
 
 #### 7.3 Reading Polish Pack: Footnotes, Lightbox, AutoScroll & Warmth
 * **Footnotes (`Footnotes`):** Catches clicks on EPUB `noteref` links and displays footnote text in an inline popup without losing reading place ([`index.html:4780-4808`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4780-L4808)).
@@ -389,15 +434,16 @@ flowchart LR
 | Shortcut | Action | Handler Function / Code Location |
 |---|---|---|
 | `Left` / `Right` / `Space` | Turn previous / next page | `onKey()` ([`index.html:4950`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4950)) |
-| `Ctrl + O` | Open native file picker | `onKey()` calls `openFileViaTauri()` |
+| `Ctrl + O` | Open native file picker (EPUB, MOBI, AZW, AZW3) | `onKey()` calls `openFileViaTauri()` |
 | `D` | Toggle dual spread vs single page | `onKey()` toggles `settings.spread` |
 | `T` | Toggle Table of Contents drawer | `toggleToc()` ([`index.html:4862`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4862)) |
-| `A` | Toggle Appearance & Typography sheet | `toggleSheet()` ([`index.html:4861`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4861)) |
+| `S` | Toggle Appearance & Typography sheet | `toggleSheet()` ([`index.html:4861`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4861)) |
 | `Ctrl + F` | Toggle Search drawer | `toggleSearch()` ([`index.html:2972`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L2972)) |
 | `B` | Toggle bookmark on current page | `onKey()` calls `toggleBookmark()` |
 | `R` | Play / Pause TTS read-aloud | `TTS.toggle()` ([`index.html:4520`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4520)) |
 | `Shift + R` | Stop TTS read-aloud | `TTS.stop()` ([`index.html:4550`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4550)) |
 | `-` / `=` | Decrease / Increase TTS rate | `TTS.setRateDelta()` |
+| `[` / `]` | Previous / Next chapter | `onKey()` calls `prevChapter()` / `nextChapter()` |
 | `G` | Toggle reading guide line (ruler) | `setGuide()` ([`index.html:4476`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4476)) |
 | `F` | Toggle fullscreen mode | `toggleFullscreen()` ([`index.html:4907`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4907)) |
 | `?` | Toggle keyboard shortcuts modal | `toggleHelp()` ([`index.html:4873`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src/index.html#L4873)) |
@@ -534,9 +580,9 @@ The project has comprehensive automated coverage across both backend and fronten
 npm test
 ```
 
-### 6.1 Rust Unit Test Matrix (`cargo test` via `npm run test:rust`)
+### 6.1 Rust Backend Unit Tests (U1–U34, `src-tauri/src/lib.rs`)
 
-* **Source File:** [`tauri_epub_reader/src-tauri/src/lib.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/lib.rs#L528-L670)
+* **Execution:** `npm run test:rust` or `cargo test` in `src-tauri`
 
 | Spec ID | Test Function | Target Feature | Validation Criteria |
 |---|---|---|---|
@@ -544,9 +590,53 @@ npm test
 | **U2** | `test_u2_book_cache_lru` | Memory LRU eviction | Exceeding 4 entries evicts the least recently accessed book. |
 | **U3** | `test_u3_zip_slip` | Zip-Slip security validator | Rejects `../`, absolute paths (`/abs`), and Windows drive paths (`C:/`). Normal paths pass. |
 | **U4** | `test_u4_manifest` | Manifest serialization | Manifest JSON roundtrips correctly; metadata changes trigger re-unzip. |
-| **U5** | `test_u5_gpu_flags_merge` | GPU flag injection | Missing flags are appended; existing flags are preserved without duplication. |
+| **U5** | `test_u5_gpu_flags_merge` | GPU flag injection | Appends missing hardware acceleration flags without duplicating existing ones. |
+| **U6** | `test_u6_fix_entities_named_and_bare_ampersand` | XML entity repair | Encodes bare ampersands while preserving named HTML/XML entities. |
+| **U7** | `test_u7_fix_entities_cdata_and_structure` | Entity structural safety | Protects CDATA sections, comments, and XML tags during entity repair. |
+| **U8** | `test_u8_percent_decode` | URI decoding | Correctly decodes percent-encoded UTF-8 characters and spaces. |
+| **U9** | `test_u9_is_valid_cache_hash` | Hash format validation | Enforces strict 64-character lowercase hexadecimal hash strings. |
+| **U10** | `test_u10_is_xml_mime` | MIME type detection | Accurately identifies XHTML, XML, OPF, and NCX content types. |
+| **U11** | `test_u11_evict_disk_cache_protect` | Disk cache eviction | Evicts stale book folders when total disk usage exceeds 600 MB or 30 books. |
+| **U12** | `test_u12_response_body_repairs_utf8_and_preserves_legacy_bytes` | Protocol response encoding | Repairs UTF-8 XML payloads and delivers binary assets unchanged. |
+| **U13** | `test_u13_unzip_epub_roundtrip_and_guards` | Archive extraction & safety | Round-trips valid EPUB archives; rejects malformed archives. |
+| **U14** | `test_u14_evict_counts_protected_bytes` | Active cache protection | Ensures active book cache is protected and counted during eviction. |
+| **U15** | `test_u15_first_epub_arg` | CLI argument parser | Extracts first `.epub`, `.mobi`, `.azw`, or `.azw3` path from command line arguments. |
+| **U16** | `test_u16_percent_encoded_traversal_never_sanitizes` | Traversal attack defense | Rejects percent-encoded directory traversal sequences (`%2e%2e%2f`). |
+| **U17** | `test_u17_unzip_rejects_entry_count_bomb` | ZIP bomb defense | Rejects archives exceeding safe entry count limits (>10,000 files). |
+| **U18** | `test_u18_cache_uri_hash_extraction` | Protocol URI parsing | Extracts valid book hash and asset path from `folio-cache://` requests. |
+| **U19** | `test_u19_book_cache_oversized_and_byte_budget` | Memory budget enforcement | Rejects or bypasses cache for oversized buffers exceeding byte budget. |
+| **U20** | `test_u20_book_cache_concurrent_no_deadlock` | Multi-threaded concurrency | Verifies thread safety and absence of deadlocks under parallel access. |
+| **U21** | `test_u21_unzip_malformed_archive` | Malformed archive handling | Gracefully returns error on corrupt archives without crashing. |
+| **U22** | `test_u22_percent_decode_and_custom_protocol_paths` | Path normalization | Validates complex percent-encoded custom protocol asset paths. |
+| **U23** | `test_u23_palmdoc_lz77_decompression` | PalmDOC LZ77 decompressor | Validates literal runs, backreferences, and space-prefix decompression. |
+| **U24** | `test_u24_trailing_bytes_and_cp1252` | Trailing byte & encoding | Strips variable-length trailing entries and transcodes Windows-1252 to UTF-8. |
+| **U25** | `test_u25_mobi_unpack_roundtrip` | MOBI/AZW unpack pipeline | Full synthetic EPUB OEBPS generation from synthetic MOBI input. |
+| **U26** | `test_u26_mobi_drm_protection_detected` | DRM detection & guard | Detects encrypted/DRM-locked MOBI files and aborts cleanly. |
+| **U27** | `test_u27_validate_book_path_security` | Filesystem path security | Rejects path traversal and invalid device paths across Windows platforms. |
+| **U28** | `test_u28_sanitize_entry_windows_devices_and_streams` | Windows device protection | Rejects reserved DOS device names (CON, PRN, AUX, NUL) and alternate data streams (`:`). |
+| **U29** | `test_u29_mobi_html_sanitization` | HTML sanitization | Strips scripts, event handlers, and malicious tags from decompressed chapters. |
+| **U30** | `test_u30_mobi_non_ascii_no_panic` | Non-ASCII resilience | Ensures multi-byte UTF-8 and binary slices never cause panic or out-of-bounds indexing. |
+| **U31** | `test_u31_palmdoc_decompression_budget` | LZ77 budget capping | Defeats decompression bombs by enforcing strict output byte budgets. |
+| **U32** | `test_u32_mobi_palmdoc_unpack` | Real-world PalmDOC unpack | Unpacks and structures PalmDOC records into valid readable XHTML spine chapters. |
+| **U33** | `test_u33_active_book_hash_protection_in_eviction` | Active hash protection | Protects currently loaded book hash from background disk eviction. |
+| **U34** | `test_u34_active_reading_hash_protection_in_eviction` | Reading state eviction lock | Prevents deletion of cache directories actively rendered by the frontend. |
 
-### 6.2 Regression E2E Suite (`tests/e2e/shipped.spec.mjs`)
+### 6.2 MOBI Security & Parser Regression Matrix (`src-tauri/src/mobi.rs`)
+
+* **Execution:** Executed as part of `cargo test` (42 tests total)
+
+| Test Name | Focus Area | Validation Criteria |
+|---|---|---|
+| `test_fix1_sanitize_html_tag_no_infinite_loop` | Infinite loop defense | Malformed tags with nested unclosed brackets terminate cleanly. |
+| `test_fix2_sanitize_html_tag_xss_bypass` | XSS attribute bypass | Rejects obfuscated event handlers without whitespace separation (`<img src=x onload=...>`). |
+| `test_fix3_rewrite_img_tag_safe_slice` | Byte slice safety | Safely slices multi-byte UTF-8 image tags without splitting code points. |
+| `test_fix4_filepos_anchors_and_cross_chapter_links` | Cross-chapter anchors | Converts `filepos:` offsets into relative chapter anchors across multiple files. |
+| `test_fix5_rewrite_a_tag_no_attr_corruption` | Anchor attribute integrity | Preserves legitimate `href`, `id`, and `class` attributes while rewriting internal links. |
+| `test_fix6_clean_chapter_body_unclosed_script` | Script tag containment | Safely strips unclosed `<script>` blocks without consuming remainder of document. |
+| `test_clean_chapter_body_case_insensitive_dangerous_tags` | Case insensitivity | Catches uppercase and mixed-case dangerous tags (`<SCRIPT>`, `<IFRAME>`). |
+| `test_clean_chapter_body_quote_aware_tag_end` | Quote-aware parsing | Respects quoted attributes containing `>` characters to prevent tag breakout. |
+
+### 6.3 Regression E2E Suite (`tests/e2e/shipped.spec.mjs`)
 
 | Spec ID | Feature Under Test | Scenario & Assertions |
 |---|---|---|
@@ -567,7 +657,7 @@ npm test
 | **R15** | Boot-Open Integration | Faked Tauri backend cold-boots an EPUB into reading state directly. |
 | **R16** | Autoscroll | Middle-click activates `AutoScroll.active`; moving pointer downward turns pages at rate. |
 
-### 6.3 Design & Performance E2E Suite (`tests/e2e/design.spec.mjs`)
+### 6.4 Design & Performance E2E Suite (`tests/e2e/design.spec.mjs`)
 
 | Spec ID | Feature Under Test | Scenario & Assertions |
 |---|---|---|
@@ -583,6 +673,40 @@ npm test
 | **D10** | Background Slicing | In a 300-spine book, zero tasks exceed 50 ms; hiding window pauses background indexing. |
 | **D11** | Indexing Resume | Interrupted indexing stores partial progress in IndexedDB; reload resumes from saved offset. |
 | **D12** | Disk Cache Fallback | If `book_open` encounters an error, automatically falls back to raw binary `read_file_bytes`. |
+
+### 6.5 Static Security & Invariant Tests (`tests/scan-file-handling.mjs`)
+
+* **Execution:** `npm run scan` (27 automated static regression invariants)
+
+| Check Name | Target Contract | Verification Rule |
+|---|---|---|
+| `single get_initial_file call site` | Process initialization | Exactly one invocation hook on mount; no duplicate cold-boots. |
+| `no raw bytes.length IPC checks` | Large buffer discipline | Verifies binary IPC buffers never trigger full JSON serialization. |
+| `single sanctioned IPC buffer conversion` | Buffer handling | Enforces memory-safe ArrayBuffer ingestion discipline. |
+| `case-sensitive entity passthrough` | XML parsing | Prevents entity corruption in XHTML OPF/NCX streams. |
+| `single file-input trigger inside openBookDialog` | File dialog | Prevents re-entrant dialog spawning. |
+| `no from_utf8_lossy on serve path` | Data integrity | Binary resources (images, fonts) served verbatim without transcoding. |
+| `dragDropEnabled true` | Platform shell | Tauri window config maintains drag-and-drop capability. |
+| `edge-only click zones` | Reading UX | Prevents interior page clicks from accidentally advancing pages. |
+| `no idle desk-dim re-arm` | Reading environment | Ambient desk dimming respects user activity state. |
+| `closeBook purges per-book caches` | Memory hygiene | Closing book clears ephemeral DOM structures and pending background queues. |
+| `closeBook parks gestures, flags, turn queue` | State transition | Prevents asynchronous turn completions after book close. |
+| `per-book navigation resets on open` | Reader state | Resets history stack, rail preview, and location anchors. |
+| `turns never continue on a swapped rendition` | Concurrency safety | Cancels active page turn animations when new book opens. |
+| `speech timeouts are generation-gated` | TTS safety | Orphaned speech utterance events cannot leak into new chapters. |
+| `bespoke theme CSS/JS palettes agree` | Theme consistency | CSS custom properties match JavaScript color palette declarations. |
+| `reading room CSS/JS palettes agree` | Room aesthetics | Desk and wallpaper themes synchronized between CSS and JS. |
+| `every themed var() resolves to a :root default` | CSS robustness | Prevents unstyled flashes on missing custom properties. |
+| `cloth topbars carry chalk foreground` | Contrast accessibility | Assures legible UI text across all desk fabrics. |
+| `loader status readable on cloth` | Loading state | High-contrast loader typography across dark and light room cloths. |
+| `theme row wraps its buttons` | Responsive UI | Theme palette selectors wrap cleanly in narrow drawers. |
+| `cache book URLs use the fetchable http form` | Protocol scheme | Rewrites `folio-cache://` to `http://folio-cache.localhost/` for Edge WebView2. |
+| `living page block wired to relocations` | Fore-edge physics | Fore-edge block thickness responds to pagination events. |
+| `book-end dressing keys off at-start/at-end` | Visual polish | Corner ornaments and finis colophon appear at appropriate boundaries. |
+| `page-block vars resolve against theme tokens` | Visual polish | Paper stack edge shading resolves against active theme variables. |
+| `board lettering, finis meta and gilt edges wired` | Visual polish | Hardcover board title and gold trim match book metadata. |
+| `indent + oldstyle wired as typography channels` | Typography engine | First-line indents and old-style numerals toggleable via CSS. |
+| `ribbon splits multi-anchor weights, book stats ride heartbeat` | Progress metrics | Multi-anchor chapter ribbon weighting and reading time logging. |
 
 ---
 
@@ -605,9 +729,11 @@ npm test
    ```
 4. **Running Automated Tests:**
    ```powershell
-   npm test            # Runs cargo test + Playwright test suite
-   npm run test:rust   # Runs Rust unit tests only
+   npm test            # Runs 42 Rust tests + 27 static scan tests + Playwright e2e suite
+   npm run test:rust   # Runs 42 Rust unit and security tests only
+   npm run scan        # Runs 27 static invariant and security tests
    npm run test:e2e    # Runs Playwright browser tests only
+   npm run lint        # Runs ESLint checks
    ```
 5. **Compiling Production Binary:**
    ```powershell
@@ -653,15 +779,19 @@ npm test
 
 Designed to meet the "iPad with a kid" UX benchmark — zero disorientation, radical intuition, forgiving navigation, and instant optical delight.
 
-### 8.1 Dual Silk Chapter Ribbons (`#chRibbonPrev`, `#chRibbonNext`)
-- **Visual Design:** Two silk bookmark ribbon tags hanging subtly from the top edge of the reading page.
-  - Left Ribbon (`#chRibbonPrev`): Jumps to the start of current chapter (if reading midway) or previous chapter (if at chapter start).
-  - Right Ribbon (`#chRibbonNext`): Jumps directly to start of the next chapter.
+### 8.1 Edge-Hover Chapter Navigation Panels (`#chNavLeft`, `#chNavRight`)
+- **Visual Design:** Floating edge-docked left and right navigation panels positioned in the desk margins outside the page content area.
+  - Left Panel (`#chNavLeft` with `#chLabelPrev`): Quick jump to previous chapter.
+  - Right Panel (`#chNavRight` with `#chLabelNext`): Quick jump to next chapter.
+- **Dynamic Desk Margin Clamping (`layoutChNavPills`):**
+  - Measures the available horizontal space between the screen edge and `#viewer.getBoundingClientRect()`.
+  - Clamps the pill width between 40 px and 176 px (`Math.min(176, Math.max(40, desk))`).
+  - Hides/collapses panels if desk margin drops below 40 px (`no-desk` class), preventing the pill from ever overlapping the page reading surface or intercepting page turn clicks.
 - **Smart Disabling & Tooltips:**
-  - Disabled and dimmed at boundary extremes (e.g. Left ribbon disabled at Page 1 of Chapter 1).
-  - Hover tooltips reveal target chapter titles dynamically (`#chRibbonPrevTip`, `#chRibbonNextTip`).
+  - Disabled and dimmed at book boundaries (`aria-disabled="true"`, `.disabled` class) when at the first or last chapter.
+  - Hover tooltips dynamically reveal target chapter labels (`Previous: <Title>` / `Next: <Title>`) resolved from `tocItems`.
 - **Keyboard Shortcuts:** `[` for previous chapter, `]` for next chapter.
-- **Departure Tracking:** Every ribbon jump automatically pushes departure coordinates to `NavHistory`.
+- **Departure Tracking:** Every chapter navigation jump automatically pushes departure coordinates to `NavHistory`.
 
 ### 8.2 Non-Destructive Rail Preview & Floating Safety Anchor
 - **Floating Page Preview (`#railPreview`):**
