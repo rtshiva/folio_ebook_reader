@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'node:fs';
 
 test.describe('Non-linear EPUB items (linear="no") sequential paging', () => {
-  const epubPath = 'C:\\Users\\Siva\\Downloads\\My First Counting Book (Lillian Moore, Garth Williams) (z-library.sk, 1lib.sk, z-lib.sk).epub';
+  const epubPath = process.env.NONLINEAR_EPUB || '';
 
   test('successfully flips forward from cover and backward back to cover', async ({ page }) => {
-    test.skip(!existsSync(epubPath), 'EPUB file not found on local path');
+    test.skip(!epubPath || !existsSync(epubPath), 'Set NONLINEAR_EPUB env var to test');
 
     const buf = readFileSync(epubPath);
     const base64 = buf.toString('base64');

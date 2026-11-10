@@ -3,7 +3,10 @@
 
 export async function fresh(page) {
   await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => {
+    localStorage.clear();
+    try { indexedDB.deleteDatabase('folio-kv-db'); } catch(e) {}
+  });
   await page.reload();
   await page.locator('#btnDemo').waitFor({ timeout: 9000 });
   // Pin the environment: Feature 3's time-aware auto theme (on by default)

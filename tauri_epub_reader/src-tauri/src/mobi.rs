@@ -5,7 +5,7 @@
 //! allowing `epub.js` to render them seamlessly with zero frontend overhead.
 
 use crate::{BookManifest, ManifestFile};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
@@ -262,7 +262,7 @@ pub fn parse_exth_and_metadata(
         && mobi_hdr
             .title_offset
             .checked_add(mobi_hdr.title_len)
-            .map_or(false, |end| end <= rec0.len())
+            .is_some_and(|end| end <= rec0.len())
     {
         let raw_title = &rec0[mobi_hdr.title_offset..mobi_hdr.title_offset + mobi_hdr.title_len];
         let t = if mobi_hdr.encoding == 1252 {
@@ -278,7 +278,7 @@ pub fn parse_exth_and_metadata(
 
     // EXTH header begins immediately after the MOBI header
     if (mobi_hdr.exth_flags & 0x40) != 0 {
-        let exth_start = 16usize.checked_add(mobi_hdr.header_len).unwrap_or(usize::MAX);
+        let exth_start = 16usize.saturating_add(mobi_hdr.header_len);
         if exth_start + 12 <= rec0.len() && &rec0[exth_start..exth_start + 4] == b"EXTH" {
             let exth_len = u32::from_be_bytes([
                 rec0[exth_start + 4],
@@ -408,17 +408,16 @@ pub fn get_size_of_trailing_data_entries(data: &[u8], flags: u16) -> usize {
         }
         testflags >>= 1;
     }
-    if (flags & 1) != 0 {
-        if data.len() > num {
+    if (flags & 1) != 0
+        && data.len() > num {
             let last_byte = data[data.len() - num - 1];
             num = num.saturating_add(((last_byte & 0x03) as usize) + 1);
         }
-    }
     num
 }
 
 /// Strips the trailing entry sequence from a compressed MOBI text record.
-pub fn strip_trailing_entries<'a>(data: &'a [u8], flags: u16) -> &'a [u8] {
+pub fn strip_trailing_entries(data: &[u8], flags: u16) -> &[u8] {
     if flags == 0 {
         return data;
     }
@@ -814,7 +813,7 @@ pub fn unpack_mobi(
 </body>
 </html>"#,
             escape_xml(&ch.title),
-            &ch.body
+            ch.body
         );
 
         fs::write(&ch_path, &ch_xhtml)
@@ -962,6 +961,24 @@ fn ci_starts_at(haystack: &str, at: usize, needle: &str) -> bool {
     hb.len() >= at + nb.len() && hb[at..at + nb.len()].eq_ignore_ascii_case(nb)
 }
 
+/// Case-insensitive search for an ASCII substring without lowercasing the haystack.
+fn ci_find(haystack: &str, needle: &str) -> Option<usize> {
+    let hb = haystack.as_bytes();
+    let nb = needle.as_bytes();
+    if nb.is_empty() {
+        return Some(0);
+    }
+    if hb.len() < nb.len() {
+        return None;
+    }
+    for idx in 0..=hb.len() - nb.len() {
+        if hb[idx..idx + nb.len()].eq_ignore_ascii_case(nb) {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 /// Rewrites image tags and filepos links into standard XHTML paths and anchors.
 pub fn rewrite_images_and_links(
     html: &str,
@@ -991,7 +1008,7 @@ pub fn rewrite_images_and_links(
                 } else if tag_lower.starts_with("<br") || tag_lower.starts_with("<hr") {
                     // Ensure void tags are self-closed
                     if !tag_str.ends_with("/>") {
-                        let self_closed = format!("{}/>", &tag_str[..tag_str.len() - 1].trim_end());
+                        let self_closed = format!("{}/>", tag_str[..tag_str.len() - 1].trim_end());
                         out.push_str(&self_closed);
                         i = tag_end;
                         continue;
@@ -1040,7 +1057,7 @@ fn rewrite_img_tag(
                 .chars()
                 .take_while(|c| c.is_ascii_hexdigit())
                 .collect();
-            if let Ok(num) = usize::from_str_radix(&digits, 10)
+            if let Ok(num) = digits.parse::<usize>()
                 .or_else(|_| usize::from_str_radix(&digits, 16))
             {
                 if let Some(p) = img_map_1.get(&num).or_else(|| img_map_0.get(&num)) {
@@ -1088,7 +1105,7 @@ fn rewrite_img_tag(
                     let quote = chars.peek().copied();
                     if quote == Some('"') || quote == Some('\'') {
                         chars.next();
-                        while let Some(q) = chars.next() {
+                        for q in chars.by_ref() {
                             if Some(q) == quote {
                                 break;
                             }
@@ -1110,11 +1127,19 @@ fn rewrite_img_tag(
         // Replace or add src
         let clean_lower = clean.to_ascii_lowercase();
         let final_tag = if let Some(src_pos) = clean_lower.find("src=") {
-            let quote = clean[src_pos + 4..].chars().next().unwrap_or('"');
-            let end_quote = clean[src_pos + 5..]
-                .find(if quote == '\'' { '\'' } else { '"' })
-                .map(|p| src_pos + 5 + p + 1)
-                .unwrap_or(clean.len()); // never slice mid-char on missing quote
+            let after_eq = &clean[src_pos + 4..];
+            let (quote, val_start) = match after_eq.chars().next() {
+                Some(c @ '"') | Some(c @ '\'') => (c, src_pos + 4 + c.len_utf8()),
+                Some(_) => ('"', src_pos + 4), // unquoted
+                None => return clean,          // nothing after src=
+            };
+            if val_start >= clean.len() {
+                return clean;
+            }
+            let end_quote = clean[val_start..]
+                .find(quote)
+                .map(|p| val_start + p + quote.len_utf8())
+                .unwrap_or(clean.len());
             format!("{}src=\"{}\"{}", &clean[..src_pos], new_src, &clean[end_quote..])
         } else {
             let insert_pos = clean.rfind('>').unwrap_or(clean.len());
@@ -1123,12 +1148,12 @@ fn rewrite_img_tag(
         };
 
         if !final_tag.ends_with("/>") && final_tag.ends_with('>') {
-            format!("{}/>", &final_tag[..final_tag.len() - 1].trim_end())
+            format!("{}/>", final_tag[..final_tag.len() - 1].trim_end())
         } else {
             final_tag
         }
     } else if !tag.ends_with("/>") && tag.ends_with('>') {
-        format!("{}/>", &tag[..tag.len() - 1].trim_end())
+        format!("{}/>", tag[..tag.len() - 1].trim_end())
     } else {
         tag.to_string()
     }
@@ -1145,7 +1170,20 @@ fn rewrite_a_tag(tag: &str) -> String {
             .take_while(|c| c.is_ascii_digit())
             .collect();
         if !digits.is_empty() {
-            let end_pos = pos + 8 + rest.find(|c: char| c == '"' || c == '\'' || c.is_ascii_whitespace() || c == '>').unwrap_or(0);
+            let quote = rest.chars().next();
+            let end_offset = match quote {
+                Some(q @ '"') | Some(q @ '\'') => {
+                    let q_len = q.len_utf8();
+                    rest[q_len..]
+                        .find(q)
+                        .map(|p| q_len + p + q_len)
+                        .unwrap_or(rest.len())
+                }
+                _ => rest
+                    .find(|c: char| c == '"' || c == '\'' || c.is_ascii_whitespace() || c == '>')
+                    .unwrap_or(rest.len()),
+            };
+            let end_pos = pos + 8 + end_offset;
             return format!("{}href=\"#filepos_{}\"{}", &tag[..pos], digits, &tag[end_pos..]);
         }
     }
@@ -1158,6 +1196,108 @@ pub struct ChapterChunk {
     pub title: String,
     pub body: String,
 }
+
+/// Collects all `filepos` target offsets referenced in HTML markup.
+fn collect_filepos_targets(html: &str) -> BTreeSet<usize> {
+    let mut targets = BTreeSet::new();
+    let bytes = html.as_bytes();
+    for needle in [b"filepos=".as_slice(), b"filepos_".as_slice()] {
+        let mut i = 0;
+        while i + needle.len() <= bytes.len() {
+            if bytes[i..i + needle.len()].eq_ignore_ascii_case(needle) {
+                let mut j = i + needle.len();
+                while j < bytes.len() && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                    j += 1;
+                }
+                let start_digits = j;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j > start_digits {
+                    if let Ok(s) = std::str::from_utf8(&bytes[start_digits..j]) {
+                        if let Ok(num) = s.parse::<usize>() {
+                            targets.insert(num);
+                        }
+                    }
+                }
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    targets
+}
+
+/// Rewrites `#filepos_N` and `filepos="N"` references into `ch_XXXX.xhtml#filepos_N` cross-chapter links.
+fn prefix_cross_chapter_links(html: &str, filepos_to_chapter: &HashMap<usize, String>) -> String {
+    let mut out = String::with_capacity(html.len() + 256);
+    let mut i = 0;
+    while i < html.len() {
+        if html[i..].starts_with("href=\"#filepos_") {
+            let needle_len = "href=\"#filepos_".len();
+            let val_start = i + needle_len;
+            let digits: String = html[val_start..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !digits.is_empty() {
+                if let Ok(num) = digits.parse::<usize>() {
+                    let ch_file = filepos_to_chapter.get(&num).map(|s| s.as_str()).unwrap_or("");
+                    out.push_str("href=\"");
+                    out.push_str(ch_file);
+                    out.push_str("#filepos_");
+                    out.push_str(&digits);
+                    i = val_start + digits.len();
+                    continue;
+                }
+            }
+        } else if ci_starts_at(html, i, "filepos=") {
+            let needle_len = "filepos=".len();
+            let rest = &html[i + needle_len..];
+            let digits: String = rest
+                .chars()
+                .skip_while(|&c| c == '"' || c == '\'')
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !digits.is_empty() {
+                if let Ok(num) = digits.parse::<usize>() {
+                    let ch_file = filepos_to_chapter.get(&num).map(|s| s.as_str()).unwrap_or("");
+                    out.push_str("href=\"");
+                    out.push_str(ch_file);
+                    out.push_str("#filepos_");
+                    out.push_str(&digits);
+                    out.push('"');
+                    let quote = rest.chars().next();
+                    let end_offset = match quote {
+                        Some(q @ '"') | Some(q @ '\'') => {
+                            let q_len = q.len_utf8();
+                            rest[q_len..]
+                                .find(q)
+                                .map(|p| q_len + p + q_len)
+                                .unwrap_or(rest.len())
+                        }
+                        _ => rest
+                            .find(|c: char| c == '"' || c == '\'' || c.is_ascii_whitespace() || c == '>')
+                            .unwrap_or(rest.len()),
+                    };
+                    i = i + needle_len + end_offset;
+                    continue;
+                }
+            }
+        }
+        let next_cand = html[i + 1..]
+            .find(['h', 'H', 'f', 'F'])
+            .map(|p| i + 1 + p)
+            .unwrap_or(html.len());
+        let safe_end = next_boundary(html, next_cand);
+        out.push_str(&html[i..safe_end]);
+        i = safe_end;
+    }
+    out
+}
+
+
 
 /// Splits raw HTML into chapters and cleans up tags.
 pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
@@ -1196,15 +1336,14 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
         let mut sub_last = 0usize;
         let mut pos = 0usize;
         while pos < html.len() {
-            if ci_starts_at(html, pos, "<h1") || ci_starts_at(html, pos, "<h2") {
-                if pos > sub_last && (pos - sub_last) > 30 * 1024 {
+            if (ci_starts_at(html, pos, "<h1") || ci_starts_at(html, pos, "<h2"))
+                && pos > sub_last && (pos - sub_last) > 30 * 1024 {
                     let chunk = html[sub_last..pos].trim();
                     if !chunk.is_empty() {
                         sub_parts.push(chunk);
                     }
                     sub_last = pos;
                 }
-            }
             pos = next_boundary(html, pos + 1);
         }
         let rem = html[sub_last..].trim();
@@ -1220,13 +1359,65 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
         parts.push(html.trim());
     }
 
+    let all_targets = collect_filepos_targets(html);
+    let mut chapter_targets: Vec<Vec<usize>> = vec![Vec::new(); parts.len()];
+    let mut filepos_to_chapter: HashMap<usize, String> = HashMap::new();
+
+    for &target in &all_targets {
+        let ch_idx = parts
+            .iter()
+            .position(|part| {
+                let start = part.as_ptr() as usize - html.as_ptr() as usize;
+                let end = start + part.len();
+                target >= start && target < end
+            })
+            .unwrap_or_else(|| {
+                if parts.is_empty() {
+                    0
+                } else {
+                    let first_start = parts[0].as_ptr() as usize - html.as_ptr() as usize;
+                    if target < first_start {
+                        0
+                    } else {
+                        parts.len() - 1
+                    }
+                }
+            });
+
+        chapter_targets[ch_idx].push(target);
+        filepos_to_chapter.insert(target, format!("ch_{:04}.xhtml", ch_idx + 1));
+    }
+
     let mut result = Vec::with_capacity(parts.len());
     for (idx, &part) in parts.iter().enumerate() {
-        let title = extract_chapter_title(part, idx + 1);
-        let cleaned_body = clean_chapter_body(part);
+        let part_start = part.as_ptr() as usize - html.as_ptr() as usize;
+        let mut tgts = chapter_targets[idx].clone();
+        tgts.sort_unstable_by(|a, b| b.cmp(a));
+        tgts.dedup();
+
+        let mut body_str = part.to_string();
+        for target in tgts {
+            let rel_pos = target.saturating_sub(part_start).min(body_str.len());
+            let safe_pos = next_boundary(&body_str, rel_pos);
+            let insert_idx = if let Some(last_lt) = body_str[..safe_pos].rfind('<') {
+                if last_lt < safe_pos && !body_str[last_lt..safe_pos].contains('>') {
+                    body_str[safe_pos..].find('>').map(|gt| safe_pos + gt + 1).unwrap_or(safe_pos)
+                } else {
+                    safe_pos
+                }
+            } else {
+                safe_pos
+            };
+            let anchor = format!("<span id=\"filepos_{}\"></span>", target);
+            body_str.insert_str(insert_idx, &anchor);
+        }
+
+        let title = extract_chapter_title(&body_str, idx + 1);
+        let cleaned_body = clean_chapter_body(&body_str);
+        let final_body = prefix_cross_chapter_links(&cleaned_body, &filepos_to_chapter);
         result.push(ChapterChunk {
             title,
-            body: cleaned_body,
+            body: final_body,
         });
     }
 
@@ -1266,12 +1457,31 @@ fn extract_chapter_title(text: &str, num: usize) -> String {
 /// Sanitizes an HTML element tag by stripping inline event handlers (on*) and dangerous URI schemes.
 fn sanitize_html_tag(tag: &str) -> String {
     let lower = tag.to_ascii_lowercase();
-    if !lower.contains(" on")
-        && !lower.contains("javascript:")
-        && !lower.contains("vbscript:")
-        && !lower.contains("data:text/html")
     {
-        return tag.to_string();
+        let needs_sanitize = lower.contains("javascript:")
+            || lower.contains("vbscript:")
+            || lower.contains("data:text/html");
+        let has_event_handler = lower.contains("on")
+            && {
+                // Check if "on" appears as an attribute name (preceded by whitespace, /, or tag-start)
+                let bytes = lower.as_bytes();
+                let mut found = false;
+                for i in 0..bytes.len().saturating_sub(2) {
+                    if bytes[i + 1] == b'o' && bytes[i + 2] == b'n' {
+                        let sep = bytes[i];
+                        if sep == b' ' || sep == b'\t' || sep == b'\n' || sep == b'\r'
+                            || sep == b'\x0c' || sep == b'/' || sep == b'<'
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                found
+            };
+        if !needs_sanitize && !has_event_handler {
+            return tag.to_string();
+        }
     }
     let is_self_closing = tag.ends_with("/>");
     let inner = if is_self_closing {
@@ -1279,7 +1489,10 @@ fn sanitize_html_tag(tag: &str) -> String {
     } else {
         &tag[1..tag.len() - 1]
     };
-    let tag_name = inner.split_whitespace().next().unwrap_or("");
+    let tag_name_end = inner
+        .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        .unwrap_or(inner.len());
+    let tag_name = &inner[..tag_name_end];
     if tag_name.is_empty() {
         return tag.to_string();
     }
@@ -1294,12 +1507,18 @@ fn sanitize_html_tag(tag: &str) -> String {
         let name_end = trimmed
             .find(|c: char| c.is_whitespace() || c == '=' || c == '/' || c == '>')
             .unwrap_or(trimmed.len());
+        if name_end == 0 {
+            // Skip non-attribute delimiter (e.g. '/' in self-closing tags)
+            let next_idx = trimmed.char_indices().nth(1).map(|(i, _)| i).unwrap_or(trimmed.len());
+            rest = &trimmed[next_idx..];
+            continue;
+        }
         let attr_name = &trimmed[..name_end];
         let after_name = trimmed[name_end..].trim_start();
-        if after_name.starts_with('=') {
-            let after_eq = after_name[1..].trim_start();
-            if after_eq.starts_with('"') {
-                let val_end = after_eq[1..].find('"').map(|idx| idx + 2).unwrap_or(after_eq.len());
+        if let Some(stripped) = after_name.strip_prefix('=') {
+            let after_eq = stripped.trim_start();
+            if let Some(stripped_quote) = after_eq.strip_prefix('"') {
+                let val_end = stripped_quote.find('"').map(|idx| idx + 2).unwrap_or(after_eq.len());
                 let attr_val = &after_eq[..val_end];
                 rest = &after_eq[val_end..];
                 let attr_lower = attr_name.to_lowercase();
@@ -1314,8 +1533,8 @@ fn sanitize_html_tag(tag: &str) -> String {
                     clean_attrs.push('=');
                     clean_attrs.push_str(attr_val);
                 }
-            } else if after_eq.starts_with('\'') {
-                let val_end = after_eq[1..].find('\'').map(|idx| idx + 2).unwrap_or(after_eq.len());
+            } else if let Some(stripped_single) = after_eq.strip_prefix('\'') {
+                let val_end = stripped_single.find('\'').map(|idx| idx + 2).unwrap_or(after_eq.len());
                 let attr_val = &after_eq[..val_end];
                 rest = &after_eq[val_end..];
                 let attr_lower = attr_name.to_lowercase();
@@ -1366,6 +1585,21 @@ fn sanitize_html_tag(tag: &str) -> String {
     }
 }
 
+fn find_tag_end(text: &str) -> Option<usize> {
+    let mut in_quote: Option<u8> = None;
+    for (idx, b) in text.bytes().enumerate() {
+        match (b, in_quote) {
+            (b'"', None) => in_quote = Some(b'"'),
+            (b'"', Some(b'"')) => in_quote = None,
+            (b'\'', None) => in_quote = Some(b'\''),
+            (b'\'', Some(b'\'')) => in_quote = None,
+            (b'>', None) => return Some(idx),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Cleans legacy Mobipocket tags and repairs void tags for XML compliance,
 /// while stripping scripts, dangerous embeds, and event handlers.
 fn clean_chapter_body(text: &str) -> String {
@@ -1374,29 +1608,34 @@ fn clean_chapter_body(text: &str) -> String {
 
     while i < text.len() {
         if text[i..].starts_with('<') {
-            let lower_rem = text[i..].to_ascii_lowercase();
             // Completely strip script tags and their inner content
-            if lower_rem.starts_with("<script") {
-                if let Some(close_idx) = lower_rem.find("</script") {
-                    if let Some(end_gt) = text[i + close_idx..].find('>') {
+            if ci_starts_at(text, i, "<script") {
+                if let Some(close_idx) = ci_find(&text[i..], "</script") {
+                    if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
                         i = i + close_idx + end_gt + 1;
                         continue;
                     }
                 }
-                break;
+                // Skip past unclosed "<script" tag rather than dropping the rest of the chapter
+                if let Some(open_gt) = find_tag_end(&text[i..]) {
+                    i += open_gt + 1;
+                } else {
+                    i += "<script".len();
+                }
+                continue;
             }
             // Completely strip iframe, object, embed tags
             let mut stripped_tag = false;
             for dangerous_tag in &["<iframe", "<object", "<embed"] {
-                if lower_rem.starts_with(dangerous_tag) {
+                if ci_starts_at(text, i, dangerous_tag) {
                     let close_tag = format!("</{}", &dangerous_tag[1..]);
-                    if let Some(close_idx) = lower_rem.find(&close_tag) {
-                        if let Some(end_gt) = text[i + close_idx..].find('>') {
+                    if let Some(close_idx) = ci_find(&text[i..], &close_tag) {
+                        if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
                             i = i + close_idx + end_gt + 1;
                             stripped_tag = true;
                             break;
                         }
-                    } else if let Some(self_close) = text[i..].find('>') {
+                    } else if let Some(self_close) = find_tag_end(&text[i..]) {
                         i = i + self_close + 1;
                         stripped_tag = true;
                         break;
@@ -1407,7 +1646,7 @@ fn clean_chapter_body(text: &str) -> String {
                 continue;
             }
 
-            if let Some(close) = text[i..].find('>') {
+            if let Some(close) = find_tag_end(&text[i..]) {
                 let tag_end = i + close + 1;
                 let tag = &text[i..tag_end];
                 let tag_lower = tag.to_ascii_lowercase();
@@ -1424,7 +1663,7 @@ fn clean_chapter_body(text: &str) -> String {
 
                 // Ensure void elements are self-closed
                 if (tag_lower.starts_with("<br") || tag_lower.starts_with("<hr")) && !tag.ends_with("/>") {
-                    let repaired = format!("{}/>", &tag[..tag.len() - 1].trim_end());
+                    let repaired = format!("{}/>", tag[..tag.len() - 1].trim_end());
                     out.push_str(&sanitize_html_tag(&repaired));
                     i = tag_end;
                     continue;
@@ -1444,3 +1683,179 @@ fn clean_chapter_body(text: &str) -> String {
 
     out
 }
+
+#[cfg(test)]
+mod mobi_fix_tests {
+    use super::*;
+
+    #[test]
+    fn test_fix1_sanitize_html_tag_no_infinite_loop() {
+        // Trailing delimiter '/' in self-closing or malformed tags must not cause an infinite loop
+        let res1 = sanitize_html_tag("<br />");
+        assert!(res1.starts_with("<br"));
+
+        let res2 = sanitize_html_tag("<hr/>");
+        assert!(res2.starts_with("<hr"));
+
+        let res3 = sanitize_html_tag("<img / >");
+        assert!(res3.starts_with("<img"));
+
+        let res4 = sanitize_html_tag("<div class=\"test\" / >");
+        assert!(res4.contains("class=\"test\""));
+    }
+
+    #[test]
+    fn test_fix2_sanitize_html_tag_xss_bypass() {
+        // Event handlers separated by slash, tab, newline, carriage return, form feed
+        let xss1 = sanitize_html_tag("<img/onerror=alert(1)>");
+        assert!(
+            !xss1.to_ascii_lowercase().contains("onerror"),
+            "Failed to strip slash-separated onerror: {}",
+            xss1
+        );
+
+        let xss2 = sanitize_html_tag("<div\tonclick=alert(1)>");
+        assert!(
+            !xss2.to_ascii_lowercase().contains("onclick"),
+            "Failed to strip tab-separated onclick: {}",
+            xss2
+        );
+
+        let xss3 = sanitize_html_tag("<a\nonload=alert(1)>");
+        assert!(
+            !xss3.to_ascii_lowercase().contains("onload"),
+            "Failed to strip newline-separated onload: {}",
+            xss3
+        );
+
+        let xss4 = sanitize_html_tag("<p\x0conerror=alert(1)>");
+        assert!(
+            !xss4.to_ascii_lowercase().contains("onerror"),
+            "Failed to strip formfeed-separated onerror: {}",
+            xss4
+        );
+
+        // Safe tags containing "on" in attribute or tag name must not be mangled
+        let safe1 = sanitize_html_tag("<button type=\"button\">");
+        assert!(safe1.contains("button"));
+
+        let safe2 = sanitize_html_tag("<span font-weight=\"bold\">");
+        assert!(safe2.contains("font-weight"));
+    }
+
+    #[test]
+    fn test_fix3_rewrite_img_tag_safe_slice() {
+        let map1 = HashMap::new();
+        let map0 = HashMap::new();
+
+        // Must not panic when src= has nothing or end-of-string
+        let r1 = rewrite_img_tag("<img src=>", &map1, &map0);
+        assert!(!r1.is_empty());
+
+        let r2 = rewrite_img_tag("<img src=", &map1, &map0);
+        assert!(!r2.is_empty());
+
+        let r3 = rewrite_img_tag("<img src=\"", &map1, &map0);
+        assert!(!r3.is_empty());
+
+        // Multibyte UTF-8 before or inside tag
+        let mut map_with_img = HashMap::new();
+        map_with_img.insert(1, "images/img_0001.jpg".to_string());
+        let r4 = rewrite_img_tag(
+            "<img alt=\"Café cr\u{e8}me \u{4f60}\u{597d}\" recindex=\"1\">",
+            &map_with_img,
+            &map0,
+        );
+        assert!(r4.contains("src=\"images/img_0001.jpg\""));
+    }
+
+    #[test]
+    fn test_fix4_filepos_anchors_and_cross_chapter_links() {
+        // Multi-chapter HTML with filepos links pointing across chapters
+        let ch1 = "<h1>Chapter 1</h1><p><a filepos=\"0000000060\">Go to Ch2</a></p>";
+        let pagebreak = "<mbp:pagebreak/>";
+        let ch2 = "<h1>Chapter 2</h1><p>Welcome to chapter 2 content.</p>";
+
+        // Target offset points to start of Chapter 2
+        let ch2_offset = ch1.len() + pagebreak.len();
+        let full_html_with_exact_pos = format!(
+            "<h1>Chapter 1</h1><p><a filepos=\"{:010}\">Go to Ch2</a></p>{}{}",
+            ch2_offset, pagebreak, ch2
+        );
+
+        let chunks = split_into_chapters(&full_html_with_exact_pos);
+        assert_eq!(chunks.len(), 2);
+
+        // Ch1 should contain a cross-chapter link to ch_0002.xhtml#filepos_...
+        assert!(
+            chunks[0].body.contains("ch_0002.xhtml#filepos_"),
+            "Ch1 missing cross-chapter link prefix: {}",
+            chunks[0].body
+        );
+
+        // Ch2 should contain the matching anchor target <span id="filepos_...">
+        assert!(
+            chunks[1].body.contains("<span id=\"filepos_"),
+            "Ch2 missing anchor target: {}",
+            chunks[1].body
+        );
+    }
+
+    #[test]
+    fn test_fix5_rewrite_a_tag_no_attr_corruption() {
+        // Quoted filepos attribute must not duplicate quote or digits
+        let tag1 = "<a filepos=\"12345\" class=\"button\">";
+        let rew1 = rewrite_a_tag(tag1);
+        assert_eq!(rew1, "<a href=\"#filepos_12345\" class=\"button\">");
+
+        let tag2 = "<a filepos='67890' id=\"link1\">";
+        let rew2 = rewrite_a_tag(tag2);
+        assert_eq!(rew2, "<a href=\"#filepos_67890\" id=\"link1\">");
+
+        // Unquoted filepos attribute
+        let tag3 = "<a filepos=54321 class=\"button\">";
+        let rew3 = rewrite_a_tag(tag3);
+        assert_eq!(rew3, "<a href=\"#filepos_54321\" class=\"button\">");
+
+        let tag4 = "<a filepos=99999>";
+        let rew4 = rewrite_a_tag(tag4);
+        assert_eq!(rew4, "<a href=\"#filepos_99999\">");
+    }
+
+    #[test]
+    fn test_fix6_clean_chapter_body_unclosed_script() {
+        let input = "<h1>Title</h1><script>malicious_code();<p>Important paragraph after script</p>";
+        let cleaned = clean_chapter_body(input);
+        assert!(
+            cleaned.contains("Important paragraph after script"),
+            "Content following unclosed script was dropped: {}",
+            cleaned
+        );
+        assert!(
+            !cleaned.to_ascii_lowercase().contains("<script"),
+            "Script tag was not stripped: {}",
+            cleaned
+        );
+    }
+
+    #[test]
+    fn test_clean_chapter_body_quote_aware_tag_end() {
+        let input = r#"<p><img alt="foo>bar" onerror="alert(1)">Hello</p>"#;
+        let cleaned = clean_chapter_body(input);
+        assert!(!cleaned.contains("onerror"), "onerror must be stripped: {}", cleaned);
+        assert!(cleaned.contains(r#"alt="foo>bar""#), "alt attribute with > was truncated: {}", cleaned);
+        assert!(cleaned.contains("Hello"), "tag body text missing: {}", cleaned);
+    }
+
+    #[test]
+    fn test_clean_chapter_body_case_insensitive_dangerous_tags() {
+        let input = "<IFRAME src=\"evil.com\"></IFRAME><OBJECT data=\"bad\"></OBJECT><EMBED src=\"x\"></EMBED><p>Safe</p>";
+        let cleaned = clean_chapter_body(input);
+        assert!(!cleaned.to_ascii_lowercase().contains("iframe"));
+        assert!(!cleaned.to_ascii_lowercase().contains("object"));
+        assert!(!cleaned.to_ascii_lowercase().contains("embed"));
+        assert!(cleaned.contains("<p>Safe</p>"));
+    }
+}
+
+

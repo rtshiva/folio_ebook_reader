@@ -8,6 +8,7 @@
 // fallthroughs, shadowed state) without reformatting existing code.
 import html from 'eslint-plugin-html';
 import globals from 'globals';
+import security from 'eslint-plugin-security';
 
 const htmlScriptRules = {
   languageOptions: {
@@ -114,6 +115,20 @@ export default [
       ...htmlScriptRules.rules,
       'no-undef': 'error',
       'no-console': 'off',
+    },
+  },
+
+  {
+    plugins: { security },
+    rules: {
+      'security/detect-object-injection': 'warn',
+      'security/detect-non-literal-regexp': 'warn',
+      'security/detect-unsafe-regex': 'warn',
+      'security/detect-buffer-noassert': 'warn',
+      'security/detect-eval-with-expression': 'error',
+      'security/detect-no-csrf-before-method-override': 'warn',
+      'security/detect-possible-timing-attacks': 'warn',
+      'security/detect-pseudoRandomBytes': 'warn',
     },
   },
 

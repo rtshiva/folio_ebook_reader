@@ -14,7 +14,7 @@ tauri_epub_reader/tests/e2e/artifacts/
 voice_testing/
 .audit_chunks/
 
-# Local-only Piper TTS bundle (~382MB exe + onnx models), bundled via
+# Local-only Piper / KittenTTS neural voice bundle, bundled via
 # tauri.conf.json resources; fetch/install manually, never commit
 tauri_epub_reader/bin/
 
@@ -31,3 +31,18 @@ vintage-corner-vector-set*
 rich_ebook_ornaments/
 tauri_epub_reader/tests/manual/orn-extracted.json
 tauri_epub_reader/tests/manual/orn-final.json
+
+# Python environments & caches
+__pycache__/
+*.py[cod]
+venv*/
+.venv/
+
+# ML model weights & caches
+*.onnx
+*.safetensors
+*.pt
+*.bin
+hf/
+uvcache/
+.uv_cache/

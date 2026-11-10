@@ -6,21 +6,23 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "test": "npm run test:rust && npm run test:e2e",
+    "lint": "eslint .",
+    "scan": "node tests/scan-file-handling.mjs",
+    "test": "npm run test:rust && npm run scan && npm run test:e2e",
     "test:e2e": "playwright test",
     "test:rust": "cd src-tauri && cargo test"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.11.1",
     "kitten-tts-js": "^0.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2.11.5",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-plugin-html": "^8.2.1",
+    "eslint-plugin-security": "^4.2.1",
     "http-server": "^14.1.1",
     "playwright": "^1.63.0"
   }

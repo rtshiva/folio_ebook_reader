@@ -669,7 +669,7 @@ body.dropping #drop{display:block}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 
 /* ---------- reading guide ---------- */
-#guide{position:fixed;left:0;right:0;height:84px;top:-300px;z-index:26;pointer-events:none;opacity:0;transition:opacity .25s;
+#guide{position:fixed;left:0;right:0;height:84px;top:0;transform:translateY(-300px);will-change:transform;z-index:26;pointer-events:none;opacity:0;transition:opacity .25s;
   background:color-mix(in srgb,var(--accent) 15%,transparent);
   border-top:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
   border-bottom:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
@@ -845,7 +845,7 @@ body.at-end #finis{visibility:visible;opacity:.7}
   background:transparent;
 }
 body.turning .arrow{opacity:0!important;pointer-events:none}
-body.autoscroll, body.autcroll *{cursor:ns-resize!important}
+body.autoscroll, body.autoscroll *{cursor:ns-resize!important}
 body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;height:14px;margin:-7px;
   border:2px solid var(--ink);border-radius:50%;z-index:130;pointer-events:none;opacity:.7}
 
@@ -1747,6 +1747,10 @@ function sanitizeDomNode(root){
     for(let i = el.attributes.length - 1; i >= 0; i--){
       const attr = el.attributes[i];
       const name = attr.name.toLowerCase();
+      if(name === 'style'){
+        el.removeAttribute('style');
+        continue;
+      }
       // Strip control chars and whitespace to prevent obfuscated scheme bypasses (e.g. java\tscript:)
       const val = attr.value.replace(/[\u0000-\u0020]/g, '').toLowerCase();
       if(name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')){
@@ -1771,7 +1775,10 @@ function sanitizeChapterHtml(rawHtml){
   if(!rawHtml || typeof rawHtml !== 'string') return '';
   return rawHtml
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/[\s\/]+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\bhref\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'href="#"')
+    .replace(/\bsrc\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'src=""')
+    .replace(/<base\b[^>]*>/gi, '')
     .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
     .replace(/<(object|embed)\b[^<]*(?:(?!<\/(object|embed)>)<[^<]*)*<\/(object|embed)>/gi, '');
 }
@@ -2510,7 +2517,7 @@ const StoreKV = {
       try{ localStorage.setItem('folio-' + k, JSON.stringify(v)); }catch(e){}
       return;
     }
-    this.idbPut(k, v);
+    this.idbPut(k, v).catch(() => {});
   },
   del(k){
     this.mem.delete(k);
@@ -2793,6 +2800,10 @@ async function closeBook(){
   if(typeof _fpPending !== 'undefined') _fpPending = false;
   if(typeof AutoScroll !== 'undefined') AutoScroll.stop();
   if(typeof TTS !== 'undefined' && TTS.active) TTS.stop(true);
+  if(Array.isArray(snapPool)){
+    for(const f of snapPool){ try { if(f && f.parentNode) f.parentNode.removeChild(f); if(f && f.box && f.box.parentNode) f.box.parentNode.removeChild(f.box); } catch(e){} }
+    snapPool.length = 0;
+  }
   // A close can land mid-turn (open another book from recents while the fold
   // is animating): park the gesture, its capture overlay, and every turn
   // flag/queue so nothing completes against the incoming book.
@@ -3151,6 +3162,7 @@ async function cacheBookCover(book, title){
     cv.width = Math.max(1, Math.round(img.naturalWidth * scale));
     cv.height = Math.max(1, Math.round((img.naturalHeight || 300) * scale));
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    try{ URL.revokeObjectURL(url); }catch(e){}
     const dataUrl = cv.toDataURL('image/jpeg', 0.8);
     const list = getRecents();
     const rec = list.find(x => x.title === title);
@@ -3211,6 +3223,14 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
         state.posKey = 'pos:'+realTitle;
+        const oldKey = 'pos:'+initialTitle;
+        const newKey = 'pos:'+realTitle;
+        if (oldKey !== newKey) {
+          const saved = StoreKV.get(oldKey) || localStorage.getItem(oldKey);
+          if (saved && !StoreKV.get(newKey)) {
+            StoreKV.set(newKey, saved);
+          }
+        }
         // Real title known: retry per-book typography under the right key.
         if(settings.perBookType && realTitle !== initialTitle) loadPerBookType(realTitle);
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
@@ -3642,39 +3662,59 @@ function wireContents(contents){
     try{
       const a = e.target.closest && e.target.closest('a');
       if(a){
-        const href = (a.getAttribute('href') || '').trim();
-        const rel = (a.getAttribute('epub:type') || a.getAttribute('role') || a.getAttribute('rel') || '').toLowerCase();
-        const id = href.startsWith('#') ? decodeURIComponent(href.slice(1)) : '';
-        const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '') || /^(fn|note|footnote)/i.test(id);
-        if(href.startsWith('#') && isNoteRef){
-          const t = d.getElementById(id) || d.querySelector(href);
-          if(t && t.textContent.trim()){
-            e.preventDefault(); e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
+        const rawHref = (a.getAttribute('href') || '').trim();
+        if(!rawHref) return;
+
+        // Internal footnote or same-doc anchor navigation
+        if(rawHref.startsWith('#')){
+          const id = decodeURIComponent(rawHref.slice(1));
+          const rel = (a.getAttribute('epub:type') || a.getAttribute('role') || a.getAttribute('rel') || '').toLowerCase();
+          const isNoteRef = /(^|\s)(noteref|doc-noteref|footnote)(\s|$)/.test(rel) || /(^|\s)(noteref|footnote)(-ref)?(\s|$)/i.test(a.className || '') || /^(fn|note|footnote)/i.test(id);
+          let t = null;
+          try{ t = d.getElementById(id) || (rawHref.length > 1 ? d.querySelector(rawHref) : null); }catch(_){}
+          if(isNoteRef && t && t.textContent.trim()){
             Footnotes.show(t, e.clientX || Highlights.lastPtr.x, e.clientY || Highlights.lastPtr.y);
             return;
           }
-        }
-        // Intercept external links or top-level window navigation
-        if(/^(https?:|mailto:)/i.test(href)){
-          e.preventDefault(); e.stopPropagation();
-          try{
-            if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){
-              window.__TAURI__.opener.openUrl(href);
-            } else if(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.shell.open){
-              window.__TAURI__.shell.open(href);
-            } else {
-              window.open(href, '_blank', 'noopener,noreferrer');
-            }
-          }catch(_){
-            window.open(href, '_blank', 'noopener,noreferrer');
+          if(t){
+            try{ t.scrollIntoView({ behavior: 'smooth' }); }catch(_){ try{ t.scrollIntoView(); }catch(__){} }
+          } else if(state.rendition){
+            try{ state.rendition.display(rawHref).catch(()=>{}); }catch(_){}
           }
           return;
         }
-        // Block dangerous schemes
-        if(/^javascript:/i.test(href) || /^data:/i.test(href) || /^file:/i.test(href) || /^vbscript:/i.test(href)){
-          e.preventDefault(); e.stopPropagation();
+
+        // Parse URL relative to document baseURI
+        let parsed;
+        try{ parsed = new URL(rawHref, d.baseURI); }catch(_){ return; }
+
+        // External URLs: open via Tauri opener, shell, or browser window
+        if((parsed.protocol === 'https:' || parsed.protocol === 'http:' || parsed.protocol === 'mailto:') && parsed.hostname !== 'folio-cache.localhost'){
+          try{
+            if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){
+              window.__TAURI__.opener.openUrl(parsed.href);
+            } else if(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.shell.open){
+              window.__TAURI__.shell.open(parsed.href);
+            } else {
+              window.open(parsed.href, '_blank', 'noopener,noreferrer');
+            }
+          }catch(_){
+            window.open(parsed.href, '_blank', 'noopener,noreferrer');
+          }
           return;
         }
+
+        // Internal chapter navigation / folio-cache
+        if(parsed.protocol === 'folio-cache:' || parsed.hostname === 'folio-cache.localhost' || parsed.protocol === 'blob:' || !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawHref)){
+          if(state.rendition){
+            try{ state.rendition.display(rawHref).catch(()=>{}); }catch(_){}
+          }
+          return;
+        }
+
+        // Any other schemes (ms-settings:, calc:, javascript:, data:, file:, etc.) are strictly dropped
+        return;
       }
       const im = e.target.closest && e.target.closest('img');
       if(im && (im.currentSrc || im.src)) Lightbox.open(im.currentSrc || im.src);
@@ -7532,7 +7572,7 @@ function setGuide(on){
   body.classList.toggle('guide-on',on);
   if(on){ toast('Reading guide on — it follows your pointer'); moveGuide(innerHeight/2); }
 }
-function moveGuide(y){ el('guide').style.top=(y-el('guide').offsetHeight/2)+'px'; }
+function moveGuide(y){ el('guide').style.transform=`translateY(${y-42}px)`; }
 addEventListener('pointermove',e=>{ if(settings.guide)moveGuide(e.clientY); },{passive:true});
 addEventListener('touchmove',e=>{ if(settings.guide&&e.touches[0])moveGuide(e.touches[0].clientY); },{passive:true});
 
@@ -7612,7 +7652,6 @@ const TTS = {
   engine: (function(){ try { return localStorage.getItem('fio_tts_engine') === 'kitten' ? 'kitten' : 'system'; } catch(e){ return 'system'; } })(),
   voice: (function(){ try { return localStorage.getItem('fio_tts_voice') || 'bella'; } catch(e){ return 'bella'; } })(),
   systemVoiceURI: (function(){ try { return localStorage.getItem('fio_tts_sysvoice') || ''; } catch(e){ return ''; } })(),
-  paused: false, stopped: true,
 
   /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
   toggle(){
@@ -7996,6 +8035,7 @@ const TTS = {
           this.srcNode = src; this.srcDone = false;
           src.onended = () => {
             this.srcDone = true;
+            try { src.disconnect(); } catch(e){}
             this.stopGroupHighlight();
             if(this.gen !== gu || this.stopped || !this.active) return;
             const lastSi = (endSi != null) ? endSi - 1 : this.si;
@@ -8307,22 +8347,47 @@ document.addEventListener('visibilitychange', () => {
 /* ---------------- page-turn sound (synthesized paper swish) ---------------- */
 const PageSound = {
   ctx: null,
+  playBuf: null,
+  midBuf: null,
+  getCtx(){
+    if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if(this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
+    return this.ctx;
+  },
+  getPlayBuf(ctx){
+    if(this.playBuf) return this.playBuf;
+    const dur = 0.22;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < d.length; i++){
+      const t = i / d.length;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * (t < 0.15 ? t / 0.15 : 1);
+    }
+    this.playBuf = buf;
+    return buf;
+  },
+  getMidBuf(ctx){
+    if(this.midBuf) return this.midBuf;
+    const dur = 0.12;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < d.length; i++){
+      const t = i / d.length;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3) * (t < 0.2 ? t / 0.2 : 1);
+    }
+    this.midBuf = buf;
+    return buf;
+  },
   play(){
     if(!settings.pageSound) return;
     try{
-      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
-      if(this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
-      const ctx = this.ctx, dur = 0.22;
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for(let i = 0; i < d.length; i++){
-        const t = i / d.length;
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.2) * (t < 0.15 ? t / 0.15 : 1);
-      }
+      const ctx = this.getCtx();
+      const buf = this.getPlayBuf(ctx);
       const src = ctx.createBufferSource(); src.buffer = buf;
       const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 0.6;
       const g = ctx.createGain(); g.gain.value = 0.1;
       src.connect(f); f.connect(g); g.connect(ctx.destination);
+      src.onended = () => { try { src.disconnect(); f.disconnect(); g.disconnect(); } catch(e){} };
       src.start();
     }catch(e){}
   },
@@ -8330,19 +8395,13 @@ const PageSound = {
   mid(){
     if(!settings.pageSound) return;
     try{
-      this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
-      if(this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
-      const ctx = this.ctx, dur = 0.12;
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for(let i = 0; i < d.length; i++){
-        const t = i / d.length;
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3) * (t < 0.2 ? t / 0.2 : 1);
-      }
+      const ctx = this.getCtx();
+      const buf = this.getMidBuf(ctx);
       const src = ctx.createBufferSource(); src.buffer = buf;
       const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3400; f.Q.value = 0.8;
       const g = ctx.createGain(); g.gain.value = 0.05;
       src.connect(f); f.connect(g); g.connect(ctx.destination);
+      src.onended = () => { try { src.disconnect(); f.disconnect(); g.disconnect(); } catch(e){} };
       src.start();
     }catch(e){}
   }
@@ -9878,17 +9937,33 @@ document.querySelectorAll('#selBar .sel-hl-quick').forEach(dot => dot.addEventLi
 // In-book search
 el('btnSearch').addEventListener('click', openSearch);
 el('searchClose').addEventListener('click', closeSearch);
+let searchDebounceTimer = null;
 el('searchClear').addEventListener('click', () => {
+  clearTimeout(searchDebounceTimer);
   el('searchInput').value = '';
   doSearch('');
   el('searchInput').focus();
 });
 el('searchInput').addEventListener('input', e => {
-  doSearch(e.target.value);
+  clearTimeout(searchDebounceTimer);
+  const q = e.target.value || '';
+  const clearBtn = el('searchClear');
+  if(clearBtn) clearBtn.classList.toggle('visible', q.trim().length > 0);
+  if(q.trim().length < 3){
+    if(!q.trim()) doSearch('');
+    return;
+  }
+  searchDebounceTimer = setTimeout(() => {
+    doSearch(q);
+  }, 250);
 });
 el('searchInput').addEventListener('keydown', e => {
   if(e.key === 'Escape'){ closeSearch(); e.stopPropagation(); }
-  if(e.key === 'Enter'){ e.preventDefault(); doSearch(e.target.value); }
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    if((e.target.value || '').trim().length >= 3) doSearch(e.target.value);
+  }
 });
 
 document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('click',()=>{

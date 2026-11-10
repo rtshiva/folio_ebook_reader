@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tauri::Manager;
 
@@ -35,7 +35,7 @@ fn first_epub_arg(args: impl IntoIterator<Item = String>) -> Option<String> {
 struct CachedBook {
     len: u64,
     mtime: Option<SystemTime>,
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
 }
 
 struct BookCacheInner {
@@ -51,8 +51,9 @@ impl BookCacheInner {
     }
 }
 
+#[derive(Clone)]
 pub struct BookCache {
-    inner: Mutex<BookCacheInner>,
+    inner: Arc<Mutex<BookCacheInner>>,
 }
 
 const BOOK_CACHE_MAX_ENTRIES: usize = 4;
@@ -67,29 +68,30 @@ impl Default for BookCache {
 impl BookCache {
     pub fn new(max_entries: usize, max_bytes: usize) -> Self {
         Self {
-            inner: Mutex::new(BookCacheInner {
+            inner: Arc::new(Mutex::new(BookCacheInner {
                 entries: HashMap::new(),
                 order: Vec::new(),
                 max_entries,
                 max_bytes,
-            }),
+            })),
         }
     }
 
     pub fn get(&self, path: &str, meta: &fs::Metadata) -> Option<Vec<u8>> {
-        let mut inner = self.inner.lock().ok()?;
-        let bytes = {
+        let bytes_arc = {
+            let mut inner = self.inner.lock().ok()?;
             let hit = inner.entries.get(path)?;
             if hit.len != meta.len() || hit.mtime != meta.modified().ok() {
                 return None; // file changed on disk — caller re-reads
             }
-            hit.bytes.clone()
+            let bytes = hit.bytes.clone();
+            if let Some(pos) = inner.order.iter().position(|p| p == path) {
+                let p = inner.order.remove(pos);
+                inner.order.push(p);
+            }
+            bytes
         };
-        if let Some(pos) = inner.order.iter().position(|p| p == path) {
-            let p = inner.order.remove(pos);
-            inner.order.push(p);
-        }
-        Some(bytes)
+        Some(Arc::try_unwrap(bytes_arc).unwrap_or_else(|a| (*a).clone()))
     }
 
     pub fn put(&self, path: String, meta: &fs::Metadata, bytes: Vec<u8>) {
@@ -111,7 +113,7 @@ impl BookCache {
         let entry = CachedBook {
             len: meta.len(),
             mtime: meta.modified().ok(),
-            bytes,
+            bytes: Arc::new(bytes),
         };
 
         inner.entries.insert(path.clone(), entry);
@@ -137,6 +139,10 @@ impl BookCache {
     pub fn len(&self) -> usize {
         self.inner.lock().map(|i| i.order.len()).unwrap_or(0)
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub const MAX_BOOK_FILE_BYTES: u64 = 512 * 1024 * 1024; // 512 MB
@@ -147,9 +153,26 @@ pub fn validate_book_path(path_str: &str) -> Result<PathBuf, String> {
         return Err("Invalid file path".to_string());
     }
     // Reject UNC / network shares to avoid SMB negotiation and credential leaking
-    if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+    if trimmed.starts_with(r"\\")
+        || trimmed.starts_with("//")
+        || trimmed.starts_with(r"/\")
+        || trimmed.starts_with(r"\/")
+        || trimmed.starts_with(r"\?")
+    {
         return Err("Network and UNC paths are not permitted".to_string());
     }
+
+    #[cfg(windows)]
+    {
+        let p = Path::new(trimmed);
+        if let Some(std::path::Component::Prefix(prefix)) = p.components().next() {
+            match prefix.kind() {
+                std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_) => {}
+                _ => return Err("Non-local drive paths are not permitted".to_string()),
+            }
+        }
+    }
+
     let lower = trimmed.to_lowercase();
     let is_valid_ext = lower.ends_with(".epub")
         || lower.ends_with(".mobi")
@@ -172,6 +195,11 @@ pub fn validate_book_path(path_str: &str) -> Result<PathBuf, String> {
             return Err("Alternate data streams and device paths are not permitted".to_string());
         }
     }
+    if let Ok(meta) = fs::symlink_metadata(trimmed) {
+        if meta.file_type().is_symlink() {
+            return Err("Symlinks are not permitted".to_string());
+        }
+    }
     let p = PathBuf::from(trimmed);
     if !p.is_file() {
         return Err("Path does not exist or is not a regular file".to_string());
@@ -180,32 +208,37 @@ pub fn validate_book_path(path_str: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-fn read_file_bytes(
+async fn read_file_bytes(
     path: String,
-    state: tauri::State<BookCache>,
+    state: tauri::State<'_, BookCache>,
 ) -> Result<tauri::ipc::Response, String> {
-    let clean_path = validate_book_path(&path)?;
-    let clean_str = clean_path.to_string_lossy().to_string();
-    // Open once and stat the handle: stat-then-read on the path alone lets a
-    // concurrent swap grow the file past the size cap between the two calls.
-    let mut file = fs::File::open(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
-    let meta = file.metadata().map_err(|e| format!("Failed to read file: {}", e))?;
-    if meta.len() > MAX_BOOK_FILE_BYTES {
-        return Err("File exceeds maximum allowable size (512 MB)".to_string());
-    }
-    if let Some(hit) = state.get(&clean_str, &meta) {
-        return Ok(tauri::ipc::Response::new(hit));
-    }
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    file.take(MAX_BOOK_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-    if bytes.len() as u64 > MAX_BOOK_FILE_BYTES {
-        return Err("File exceeds maximum allowable size (512 MB)".to_string());
-    }
-    state.put(clean_str, &meta, bytes.clone());
-    Ok(tauri::ipc::Response::new(bytes))
+    let cache = (*state).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_path = validate_book_path(&path)?;
+        let clean_str = clean_path.to_string_lossy().to_string();
+        // Open once and stat the handle: stat-then-read on the path alone lets a
+        // concurrent swap grow the file past the size cap between the two calls.
+        let file = fs::File::open(&clean_path).map_err(|e| format!("Failed to read file: {}", e))?;
+        let meta = file.metadata().map_err(|e| format!("Failed to read file: {}", e))?;
+        if meta.len() > MAX_BOOK_FILE_BYTES {
+            return Err("File exceeds maximum allowable size (512 MB)".to_string());
+        }
+        if let Some(hit) = cache.get(&clean_str, &meta) {
+            return Ok(tauri::ipc::Response::new(hit));
+        }
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        file.take(MAX_BOOK_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        if bytes.len() as u64 > MAX_BOOK_FILE_BYTES {
+            return Err("File exceeds maximum allowable size (512 MB)".to_string());
+        }
+        cache.put(clean_str, &meta, bytes.clone());
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -416,6 +449,39 @@ pub fn unzip_epub(
 const DISK_CACHE_MAX_BYTES: u64 = 600 * 1024 * 1024; // 600 MB
 const DISK_CACHE_MAX_BOOKS: usize = 30;
 
+pub static ACTIVE_READING_HASH: Mutex<Option<String>> = Mutex::new(None);
+static ACTIVE_BOOK_HASHES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+pub fn protect_book_hash(hash: &str) {
+    if let Ok(mut lock) = ACTIVE_BOOK_HASHES.lock() {
+        lock.get_or_insert_with(HashSet::new).insert(hash.to_string());
+    }
+}
+
+pub fn unprotect_book_hash(hash: &str) {
+    if let Ok(mut lock) = ACTIVE_BOOK_HASHES.lock() {
+        if let Some(set) = lock.as_mut() {
+            set.remove(hash);
+        }
+    }
+}
+
+pub fn is_book_hash_protected(hash: &str) -> bool {
+    ACTIVE_BOOK_HASHES
+        .lock()
+        .ok()
+        .and_then(|lock| lock.as_ref().map(|s| s.contains(hash)))
+        .unwrap_or(false)
+}
+
+struct HashProtectionGuard(String);
+
+impl Drop for HashProtectionGuard {
+    fn drop(&mut self) {
+        unprotect_book_hash(&self.0);
+    }
+}
+
 pub fn evict_disk_cache(
     cache_root: &Path,
     max_bytes: u64,
@@ -460,10 +526,17 @@ pub fn evict_disk_cache(
             total_books += 1;
             let bytes = dir_size(&p);
             total_bytes += bytes;
+            let dir_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if let Some(protect) = protect_dir_name {
-                if p.file_name().and_then(|n| n.to_str()) == Some(protect) {
+                if dir_name == protect {
                     continue;
                 }
+            }
+            if is_book_hash_protected(dir_name) {
+                continue;
+            }
+            if Some(dir_name) == ACTIVE_READING_HASH.lock().unwrap().as_deref() {
+                continue;
             }
             let atime = fs::read_to_string(p.join("atime"))
                 .ok()
@@ -498,75 +571,85 @@ pub fn evict_disk_cache(
 }
 
 #[tauri::command]
-fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
-    let clean_path = validate_book_path(&path)?;
-    let clean_str = clean_path.to_string_lossy().to_string();
-    let meta = fs::metadata(&clean_path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
-    if meta.len() > MAX_BOOK_FILE_BYTES {
-        return Err("Book file exceeds maximum allowable size (512 MB)".to_string());
-    }
-    let (hash, len, mtime_ms) = compute_book_key(&clean_str, &meta);
-    let cache_root = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("Cannot get app cache dir: {}", e))?
-        .join("folio-unzip");
-    let target_dir = cache_root.join(&hash);
+async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let clean_path = validate_book_path(&path)?;
+        let clean_str = clean_path.to_string_lossy().to_string();
+        let meta = fs::metadata(&clean_path).map_err(|e| format!("Cannot read file metadata: {}", e))?;
+        if meta.len() > MAX_BOOK_FILE_BYTES {
+            return Err("Book file exceeds maximum allowable size (512 MB)".to_string());
+        }
+        let (hash, len, mtime_ms) = compute_book_key(&clean_str, &meta);
+        let cache_root = app
+            .path()
+            .app_cache_dir()
+            .map_err(|e| format!("Cannot get app cache dir: {}", e))?
+            .join("folio-unzip");
+        let target_dir = cache_root.join(&hash);
 
-    let lower = clean_str.to_lowercase();
-    let is_mobi = lower.ends_with(".mobi") || lower.ends_with(".azw") || lower.ends_with(".azw3");
+        protect_book_hash(&hash);
+        let _guard = HashProtectionGuard(hash.clone());
+        *ACTIVE_READING_HASH.lock().unwrap() = Some(hash.clone());
 
-    let manifest_path = target_dir.join("manifest.json");
-    let manifest = if manifest_path.exists() {
-        match fs::read(&manifest_path).ok().and_then(|b| serde_json::from_slice::<BookManifest>(&b).ok()) {
-            Some(m) if !should_reunzip(Some(&m), len, mtime_ms) => {
-                // Cache hit! Touch atime
-                let now = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0);
-                let _ = fs::write(target_dir.join("atime"), now.to_string());
-                m
-            }
-            _ => {
-                let _ = fs::remove_dir_all(&target_dir);
-                fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
-                if is_mobi {
-                    mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
-                } else {
-                    unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
+        let lower = clean_str.to_lowercase();
+        let is_mobi = lower.ends_with(".mobi") || lower.ends_with(".azw") || lower.ends_with(".azw3");
+
+        let manifest_path = target_dir.join("manifest.json");
+        let manifest = if manifest_path.exists() {
+            match fs::read(&manifest_path).ok().and_then(|b| serde_json::from_slice::<BookManifest>(&b).ok()) {
+                Some(m) if !should_reunzip(Some(&m), len, mtime_ms) => {
+                    // Cache hit! Touch atime
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    let _ = fs::write(target_dir.join("atime"), now.to_string());
+                    m
+                }
+                _ => {
+                    let _ = fs::remove_dir_all(&target_dir);
+                    fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
+                    if is_mobi {
+                        mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
+                    } else {
+                        unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
+                    }
                 }
             }
-        }
-    } else {
-        fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
-        if is_mobi {
-            mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
         } else {
-            unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
-        }
-    };
+            fs::create_dir_all(&target_dir).map_err(|e| format!("Cannot create cache dir: {}", e))?;
+            if is_mobi {
+                mobi::unpack_mobi(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
+            } else {
+                unzip_epub(&clean_path, &target_dir, &clean_str, &meta, mtime_ms)?
+            }
+        };
 
-    // Spawn background eviction — debounced: rapid book_open calls must not
-    // stack eviction threads each walking the whole cache tree.
-    {
-        static EVICT_IN_FLIGHT: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
-        let evict_root = cache_root.clone();
-        let protect_hash = hash.clone();
-        if !EVICT_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::AcqRel) {
-            std::thread::spawn(move || {
-                evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
-                EVICT_IN_FLIGHT.store(false, std::sync::atomic::Ordering::Release);
-            });
+        // Spawn background eviction — debounced: rapid book_open calls must not
+        // stack eviction threads each walking the whole cache tree.
+        {
+            static EVICT_IN_FLIGHT: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            let evict_root = cache_root.clone();
+            let protect_hash = hash.clone();
+            if !EVICT_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                std::thread::spawn(move || {
+                    protect_book_hash(&protect_hash);
+                    evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
+                    unprotect_book_hash(&protect_hash);
+                    EVICT_IN_FLIGHT.store(false, std::sync::atomic::Ordering::Release);
+                });
+            }
         }
-    }
 
-    Ok(BookHandle {
-        hash,
-        cache_dir: target_dir.to_string_lossy().to_string(),
-        manifest,
+        Ok(BookHandle {
+            hash,
+            cache_dir: target_dir.to_string_lossy().to_string(),
+            manifest,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn percent_decode(s: &str) -> String {
@@ -1039,13 +1122,18 @@ pub fn run() {
                             // The top-window CSP does not apply inside these
                             // iframes (different origin). Restrict to what
                             // books legitimately use: local + inline styles,
-                            // images (https: matches the app-window policy).
+                            // images.
                             .header(
                                 "Content-Security-Policy",
-                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob: https:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'",
+                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost; base-uri 'none';",
                             )
                             .body(body)
-                            .unwrap()
+                            .unwrap_or_else(|_| {
+                                tauri::http::Response::builder()
+                                    .status(500)
+                                    .body(Vec::new())
+                                    .expect("500 response")
+                            })
                     }
                     Err(_) => {
                         tauri::http::Response::builder()
@@ -1880,6 +1968,9 @@ mod tests {
         // 2. Reject UNC / network paths
         assert!(validate_book_path(r"\\evil-server\share\book.epub").is_err());
         assert!(validate_book_path("//evil-server/share/book.epub").is_err());
+        assert!(validate_book_path(r"/\evil-server\share\book.epub").is_err());
+        assert!(validate_book_path(r"\/evil-server\share\book.epub").is_err());
+        assert!(validate_book_path(r"\?C:\book.epub").is_err());
 
         // 3. Reject non-ebook extensions
         let bad_ext = tmp.join("secrets.txt");
@@ -2047,5 +2138,63 @@ mod tests {
         assert!(capped.is_err(), "budget not enforced");
         // Capped at exactly the output size: ok
         assert_eq!(crate::mobi::decompress_palmdoc_capped(&data, 800).unwrap().len(), 800);
+    }
+
+    #[test]
+    fn test_u33_active_book_hash_protection_in_eviction() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_active_protect_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let book1 = tmp.join("hash_active_1");
+        let book2 = tmp.join("hash_stale_2");
+        fs::create_dir_all(&book1).unwrap();
+        fs::create_dir_all(&book2).unwrap();
+
+        fs::write(book1.join("atime"), "100").unwrap();
+        fs::write(book2.join("atime"), "200").unwrap();
+
+        protect_book_hash("hash_active_1");
+        assert!(is_book_hash_protected("hash_active_1"));
+
+        // Evict with max 1 book, protect_dir_name is None, but hash_active_1 is in ACTIVE_BOOK_HASHES
+        evict_disk_cache(&tmp, 1000000, 1, None);
+
+        // hash_active_1 was protected by global active set, so hash_stale_2 was evicted
+        assert!(book1.exists());
+        assert!(!book2.exists());
+
+        unprotect_book_hash("hash_active_1");
+        assert!(!is_book_hash_protected("hash_active_1"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u34_active_reading_hash_protection_in_eviction() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_active_read_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let book1 = tmp.join("reading_hash_1");
+        let book2 = tmp.join("stale_hash_2");
+        fs::create_dir_all(&book1).unwrap();
+        fs::create_dir_all(&book2).unwrap();
+
+        fs::write(book1.join("atime"), "100").unwrap();
+        fs::write(book2.join("atime"), "200").unwrap();
+
+        *ACTIVE_READING_HASH.lock().unwrap() = Some("reading_hash_1".to_string());
+
+        // Evict with max 1 book, protect_dir_name is None, but reading_hash_1 is ACTIVE_READING_HASH
+        evict_disk_cache(&tmp, 1000000, 1, None);
+
+        // reading_hash_1 was protected, so stale_hash_2 was evicted
+        assert!(book1.exists());
+        assert!(!book2.exists());
+
+        *ACTIVE_READING_HASH.lock().unwrap() = None;
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

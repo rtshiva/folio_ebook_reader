@@ -59,6 +59,18 @@ jobs:
         working-directory: tauri_epub_reader
         run: npm ci
 
+      - name: Run static scan
+        working-directory: tauri_epub_reader
+        run: node tests/scan-file-handling.mjs
+
+      - name: Clippy lint check
+        working-directory: tauri_epub_reader/src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Audit npm dependencies
+        working-directory: tauri_epub_reader
+        run: npm audit --audit-level=high || true
+
       - name: Run backend unit tests
         working-directory: tauri_epub_reader/src-tauri
         run: cargo test
@@ -71,6 +83,7 @@ jobs:
         working-directory: tauri_epub_reader/src-tauri/target/release
         run: |
           mkdir -p dist
+          VERSION=$(grep -oP '"version":\s*"\K[^"]+' ../../tauri.conf.json 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' src-tauri/tauri.conf.json)
           # Copy standalone portable executable
           if [ -f "app.exe" ]; then
             cp "app.exe" "dist/Folio.exe"
@@ -78,13 +91,13 @@ jobs:
           # Copy NSIS installer
           if compgen -G "bundle/nsis/*.exe" > /dev/null; then
             for f in bundle/nsis/*.exe; do
-              cp "$f" "dist/Folio_1.0.0_x64-setup.exe"
+              cp "$f" "dist/Folio_${VERSION}_x64-setup.exe"
             done
           fi
           # Copy MSI installer
           if compgen -G "bundle/msi/*.msi" > /dev/null; then
             for f in bundle/msi/*.msi; do
-              cp "$f" "dist/Folio_1.0.0_x64_en-US.msi"
+              cp "$f" "dist/Folio_${VERSION}_x64_en-US.msi"
             done
           fi
           echo "Release artifacts:"
