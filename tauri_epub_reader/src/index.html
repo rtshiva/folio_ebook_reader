@@ -1773,14 +1773,44 @@ function sanitizeDomNode(root){
 
 function sanitizeChapterHtml(rawHtml){
   if(!rawHtml || typeof rawHtml !== 'string') return '';
-  return rawHtml
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/[\s\/]+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\bhref\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'href="#"')
-    .replace(/\bsrc\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, 'src=""')
-    .replace(/<base\b[^>]*>/gi, '')
-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-    .replace(/<(object|embed)\b[^<]*(?:(?!<\/(object|embed)>)<[^<]*)*<\/(object|embed)>/gi, '');
+  try{
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHtml, 'text/html');
+    if(!doc || !doc.body) return '';
+
+    const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META'];
+    const removeNodes = [];
+
+    const walker = doc.createTreeWalker(doc.documentElement, NodeFilter.SHOW_ELEMENT, null);
+    let node = walker.currentNode;
+    while(node){
+      if(FORBIDDEN_TAGS.includes(node.nodeName)){
+        removeNodes.push(node);
+      } else {
+        // Strip dangerous attributes
+        if(node.attributes){
+          for(let i = node.attributes.length - 1; i >= 0; i--){
+            const attr = node.attributes[i];
+            const name = attr.name.toLowerCase();
+            const val = attr.value.replace(/[\u0000-\u0020]/g, '').toLowerCase();
+            if(name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')){
+              node.removeAttribute(attr.name);
+            }
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+
+    for(const n of removeNodes){
+      if(n.parentNode) n.parentNode.removeChild(n);
+    }
+
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }catch(e){
+    // Fallback in case of parse failure
+    return rawHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  }
 }
 
 /* ---------------- settings ---------------- */
@@ -3148,6 +3178,9 @@ async function sanitizeEpubEntities(buf){
 async function cacheBookCover(book, title){
   try{
     if(!book || !book.coverUrl || !title || title === 'Untitled') return;
+    const titleKey = title;
+    const thumbKey = 'thumb:' + titleKey;
+    if(typeof StoreKV !== 'undefined' && StoreKV.get(thumbKey)) return;
     const url = await book.coverUrl();
     if(!url || !isSafeImageUrl(String(url))) return;
     const img = await new Promise((res, rej) => {
@@ -3164,10 +3197,14 @@ async function cacheBookCover(book, title){
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
     try{ URL.revokeObjectURL(url); }catch(e){}
     const dataUrl = cv.toDataURL('image/jpeg', 0.8);
+    if(typeof StoreKV !== 'undefined' && StoreKV.set){
+      StoreKV.set(thumbKey, dataUrl);
+    }
     const list = getRecents();
     const rec = list.find(x => x.title === title);
-    if(rec && rec.thumb !== dataUrl){
-      rec.thumb = dataUrl;
+    if(rec){
+      rec.thumbKey = thumbKey;
+      rec.thumb = null;
       try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
       renderRecentShelf();
     }
@@ -3201,7 +3238,10 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     el('bookTitle').textContent = initialTitle;
     el('bookTitle').setAttribute('title', initialTitle);
-    state.posKey = 'pos:'+initialTitle;
+    const bookIdentifier = (opts && opts.url && opts.url.match(/folio-cache[/:]([a-f0-9_]+)/i))
+      ? RegExp.$1
+      : (filePath ? filePath.replace(/[^a-zA-Z0-9_-]/g, '_') : initialTitle);
+    state.posKey = 'pos:' + initialTitle + ':' + bookIdentifier;
     loadPerBookType(initialTitle);
 
     // Cache to IndexedDB asynchronously (skipped for very large files)
@@ -3222,13 +3262,20 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
         if(meta.creator) state.currentAuthor = meta.creator.trim();
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
-        state.posKey = 'pos:'+realTitle;
-        const oldKey = 'pos:'+initialTitle;
-        const newKey = 'pos:'+realTitle;
+        const oldKey = state.posKey;
+        const newKey = 'pos:' + realTitle + ':' + bookIdentifier;
+        state.posKey = newKey;
         if (oldKey !== newKey) {
           const saved = StoreKV.get(oldKey) || localStorage.getItem(oldKey);
           if (saved && !StoreKV.get(newKey)) {
             StoreKV.set(newKey, saved);
+          }
+        }
+        if (!StoreKV.get(newKey)) {
+          const legacyRealKey = 'pos:' + realTitle;
+          const legacySaved = StoreKV.get(legacyRealKey) || localStorage.getItem(legacyRealKey) || localStorage.getItem('folio-' + legacyRealKey);
+          if (legacySaved) {
+            StoreKV.set(newKey, legacySaved);
           }
         }
         // Real title known: retry per-book typography under the right key.
@@ -3274,7 +3321,15 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     let target = targetCfi || 0;
     if(!targetCfi){
-      try{ const saved=StoreKV.get(state.posKey); if(saved) target=saved; }catch(e){}
+      try{
+        let saved = StoreKV.get(state.posKey);
+        if(!saved){
+          const legacyKey = 'pos:' + initialTitle;
+          saved = StoreKV.get(legacyKey) || localStorage.getItem(legacyKey) || localStorage.getItem('folio-' + legacyKey);
+          if(saved) StoreKV.set(state.posKey, saved);
+        }
+        if(saved) target=saved;
+      }catch(e){}
     }
 
     body.classList.add('state-reading');
@@ -3315,7 +3370,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     // Feature 2: smart resume — show context snippet from last session
     else if(target && typeof target === 'string'){
       try{
-        const ctx = StoreKV.get(state.posKey + ':ctx') || null;
+        const ctx = StoreKV.get(state.posKey + ':ctx') || StoreKV.get('pos:' + initialTitle + ':ctx') || null;
         if(ctx && ctx.text){
           const snip = ctx.text.length > 60 ? ctx.text.slice(0, 60).trimEnd() + '…' : ctx.text;
           toast('You were reading: "' + snip + '"' + (ctx.chapter ? ' — ' + ctx.chapter : ''));
@@ -3863,23 +3918,31 @@ const LocEngine = {
 
   key(title){ return this.KEY_PREFIX + title; },
 
-  load(title){
+  fetch(title){
     try{
-      const raw = localStorage.getItem(this.key(title));
-      if(!raw) return null;
-      const d = JSON.parse(raw);
-      if(!d || !Array.isArray(d.locations) || !d.locations.length) return null;
-      return d;
+      let d = (typeof StoreKV !== 'undefined' && StoreKV.get) ? StoreKV.get(this.key(title)) : null;
+      if(!d){
+        const s = localStorage.getItem(this.key(title));
+        d = s ? JSON.parse(s) : null;
+      }
+      return (d && Array.isArray(d.locations) && d.locations.length) ? d : null;
     }catch(e){ return null; }
+  },
+
+  load(title){
+    return this.fetch(title);
   },
 
   store(d){
     try{
-      const json = JSON.stringify(d);
-      // A location list is roughly 60 chars per entry — books >2000 pages may
-      // not fit; failure is harmless, we just regenerate next time.
-      localStorage.setItem(this.key(d.title), json);
-    }catch(e){}
+      if(typeof StoreKV !== 'undefined' && StoreKV.ready && !StoreKV.failed){
+        StoreKV.set(this.key(d.title), d);
+      } else {
+        localStorage.setItem(this.key(d.title), JSON.stringify(d));
+      }
+    }catch(e){
+      try{ localStorage.setItem(this.key(d.title), JSON.stringify(d)); }catch(e2){}
+    }
   },
 
   /* Restore a persisted list; returns true when global paging is live. */
@@ -4592,10 +4655,16 @@ function getRecents(){
 function updateRecentThumb(title, thumb){
   if(!title || !thumb) return;
   try{
+    const titleKey = title;
+    const thumbKey = 'thumb:' + titleKey;
+    if(typeof StoreKV !== 'undefined' && StoreKV.set){
+      StoreKV.set(thumbKey, thumb);
+    }
     const list = getRecents();
     const it = list.find(x => x.title === title);
-    if(!it || it.thumb === thumb) return;
-    it.thumb = thumb;
+    if(!it) return;
+    it.thumbKey = thumbKey;
+    it.thumb = null;
     localStorage.setItem('folio-recents', JSON.stringify(list));
     renderRecentShelf();
   }catch(e){}
@@ -4604,6 +4673,7 @@ function updateRecentThumb(title, thumb){
 // the history entry. Runs idle so book-open stays fast; failures are silent.
 function fetchCoverThumb(book, title){
   if(!book || !title || typeof book.coverUrl !== 'function') return;
+  if(typeof StoreKV !== 'undefined' && StoreKV.get('thumb:' + title)) return;
   const run = () => {
     try{
       if(!state.book || state.book !== book) return;
@@ -4660,6 +4730,7 @@ function _flushRecentBook(){
     pct: pct !== undefined ? pct : (existing.pct || 0),
     cfi: cfi || existing.cfi || null,
     filePath: filePath || existing.filePath || null,
+    thumbKey: existing.thumbKey || ('thumb:' + title),
     thumb: existing.thumb || null,
     timestamp: Date.now()
   });
@@ -4725,9 +4796,10 @@ function renderRecentShelf(){
 
     const coverArt = document.createElement('div');
     coverArt.className = 'recent-cover-art';
-    if(b.thumb && isSafeImageUrl(b.thumb)){
+    const thumbData = (typeof StoreKV !== 'undefined' && (StoreKV.get('thumb:' + b.title) || (b.thumbKey && StoreKV.get(b.thumbKey)))) || b.thumb;
+    if(thumbData && isSafeImageUrl(thumbData)){
       const img = document.createElement('img');
-      img.src = b.thumb;
+      img.src = thumbData;
       img.alt = '';
       img.loading = 'lazy';
       coverArt.appendChild(img);
@@ -8522,8 +8594,20 @@ const Footnotes = {
 
 /* ---------------- offline dictionary cache ---------------- */
 const DictCache = {
-  get(w){ try{ return localStorage.getItem('folio-dict:' + w); }catch(e){ return null; } },
-  set(w, def){ try{ localStorage.setItem('folio-dict:' + w, def); }catch(e){} }
+  get(w){
+    try{
+      const v = (typeof StoreKV !== 'undefined') ? StoreKV.get('dict:' + w) : null;
+      return v || localStorage.getItem('folio-dict:' + w) || null;
+    }catch(e){ return null; }
+  },
+  set(w, def){
+    try{
+      if(typeof StoreKV !== 'undefined') StoreKV.set('dict:' + w, def);
+      else localStorage.setItem('folio-dict:' + w, def);
+    }catch(e){
+      try{ localStorage.setItem('folio-dict:' + w, def); }catch(e2){}
+    }
+  }
 };
 
 /* ---------------- chrome auto-hide ----------------
