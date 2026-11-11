@@ -129,7 +129,8 @@ test('UX4 optical reading environments apply preset typography, themes, and warm
     paperSel: document.getElementById('envPaper').classList.contains('sel')
   }));
   expect(envState.theme).toBe('paper');
-  expect(envState.font).toBe('Literata');
+  // Canonical lowercase font ids (FONTS/FONT_DNA keys) since the env-font fix
+  expect(envState.font).toBe('literata');
   expect(envState.warmth).toBe(0);
   expect(envState.paperSel).toBe(true);
 
@@ -141,7 +142,7 @@ test('UX4 optical reading environments apply preset typography, themes, and warm
     cleanSel: document.getElementById('envClean').classList.contains('sel')
   }));
   expect(envState.theme).toBe('light');
-  expect(envState.font).toBe('Lexend');
+  expect(envState.font).toBe('lexend');
   expect(envState.cleanSel).toBe(true);
 
   // 3. Velvet Night

@@ -1805,7 +1805,11 @@ function sanitizeChapterHtml(rawHtml){
     const doc = parser.parseFromString(rawHtml, 'text/html');
     if(!doc || !doc.body) return '';
 
-    const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META'];
+    // LINK/FORM added: remote-stylesheet beacons and phishing forms have no
+    // legit use in a chapter body (STYLE/style attrs deliberately kept —
+    // publisher styling inside <style> is real and stripping it would
+    // visibly change cached-chapter rendering).
+    const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META', 'LINK', 'FORM'];
     const removeNodes = [];
 
     const walker = doc.createTreeWalker(doc.documentElement, NodeFilter.SHOW_ELEMENT, null);
@@ -1894,10 +1898,14 @@ try{
 // boot AND after every merge of a stored record into `settings` (a tampered
 // or corrupt per-book record must not smuggle arbitrary values into CSS).
 function validateSettings(){
-  if(!Number.isFinite(settings.fontSize) || settings.fontSize < 10 || settings.fontSize > 48) settings.fontSize = DEFAULTS.fontSize;
+  // Real typography keys (size/letter/word) — bounds mirror the sliders
+  // (sizeRange 15..28, lsRange -20..150, wsRange -50..300). The old
+  // fontSize/letterSpacing/wordSpacing checks here validated phantom keys
+  // and wrote undefined garbage into stored settings.
+  if(!Number.isFinite(settings.size) || settings.size < 15 || settings.size > 28) settings.size = DEFAULTS.size;
   if(!Number.isFinite(settings.lineHeight) || settings.lineHeight < 1.0 || settings.lineHeight > 3.0) settings.lineHeight = DEFAULTS.lineHeight;
-  if(!Number.isFinite(settings.letterSpacing) || settings.letterSpacing < -50 || settings.letterSpacing > 300) settings.letterSpacing = DEFAULTS.letterSpacing;
-  if(!Number.isFinite(settings.wordSpacing) || settings.wordSpacing < -50 || settings.wordSpacing > 400) settings.wordSpacing = DEFAULTS.wordSpacing;
+  if(!Number.isFinite(settings.letter) || settings.letter < -20 || settings.letter > 150) settings.letter = DEFAULTS.letter;
+  if(!Number.isFinite(settings.word) || settings.word < -50 || settings.word > 300) settings.word = DEFAULTS.word;
   if(!Number.isFinite(settings.widthSingle) || settings.widthSingle < 300 || settings.widthSingle > 2400) settings.widthSingle = DEFAULTS.widthSingle;
   if(!Number.isFinite(settings.widthSpread) || settings.widthSpread < 600 || settings.widthSpread > 3600) settings.widthSpread = DEFAULTS.widthSpread;
   if(!Number.isFinite(settings.marginVertical) || settings.marginVertical < 0 || settings.marginVertical > 120) settings.marginVertical = DEFAULTS.marginVertical;
@@ -2296,7 +2304,7 @@ function buildCSS(){
   const ws = effWordSpacing();
   const hash = thKey + '|' + settings.font + '|' + fs + '|' + lh + '|' + ls + '|' + ws + '|' +
     settings.justify + '|' + settings.dropCaps + '|' + settings.indent + '|' + settings.oldstyle + '|' +
-    settings.warmth + '|' + settings.bionic + '|' + settings.guide +
+    settings.bionic + '|' + settings.guide +
     '|' + settings.pageMarginTop + '|' + settings.pageMarginBottom +
     '|' + Math.round(spreadMetrics().gutter/2) + '|' + (settings.pageOrnaments ? 1 : 0);
   if(hash === _cssHash) return _cssCache;
@@ -3726,14 +3734,6 @@ function onContent(contents){
       }
     }
   }catch(e){}
-  try{
-    const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
-    // Key by the rendered section, not currentSpine: relocated() runs after
-    // this hook, so the unkeyed write would file the new chapter under the
-    // previous spine and feed the turn compositor the wrong adjacent page.
-    const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
-    if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
-  }catch(e){}
   if(settings.bionic && d.body.dataset.fioBionic!=='1'){ bionifyDoc(d); d.body.dataset.fioBionic='1'; }
   // Illustrated chapters paginate faster when off-screen images decode lazily.
   try{
@@ -3741,6 +3741,18 @@ function onContent(contents){
       im.setAttribute('loading','lazy');
       im.setAttribute('decoding','async');
     });
+  }catch(e){}
+  // Cache capture runs AFTER bionification and the lazy-img attributes:
+  // the turn compositor replays this serialized HTML, so capturing earlier
+  // made adjacent/turning pages render without the bionic styling the live
+  // page had (visible mismatch mid-flip).
+  try{
+    const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
+    // Key by the rendered section, not currentSpine: relocated() runs after
+    // this hook, so the unkeyed write would file the new chapter under the
+    // previous spine and feed the turn compositor the wrong adjacent page.
+    const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
+    if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
   }catch(e){}
   wireContents(contents);
 }
@@ -3825,6 +3837,16 @@ function wireContents(contents){
         e.preventDefault(); e.stopPropagation();
         const rawHref = (a.getAttribute('href') || '').trim();
         if(!rawHref) return;
+
+        // An image wrapped in an anchor used to navigate away from the book
+        // (thumbnail→image links); show it in the lightbox instead — the img
+        // is already resolved and displayable. Same-doc noterefs keep their
+        // popup path below.
+        const im = a.querySelector('img');
+        if(im && !rawHref.startsWith('#') && (im.currentSrc || im.src)){
+          Lightbox.open(im.currentSrc || im.src);
+          return;
+        }
 
         // Internal footnote or same-doc anchor navigation
         if(rawHref.startsWith('#')){
@@ -5603,6 +5625,10 @@ const Highlights = {
   hidePop(){
     const p = el('hlPop');
     if(p){ p.hidden = true; p.innerHTML = ''; }
+    // Every openPop installs an outside-click closer; teardown must remove
+    // it or closers stack up when the popup closes without an outside
+    // pointerdown (Save note, Delete, Esc, closePanels, closeBook).
+    if(this._popCloser){ document.removeEventListener('pointerdown', this._popCloser, true); this._popCloser = null; }
   },
   openPop(id, e){
     const h = this.all().find(x => x.id === id);
@@ -5668,9 +5694,10 @@ const Highlights = {
     p.style.top = clamp(y + 8, 60, innerHeight - 220) + 'px';
     const close = ev => {
       if(ev.target.closest && ev.target.closest('#hlPop')) return;
-      this.hidePop();
-      document.removeEventListener('pointerdown', close, true);
+      this.hidePop(); // hidePop removes this listener (tracked on _popCloser)
     };
+    if(this._popCloser) document.removeEventListener('pointerdown', this._popCloser, true);
+    this._popCloser = close;
     setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
   }
 };
@@ -7809,13 +7836,25 @@ const KittenRunner = {
   install(onProgress){
     if(this.pipe) return Promise.resolve(this.pipe);
     if(this.loadP) return this.loadP;
+    // The vendored bundle exposes no download-progress hook, so the honest
+    // signal is the install window itself: 0 at start, 100 when the pipeline
+    // is ready (the passed callbacks used to be ignored, leaving the badge
+    // at "not installed" until it flipped to ready).
+    this._progressCb = typeof onProgress === 'function' ? onProgress : null;
+    const report = (pct) => {
+      this.installPct = pct;
+      if(this._progressCb){ try{ this._progressCb(pct); }catch(e){} }
+    };
+    report(0);
     this.loadP = (async () => {
       const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
       const tts = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8', { runtime: 'cpu' });
-      this.pipe = tts; this.installed = true; this.installPct = 100;
+      this.pipe = tts; this.installed = true;
+      report(100);
+      this._progressCb = null;
       TTS.syncVoiceUI();
       return tts;
-    })().catch((e) => { this.loadP = null; throw e; });
+    })().catch((e) => { this.loadP = null; this.installPct = -1; this._progressCb = null; throw e; });
     return this.loadP;
   },
   async generate(text, voice){
@@ -7942,7 +7981,9 @@ const TTS = {
     if(!silent) toast('Read aloud stopped');
   },
   supported(){
-    return ('speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) || !!window.PAGE_ART;
+    // Speech capability only — PAGE_ART (page ornaments) has nothing to do
+    // with speech and made unsupported browsers pass this check.
+    return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
   },
   kittenVoiceName(){
     const hit = KITTEN_VOICES.find(v => v[0] === this.voice);
@@ -7977,7 +8018,7 @@ const TTS = {
       // install immediately on selection — no need to start read aloud first
       this.kittenInstall();
     }
-    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
+    toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
     if(this.active && !this.paused){
       this.gen++;
       this.clearPcm();
@@ -8233,7 +8274,7 @@ const TTS = {
             for(let i = 0; i < d.length; i++){ if(d[i] > 1) d[i] = 1; else if(d[i] < -1) d[i] = -1; }
           }
           this._gDur = decoded.duration;
-          if(group) this.startGroupHighlight(group, gu, ctx.currentTime);
+          if(group) this.startGroupHighlight(group, gu);
           const src = ctx.createBufferSource();
           src.buffer = decoded;
           src.connect(ctx.destination);
@@ -8675,7 +8716,13 @@ const Lightbox = {
 /* ---------------- footnote popup ---------------- */
 const Footnotes = {
   el(){ return document.getElementById('fnPop'); },
-  close(){ const p = this.el(); if(p) p.classList.remove('show'); },
+  close(){
+    const p = this.el(); if(p) p.classList.remove('show');
+    // show() installs an outside-click closer per open; closing via ✕/Esc
+    // must remove it or stale closers accumulate until the next outside
+    // pointerdown.
+    if(this._closer){ document.removeEventListener('pointerdown', this._closer, true); this._closer = null; }
+  },
   show(node, cx, cy){
     let p = this.el();
     if(!p){
@@ -8752,9 +8799,10 @@ const Footnotes = {
     p.style.top = clamp(cy + 14, 60, innerHeight - 200) + 'px';
     const closer = ev => {
       if(ev.target.closest && ev.target.closest('#fnPop')) return;
-      this.close();
-      document.removeEventListener('pointerdown', closer, true);
+      this.close(); // close() removes this listener (tracked on _closer)
     };
+    if(this._closer) document.removeEventListener('pointerdown', this._closer, true);
+    this._closer = closer;
     document.addEventListener('pointerdown', closer, true);
   }
 };
@@ -9628,49 +9676,49 @@ function applyEnvironment(envKey){
   if(envKey === 'paper'){
     settings.theme = 'paper';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = true;
     settings.warmth = 0;
     settings.preset = 'classic';
   } else if(envKey === 'clean'){
     settings.theme = 'light';
     settings.themeAuto = false;
-    settings.font = 'Lexend';
+    settings.font = 'lexend';
     settings.grain = false;
     settings.warmth = 0;
     settings.preset = 'relaxed';
   } else if(envKey === 'night'){
     settings.theme = 'noir';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = false;
     settings.warmth = 40;
     settings.preset = 'classic';
   } else if(envKey === 'aizome'){
     settings.theme = 'aizome';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = true;
     settings.warmth = 0;
     settings.preset = 'classic';
   } else if(envKey === 'ember'){
     settings.theme = 'ember';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = true;
     settings.warmth = 0;
     settings.preset = 'classic';
   } else if(envKey === 'velvet'){
     settings.theme = 'velvet';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = true;
     settings.warmth = 0;
     settings.preset = 'classic';
   } else if(envKey === 'emerald'){
     settings.theme = 'emerald';
     settings.themeAuto = false;
-    settings.font = 'Literata';
+    settings.font = 'literata';
     settings.grain = true;
     settings.warmth = 0;
     settings.preset = 'classic';
@@ -9694,9 +9742,14 @@ function syncEnvCards(){
   const v = el('envVelvet');
   const em = el('envEmerald');
   if(!p || !c || !n) return;
-  const isPaper = settings.theme === 'paper' && settings.font === 'Literata' && !settings.warmth;
-  const isClean = settings.theme === 'light' && settings.font === 'Lexend' && !settings.warmth;
-  const isNight = settings.theme === 'noir' && (settings.warmth > 0 || settings.theme === 'noir');
+  // Font ids are the canonical lowercase keys (FONTS/FONT_DNA) — comparing
+  // the old capitalized display names dropped every env card's selected
+  // state after a restart normalized the stored value to lowercase.
+  const isPaper = settings.theme === 'paper' && settings.font === 'literata' && !settings.warmth;
+  const isClean = settings.theme === 'light' && settings.font === 'lexend' && !settings.warmth;
+  // Plain noir check — the old `warmth > 0 || theme === 'noir'` second
+  // operand made the warmth test dead.
+  const isNight = settings.theme === 'noir';
   const isAizome = settings.theme === 'aizome';
   const isEmber = settings.theme === 'ember';
   const isVelvet = settings.theme === 'velvet';
@@ -9791,7 +9844,10 @@ el('btnDemo').addEventListener('click',loadDemo);
 // per book; the landing stats badge shows the accumulation. No workflow
 // change during reading.
 const VocabLog = {
-  key(){ return 'vocab:' + (state.currentTitle || ''); },
+  // getActiveTitle() — the same resolver the stats UI reads with; the old
+  // raw currentTitle could be 'Untitled'/'' while the reader used the real
+  // metadata title, splitting writes and reads across keys.
+  key(){ return 'vocab:' + getActiveTitle(); },
   add(word, chapter, cfi){
     try{
       if(!word || word.length < 2) return;
@@ -10919,35 +10975,13 @@ addEventListener('load', () => {
    Open the .epub passed on the command line (file association / Open-With),
    and expose a hook the backend calls when a second launch forwards a file. */
 async function tauriOpenPath(path){
+  // Open-With entry — all behavior lives in openEpubPath() (shared with
+  // checkStartupFile) so a fix to the open flow lands in both paths; the
+  // old duplicate copy here had already drifted (silent 0-byte failure,
+  // no drawer teardown).
+  if(!path || typeof ePub === 'undefined') return;
   try{
-    if(!path || typeof ePub === 'undefined') return;
-    if(state.loading){
-      window.__folioPendingOpen = { tauriPath: path };
-      toast('Still opening a book — queued');
-      return;
-    }
-    const invoke = tauriInvoke();
-    if(!invoke) return;
-    const name = String(path).split(/[\\/]/).pop().replace(/\.(epub|mobi|azw3?)$/i,'') || 'Untitled';
-    try{
-      const handle = await invoke('book_open', { path });
-      if(handle && handle.hash){
-        await openBuffer(null, name, path, null, { url: folioCacheUrl(handle.hash) });
-        return;
-      }
-    }catch(errDisk){
-      if(/\.(mobi|azw3?)$/i.test(path)){
-        hideLoader();
-        toast(String(errDisk || 'Could not open book'));
-        return;
-      }
-      console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
-    }
-    const bytes = await invoke('read_file_bytes', { path });
-    if(ipcByteLength(bytes) === 0) return;
-    const buf = ipcToBuffer(bytes);
-
-    await openBuffer(buf, name, path);
+    await openEpubPath(path);
   }catch(e){
     hideLoader();
     toast('Could not open that file');
