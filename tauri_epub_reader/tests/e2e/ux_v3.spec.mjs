@@ -139,9 +139,11 @@ test('X5 highlight legend shows counts and filters by color', async ({ page }) =
   await openDemoReady(page);
   await page.evaluate(() => {
     const cfi = state.rendition.currentLocation().start.cfi;
+    // Distinct passages: same-CFI adds now dedupe (recolor) by design.
+    const bump = (n) => cfi.replace(/(\d+)(?!.*\d)/, (m) => String(Number(m) + n));
     Highlights.add(cfi, 'yellow', 'yellow one');
-    Highlights.add(cfi, 'yellow', 'yellow two');
-    Highlights.add(cfi, 'green', 'green one');
+    Highlights.add(bump(2), 'yellow', 'yellow two');
+    Highlights.add(bump(4), 'green', 'green one');
     toggleToc();
     setTocTab('hl');
   });

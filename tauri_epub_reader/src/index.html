@@ -957,6 +957,12 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
      1920x960 mirror-extended to 3840x1920 — the raw edges don't tile) */
   --deco:url("assets/clean-tile.webp");
   --deco-size:3840px 1920px;
+  /* first-paint mirror of THEMES.light — the FOUC guard sets data-theme
+     before the main script boots, so the desk/page/grain must come from
+     CSS too or the saved-light user sees paper tones snap to light */
+  --desk:#dfd4c3;
+  --page:#fbf9f4;
+  --grain-op:.3;
 }
 [data-theme="light"] body,
 [data-theme="light"] #landing,
@@ -1223,6 +1229,11 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   background:color-mix(in srgb,var(--desk) 72%,transparent)}
 [data-rr="royal-maroon"] .arrow:hover{border-color:rgba(226,189,99,.9)}
 [data-rr="royal-maroon"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+/* desk-dwelling bottom chrome joins the room's gilt language: the env's
+   vermilion rail knob and near-invisible hair dots break the maroon salon */
+[data-rr="royal-maroon"] #railFill,[data-rr="royal-maroon"] #railKnob,
+[data-rr="royal-maroon"] #chPlay{background:var(--rr-gold)}
+[data-rr="royal-maroon"] .bb-dot{background:var(--rr-gold);opacity:.75}
 
 /* ---- Reading Room dressing. The corners + medallion are ROOM furniture:
    fixed at the viewport corners in #rrRoom, independent of the book's
@@ -1277,6 +1288,14 @@ body.rr-frame-on .rr-spine-orn{display:block}
    they pick a room. */
 try{var __fs=JSON.parse(localStorage.getItem('folio-settings')||'{}');
 if(!__fs.themeAuto&&(__fs.theme==='light'||__fs.theme==='aizome'||__fs.theme==='ember'||__fs.theme==='velvet'||__fs.theme==='emerald'))document.documentElement.dataset.theme=__fs.theme;
+// themeAuto (the default) resolves noir on dark OS machines — mirror noir's
+// desk/page/ink pre-boot so the loader doesn't paint paper then snap dark.
+else if(__fs.themeAuto!==false&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){
+  document.documentElement.dataset.theme='noir';
+  var __ns=document.createElement('style');
+  __ns.textContent='html{--desk:#0f0d0a;--page:#171410;--ink:#e8ddc7;}';
+  document.head.appendChild(__ns);
+}
 var __rr=(__fs.rrTheme!==undefined)?__fs.rrTheme:((__fs.theme!==undefined)?'match':'royal-maroon');
 if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</script>
 <script src="assets/ornaments/page-art.js"></script>
@@ -1795,6 +1814,18 @@ function sanitizeDomNode(root){
     dangerous.forEach(el => el.remove());
     const all = root.querySelectorAll('*');
     all.forEach(cleanElement);
+    // querySelectorAll never sees <template>.content — sanitize those
+    // fragments too or hidden dangerous nodes survive until something
+    // clones the template into the live tree.
+    root.querySelectorAll('template').forEach(t => {
+      if(t.content) this_sanitizeRoot(t.content);
+    });
+  }
+  function this_sanitizeRoot(frag){
+    if(!frag || !frag.querySelectorAll) return;
+    frag.querySelectorAll('script, iframe, object, embed, base, style, link, meta, form').forEach(el => el.remove());
+    frag.querySelectorAll('*').forEach(cleanElement);
+    frag.querySelectorAll('template').forEach(t => { if(t.content) this_sanitizeRoot(t.content); });
   }
 }
 
@@ -1812,26 +1843,33 @@ function sanitizeChapterHtml(rawHtml){
     const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META', 'LINK', 'FORM'];
     const removeNodes = [];
 
-    const walker = doc.createTreeWalker(doc.documentElement, NodeFilter.SHOW_ELEMENT, null);
-    let node = walker.currentNode;
-    while(node){
-      if(FORBIDDEN_TAGS.includes(node.nodeName)){
-        removeNodes.push(node);
-      } else {
-        // Strip dangerous attributes
-        if(node.attributes){
-          for(let i = node.attributes.length - 1; i >= 0; i--){
-            const attr = node.attributes[i];
-            const name = attr.name.toLowerCase();
-            const val = attr.value.replace(/[\u0000-\u0020]/g, '').toLowerCase();
-            if(name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')){
-              node.removeAttribute(attr.name);
+    // TreeWalker never descends into <template>.content — sanitize those
+    // document fragments explicitly or hidden dangerous nodes survive both
+    // sanitizers (Footnotes importNode deep-copies them into the popup).
+    const sanitizeRoot = (root) => {
+      const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+      let node = walker.currentNode;
+      while(node){
+        if(FORBIDDEN_TAGS.includes(node.nodeName)){
+          removeNodes.push(node);
+        } else {
+          // Strip dangerous attributes
+          if(node.attributes){
+            for(let i = node.attributes.length - 1; i >= 0; i--){
+              const attr = node.attributes[i];
+              const name = attr.name.toLowerCase();
+              const val = attr.value.replace(/[\u0000-\u0020]/g, '').toLowerCase();
+              if(name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('vbscript:') || val.startsWith('data:text/html')){
+                node.removeAttribute(attr.name);
+              }
             }
           }
+          if(node.nodeName === 'TEMPLATE' && node.content) sanitizeRoot(node.content);
         }
+        node = walker.nextNode();
       }
-      node = walker.nextNode();
-    }
+    };
+    sanitizeRoot(doc.documentElement);
 
     for(const n of removeNodes){
       if(n.parentNode) n.parentNode.removeChild(n);
@@ -1915,6 +1953,16 @@ function validateSettings(){
   if(typeof settings.pageMarginSidesAuto !== 'boolean') settings.pageMarginSidesAuto = DEFAULTS.pageMarginSidesAuto;
   if(typeof settings.pageOrnaments !== 'boolean') settings.pageOrnaments = DEFAULTS.pageOrnaments;
   if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
+  // measure is a divisor in fitInfo/spreadMetrics — a string/0 value yields
+  // NaN font sizes; the boolean channels arrive as strings from corrupted
+  // or hand-edited stores ("auto":"0" is truthy) and via Object.assign in
+  // loadPerBookType, so coerce non-booleans explicitly.
+  if(!Number.isFinite(settings.measure) || settings.measure < 10 || settings.measure > 90) settings.measure = DEFAULTS.measure;
+  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
+    const v = settings[k];
+    if(v === undefined || typeof v === 'boolean') return;
+    settings[k] = (v === true || v === 1 || v === '1' || v === 'true');
+  });
   if(typeof settings.perBookType !== 'boolean') settings.perBookType = DEFAULTS.perBookType;
   if(typeof settings.justify !== 'boolean') settings.justify = DEFAULTS.justify;
 }
@@ -1930,13 +1978,19 @@ function validateSettings(){
 }
 let saveT=null;
 const TYPO_KEYS=['font','size','auto','preset','lhAuto','lineHeight','lsAuto','letter','wsAuto','word','marginAuto','marginVertical','widthAuto','widthSingle','widthSpread','justify','dropCaps','indent','oldstyle','bionic','pageMarginTop','pageMarginBottom','pageMarginSidesAuto','pageMarginSides','pageOrnaments'];
-function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
-  localStorage.setItem('folio-settings',JSON.stringify(settings));
-  // Per-book typography memory: mirror the type channels under the book key.
+/* Per-book typography memory: mirror the type channels under the book key.
+   Called from the debounced save() AND from the flush paths (closeBook,
+   beforeunload) — the old code only mirrored inside save(), so a tweak
+   followed within 150ms by a switch/quit silently reverted on reopen. */
+function flushPerBookType(){
   if(settings.perBookType && state.currentTitle && state.currentTitle!=='Untitled'){
     const o={}; TYPO_KEYS.forEach(k=>o[k]=settings[k]);
     StoreKV.set('typo:'+state.currentTitle, o);
   }
+}
+function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
+  localStorage.setItem('folio-settings',JSON.stringify(settings));
+  flushPerBookType();
 }catch(e){} },150); }
 /* Swap in this book's saved typography (when the feature is on) and reflow. */
 function loadPerBookType(title){
@@ -2865,6 +2919,7 @@ function showLoader(msg){ el('loaderMsg').textContent=msg||'Typesetting…'; el(
 function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('loader').classList.add('hide'), Math.max(0,450-d)); }
 
 async function closeBook(){
+  flushRelocCold(); // last page turn's position must survive the close
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
   if(statsCache) StoreKV.set('stats', statsCache);
   flushBookStat();
@@ -2873,12 +2928,23 @@ async function closeBook(){
   if(typeof pageCache !== 'undefined') pageCache.clear();
   SearchIndex.clear();
   Ribbon.clear();
+  if(typeof CoachMarks !== 'undefined' && CoachMarks.hide) CoachMarks.hide();
+  // Search drawer state is per-book: stale results from book A must not be
+  // clickable against book B's spine (a foreign CFI resolves to whatever
+  // chapter happens to hold that index — a wrong-chapter jump).
+  if(currentSearchAbort){ currentSearchAbort.abort(); currentSearchAbort = null; }
+  searchToken++;
+  const siEl = el('searchInput'); if(siEl) siEl.value = '';
+  const sreEl = el('searchResults'); if(sreEl) sreEl.innerHTML = '';
+  const smeEl = el('searchMeta'); if(smeEl) smeEl.textContent = '';
+  const scbEl = el('searchClear'); if(scbEl) scbEl.classList.remove('visible');
   try{ chNavAnchorSteps.clear(); chNavAnchorComputing.clear(); }catch(e){}
   Highlights.hidePop();
   hideSelBar();
   // Drop deferred work bound to the old book: a pending cold-path pass would
   // otherwise file the previous chapter under the new book's position key.
   if(typeof _relocColdTimer !== 'undefined') clearTimeout(_relocColdTimer);
+  _relocColdArgs = null;
   if(typeof _fpPending !== 'undefined') _fpPending = false;
   if(typeof AutoScroll !== 'undefined') AutoScroll.stop();
   if(typeof TTS !== 'undefined' && TTS.active) TTS.stop(true);
@@ -2904,10 +2970,18 @@ async function closeBook(){
 }
 
 function flushPendingPersist(){
+  flushRelocCold();
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
   if(statsCache) StoreKV.set('stats', statsCache);
   flushBookStat();
   if(saveT) { clearTimeout(saveT); try{ localStorage.setItem('folio-settings', JSON.stringify(settings)); }catch(e){} }
+  flushPerBookType();
+  // The IDB writes above are async and may not commit before the webview is
+  // torn down on quit — mirror the volatile records synchronously; boot
+  // prefers whichever copy is fresher (see loadStats/loadBookStat).
+  try{ if(statsCache) localStorage.setItem('folio-stats-lm', JSON.stringify(Object.assign({}, statsCache, { _ts: Date.now() }))); }catch(e){}
+  try{ if(bookStat && bookStatTitle) localStorage.setItem('folio-bstat-lm:' + bookStatTitle, JSON.stringify(Object.assign({}, bookStat, { _ts: Date.now() }))); }catch(e){}
+  try{ if(state.posKey){ const p = StoreKV.get(state.posKey); if(p) localStorage.setItem('folio-' + state.posKey, JSON.stringify(p)); } }catch(e){}
 }
 window.addEventListener('beforeunload', flushPendingPersist);
 window.addEventListener('pagehide', flushPendingPersist);
@@ -2922,6 +2996,16 @@ function loadStats(){
   try{ statsCache = Object.assign({ min: 0, pages: 0, days: {} }, stripProtoKeys(StoreKV.get('stats') || {})); }
   catch(e){ statsCache = { min: 0, pages: 0, days: {} }; }
   if(!statsCache.days) statsCache.days = {};
+  // Unload mirror may be fresher than the last committed IDB write (quit
+  // within the heartbeat window) — adopt it when its timestamp wins.
+  try{
+    const lm = parseSafeJson(localStorage.getItem('folio-stats-lm') || 'null', null);
+    if(lm && typeof lm === 'object' && (lm._ts || 0) > (statsCache._ts || 0)){
+      delete lm._ts;
+      statsCache = Object.assign({ min: 0, pages: 0, days: {} }, stripProtoKeys(lm));
+      if(!statsCache.days) statsCache.days = {};
+    }
+  }catch(e){}
 }
 function saveStatsSoon(){
   clearTimeout(statsSaveT);
@@ -2944,6 +3028,15 @@ function loadBookStat(title){
   try{ bookStat = StoreKV.get('bstat:' + bookStatTitle) || { min: 0, days: {} }; }
   catch(e){ bookStat = { min: 0, days: {} }; }
   if(!bookStat.days) bookStat.days = {};
+  // Unload mirror may be fresher than the last committed IDB write.
+  try{
+    const lm = parseSafeJson(localStorage.getItem('folio-bstat-lm:' + bookStatTitle) || 'null', null);
+    if(lm && typeof lm === 'object' && (lm._ts || 0) > (bookStat._ts || 0)){
+      delete lm._ts;
+      bookStat = Object.assign({ min: 0, days: {} }, stripProtoKeys(lm));
+      if(!bookStat.days) bookStat.days = {};
+    }
+  }catch(e){}
 }
 function flushBookStat(){
   if(bookStat){ StoreKV.set('bstat:'+bookStatTitle, bookStat); }
@@ -3042,6 +3135,12 @@ function goHome(){
   _sessionPages = 0;
   body.classList.remove('state-reading');
   body.classList.add('state-landing');
+  // Coach marks float over the landing (z 120 vs 40) — a "Got it" click
+  // there permanently consumed the tutorial without it ever being seen.
+  if(typeof CoachMarks !== 'undefined' && CoachMarks.hide) CoachMarks.hide();
+  // getActiveTitle() falls back to #bookTitle — a stale title re-attributed
+  // the landing's "words collected" stat to the wrong (previous) book.
+  const bt = el('bookTitle'); if(bt){ bt.textContent = ''; bt.removeAttribute('title'); }
   updateLandingUI();
 }
 
@@ -3253,6 +3352,10 @@ async function cacheBookCover(book, title){
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
     try{ URL.revokeObjectURL(url); }catch(e){}
     const dataUrl = cv.toDataURL('image/jpeg', 0.8);
+    // Metadata may have landed while the cover was extracting: the real
+    // title now owns the thumb key, and writing the filename key would
+    // recreate the orphan this function's caller just deleted.
+    if(state.currentTitle !== title) return;
     if(typeof StoreKV !== 'undefined' && StoreKV.set){
       StoreKV.set(thumbKey, dataUrl);
     }
@@ -3271,7 +3374,10 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     // A second open arriving mid-load (double-clicked file, Open-With while
     // booting) used to vanish silently. Park it and drain it when the
     // current open settles, so the requested book is never lost.
-    window.__folioPendingOpen = { buf, titleHint, filePath, targetCfi, opts };
+    // FIFO: a single slot silently dropped the second-queued book (the
+    // toast claimed it was queued). The drain in openBuffer's finally
+    // shifts one item and its own finally drains the rest, in order.
+    (window.__folioPendingQueue = window.__folioPendingQueue || []).push({ buf, titleHint, filePath, targetCfi, opts });
     toast('Still opening a book — queued');
     return;
   }
@@ -3316,12 +3422,19 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     }catch(e){}
 
     book.loaded.metadata.then(meta => {
+      // JSZip's OPF parse can outlive a quick switch: without the identity
+      // check this callback clobbered the live book's title/posKey and filed
+      // positions under the dead book's key (cross-book corruption).
+      if(state.book !== book) return;
       if(meta && meta.title && meta.title.trim()){
         const realTitle = meta.title.trim();
         state.currentTitle = realTitle;
         if(meta.creator) state.currentAuthor = meta.creator.trim();
         el('bookTitle').textContent = realTitle;
         el('bookTitle').setAttribute('title', realTitle);
+        // The board spine lettering was stamped with the filename title in
+        // EdgeStacks.reset() — restamp with the real title for the session.
+        const btEl = el('boardTitle'); if(btEl) btEl.textContent = realTitle;
         const oldKey = state.posKey;
         const newKey = 'pos:' + realTitle + ':' + bookIdentifier;
         state.posKey = newKey;
@@ -3336,6 +3449,17 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
           const legacySaved = StoreKV.get(legacyRealKey) || localStorage.getItem(legacyRealKey) || localStorage.getItem('folio-' + legacyRealKey);
           if (legacySaved) {
             StoreKV.set(newKey, legacySaved);
+          }
+        }
+        // Position restore ran against the filename-derived key before
+        // metadata could land — probe the real-title key now and jump when
+        // it holds a position the first lookup missed. File-association
+        // opens carry no targetCfi and otherwise start at page 1 forever
+        // (the pre-metadata read can never see this key).
+        if(!targetCfi && state.rendition){
+          const fresh = StoreKV.get(newKey);
+          if(fresh && typeof fresh === 'string' && fresh !== (state.currentCfi || '')){
+            try{ state.rendition.display(fresh).catch(()=>{}); }catch(e){}
           }
         }
         // Real title known: retry per-book typography under the right key.
@@ -3390,6 +3514,13 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
       try{
         let saved = StoreKV.get(state.posKey);
         if(!saved){
+          // Unload mirror: the IDB write for the very last turn may not have
+          // committed before the webview died (flushPendingPersist mirrors
+          // it under the same folio- prefixed key).
+          saved = localStorage.getItem('folio-' + state.posKey);
+          if(saved){ try{ saved = JSON.parse(saved); }catch(e2){} }
+        }
+        if(!saved){
           const legacyKey = 'pos:' + initialTitle;
           saved = StoreKV.get(legacyKey) || localStorage.getItem(legacyKey) || localStorage.getItem('folio-' + legacyKey);
           if(saved) StoreKV.set(state.posKey, saved);
@@ -3406,13 +3537,18 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     NavHistory.clear();               // return-anchors hold CFIs into the previous book
     _sessionPages = 0;                // session page count restarts with each book
     tocCurIdx = -1;
+    tocItems = [];                    // the old book's TOC must not label the new book's first relocation
     resetDeskDim();                   // F6: arm the idle dim timer for this session
     state.spreadOn = effectiveSpread();
     body.classList.toggle('spread', state.spreadOn);
     syncSpreadUI();
     applyFit();
     createRendition({first:true});
-    await state.rendition.display(target).catch(()=>state.rendition.display(0));
+    // Capture the rendition: closeBook may null it while display() is in
+    // flight — dereferencing inside the catch threw unhandled and skipped
+    // the fallback position entirely.
+    const r0 = state.rendition;
+    await r0.display(target).catch(()=>r0.display(0));
 
     /* settle pass: epub.js sizes its columns from its very first container
        measurement, which can race the stage layout on open. Recreating once
@@ -3458,11 +3594,11 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     state.loading=false;
     // Drain a queued open (see the loading guard above): the pending request
     // was parked instead of dropped, so run it now that the gate is free.
-    const pending = window.__folioPendingOpen || null;
-    window.__folioPendingOpen = null;
+    const pending = (window.__folioPendingQueue || []).shift() || null;
     if(pending){
       try{
         if(pending.tauriPath) await openEpubPath(pending.tauriPath);
+        else if(pending.file) loadFile(pending.file);
         else await openBuffer(pending.buf, pending.titleHint, pending.filePath, pending.targetCfi, pending.opts);
       }
       catch(e){ console.warn('queued open failed:', e); }
@@ -3481,7 +3617,8 @@ async function recreateRendition(){
   el('viewer').innerHTML = '';
   applyFit();
   createRendition({});
-  await state.rendition.display(cfi || 0).catch(async()=>{ await state.rendition.display(0); });
+  const r1 = state.rendition;
+  await r1.display(cfi || 0).catch(async()=>{ await r1.display(0); });
   Highlights.applyToRendition();
   refreshCSS();
 }
@@ -3492,7 +3629,11 @@ async function applySpread(){
   body.classList.toggle('spread', want);
   syncSpreadUI();
   applyFit();
-  if(!changed || !state.rendition || spreadBusy) return;
+  if(!changed || !state.rendition) return;
+  // A toggle during the in-flight recreate used to be silently dropped
+  // (the early return predated the spreadPending deferral) — the renderer
+  // then disagreed with spreadOn until the next toggle.
+  if(spreadBusy){ state.spreadPending = true; return; }
   if(state.turning){ state.spreadPending = true; return; }
   spreadBusy = true; state.recreating = true;
   try{ await recreateRendition(); }
@@ -3504,7 +3645,12 @@ async function applySpread(){
 
 function loadFile(file, optionalPath){
   if(!file) return;
-  if(state.loading){ toast('Still opening a book — try again in a moment'); return; }
+  if(state.loading){
+    // FIFO like every other entry point — dropping the file lost it.
+    (window.__folioPendingQueue = window.__folioPendingQueue || []).push({ file });
+    toast('Still opening a book — queued');
+    return;
+  }
   if(!/\.(epub|mobi|azw3?)$/i.test(file.name) && file.type!=='application/epub+zip' && file.type!=='application/x-mobipocket-ebook'){
     toast('Please select an EPUB, MOBI, or AZW3 file'); return;
   }
@@ -3591,6 +3737,12 @@ function syncPageOrnamentsLive(){
       if(settings.pageOrnaments){
         const si = (typeof c.sectionIndex === 'number') ? c.sectionIndex : 0;
         d.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(si));
+        // Glue the fresh wrapper to the visible spread (park offset /
+        // scroll tracking) — onContent does this at insert time; the
+        // toggle path skipped it, so corners rendered misplaced until the
+        // next relocation.
+        const w = d.getElementById('folio-pcs');
+        if(w && !w.dataset.trk){ w.dataset.trk = '1'; trackPageOrnRun(d, w); }
       }
     });
   }catch(e){}
@@ -3611,6 +3763,8 @@ function syncVineSpace(){
     // the gilt column's edge must land.
     const fit = margin => Math.max(0.34, Math.min(1, (margin - 14 - 2) / (0.3 * wrapH)));
     const f = Math.min(fit(v.left - 8), fit(innerWidth - v.right - 8));
+    // State hook: body.vine-tight marks "columns are below full height"
+    // (styling/debugging hook; the shrink itself rides --vine-h).
     body.classList.toggle('vine-tight', f < 0.999);
     body.style.setProperty('--vine-h', f.toFixed(4));
   }catch(e){}
@@ -4171,6 +4325,16 @@ const LocEngine = {
    cold path = deferred heavy work (storage, cache, nav panels) at 80ms debounce.
    During rapid flipping, the cold path fires only once after the user stops. */
 let _relocColdTimer = 0;
+let _relocColdArgs = null;
+/* A close/quit within the 80ms cold-pass window used to silently discard
+   the last page turn's position (the timer was cleared, never run). Flush
+   the parked args instead — posKey/currentTitle still belong to the closing
+   book at that point. */
+function flushRelocCold(){
+  if(_relocColdTimer){ clearTimeout(_relocColdTimer); _relocColdTimer = 0; }
+  const a = _relocColdArgs; _relocColdArgs = null;
+  if(a && state.posKey){ try{ onRelocatedCold(a[0], a[1], a[2], a[3]); }catch(e){} }
+}
 /* Feature 1: adaptive reading speed — rolling window of actual page-turn times */
 let _lastTurnTime = 0, _lastTurnPage = -1;
 const _paceHistory = [];
@@ -4365,7 +4529,8 @@ function onRelocated(loc){
   const pillPct = el('posPillPct');
   if(pillPct) pillPct.textContent = el('pct').textContent;
   clearTimeout(_relocColdTimer);
-  _relocColdTimer = setTimeout(() => onRelocatedCold(loc, frac, chTitle, d), 80);
+  _relocColdArgs = [loc, frac, chTitle, d];
+  _relocColdTimer = setTimeout(() => { _relocColdArgs = null; onRelocatedCold(loc, frac, chTitle, d); }, 80);
 }
 
 function onRelocatedCold(loc, frac, chTitle, d){
@@ -4459,10 +4624,20 @@ function nudgeToFingerprint(){
     }
   }catch(e){}
 }
+/* Path-aware file comparison: EPUBs may reuse basenames across folders
+   (text/part1/ch1.xhtml vs text/part2/ch1.xhtml), where plain basename
+   matching binds CFIs/jumps/labels to the wrong file. Full normalized path
+   first; basename fallback keeps collision-free books behaving identically. */
+function sameBookFile(a, b){
+  const norm = x => String(x || '').split('#')[0].split('?')[0].replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/^\.?\//, '').toLowerCase();
+  const na = norm(a), nb = norm(b);
+  if(!na || !nb) return false;
+  if(na === nb) return true;
+  return na.split('/').pop() === nb.split('/').pop();
+}
 function chapterFor(href){
   if(!href)return'';
-  const base=x=>String(x).split('/').pop().split('#')[0];
-  const it=tocItems.find(i=>base(i.href)===base(href));
+  const it=tocItems.find(i=>sameBookFile(i.href, href));
   return it?it.label:'';
 }
 
@@ -4570,6 +4745,11 @@ function resolveNavHref(href, book){
 async function buildTOC(book){
   try{
     const nav = await book.loaded.navigation;
+    // openBuffer fires this without awaiting: the NCX parse can settle after
+    // a faster book switch, and the guard-free continuation overwrote
+    // tocItems/#tocList/the ribbon with the DEAD book's chapters (its hrefs
+    // then hijack the live book's jumps).
+    if(state.book !== book) return;
     const out=[];
     (function flat(items,depth){
       (items||[]).forEach(it=>{
@@ -4629,9 +4809,9 @@ function markTocCurrent(href, cfi){
     // always resolve to the first entry.
     const cfiFrag=(String(cfi||'').match(/\[([^\]]+)\]/)||[])[1]||'';
     const frag=x=>{const h=String(x||'');const i=h.indexOf('#');return i>=0?h.slice(i+1):'';};
-    if(cfiFrag) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&frag(i.href)===cfiFrag);
-    if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href)&&!frag(i.href));
-    if(idx===-1) idx=tocItems.findIndex(i=>base(i.href)===base(href));
+    if(cfiFrag) idx=tocItems.findIndex(i=>sameBookFile(i.href, href)&&frag(i.href)===cfiFrag);
+    if(idx===-1) idx=tocItems.findIndex(i=>sameBookFile(i.href, href)&&!frag(i.href));
+    if(idx===-1) idx=tocItems.findIndex(i=>sameBookFile(i.href, href));
   }
   tocCurIdx=idx;
   const list=el('tocList');
@@ -4661,7 +4841,7 @@ const Ribbon = {
       for(let i = 0; i < n; i++){
         let h = '';
         try{ h = state.book.spine.get(i).href || ''; }catch(e){}
-        if(String(h).split('/').pop().split('#')[0] === base) return i;
+        if(sameBookFile(h, href)) return i;
       }
     }catch(e){}
     return -1;
@@ -4725,7 +4905,7 @@ const Ribbon = {
     total += tailW;
     let acc = 0;
     const frag = document.createDocumentFragment();
-    const mkSeg = (label, href, w, tip) => {
+    const mkSeg = (label, href, w, tip, idx) => {
       const s = document.createElement('div');
       s.className = 'ch-seg';
       s.style.flexGrow = w;
@@ -4735,6 +4915,10 @@ const Ribbon = {
           const curLoc = state.rendition.currentLocation();
           const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
           NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+          // Same-file anchors are a display() no-op (the spine section is
+          // already open) — route through jumpToTocIndex, whose element/
+          // text-terminal CFI actually moves the viewport to the anchor.
+          if(idx != null && idx >= 0){ jumpToTocIndex(idx); return; }
           state.rendition.display(href).catch(()=>{});
         }
       });
@@ -4746,12 +4930,12 @@ const Ribbon = {
       const p0 = total ? Math.round(acc / total * 100) : 0;
       acc += w;
       const p1 = total ? Math.round(acc / total * 100) : 0;
-      mkSeg(it.label, it.href, w, `${it.label} — ${p0}%–${p1}%`);
+      mkSeg(it.label, it.href, w, `${it.label} — ${p0}%–${p1}%`, items.indexOf(it));
     });
     if(tail){
       const p0 = total ? Math.round(acc / total * 100) : 0;
       mkSeg(`+${tail.length} chapters`, tail[0].href, Math.max(1, tailW),
-        `${tail.length} more chapters — ${p0}%–100%`);
+        `${tail.length} more chapters — ${p0}%–100%`, items.indexOf(tail[0]));
     }
     root.appendChild(frag);
     root.appendChild(play);
@@ -4863,16 +5047,29 @@ function _flushRecentBook(){
   });
   if(list.length > 4) list = list.slice(0, 4);
   try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
-  // Drop cached buffers AND cover thumbnails for books that fell out of
-  // history (fire-and-forget) — thumbs live in folio-kv-db (~10-15 KB each)
-  // and used to accumulate one orphaned entry per book ever opened.
+  // Drop cached buffers AND per-book StoreKV records for books that fell
+  // out of history (fire-and-forget) — thumbs (~10-15 KB), folio-locs (one
+  // CFI per ~1000 chars), typo/bstat/vocab and the pos:/ctx/:fp family used
+  // to accumulate forever, one set per book ever opened.
   try{
     const keep = new Set(list.map(x => x.title));
     all.forEach(x => {
       if(keep.has(x.title)) return;
+      const t = x.title;
       if(typeof StoreKV !== 'undefined' && StoreKV.del){
-        StoreKV.del('thumb:' + x.title);
-        if(x.thumbKey && x.thumbKey !== 'thumb:' + x.title) StoreKV.del(x.thumbKey);
+        StoreKV.del('thumb:' + t);
+        if(x.thumbKey && x.thumbKey !== 'thumb:' + t) StoreKV.del(x.thumbKey);
+        StoreKV.del('typo:' + t);
+        StoreKV.del('bstat:' + t);
+        StoreKV.del('vocab:' + t);
+        StoreKV.del('folio-locs:' + t);
+        StoreKV.del('dict:' + t);
+        // pos family is keyed pos:<title>:<identifier> — sweep the mirror
+        // for that prefix (mem holds every hydrated key).
+        try{
+          const pre = 'pos:' + t + ':';
+          [...StoreKV.mem.keys()].forEach(k => { if(String(k).startsWith(pre)) StoreKV.del(k); });
+        }catch(e2){}
       }
     });
   }catch(e){}
@@ -4984,7 +5181,7 @@ function renderRecentShelf(){
     card.setAttribute('tabindex', '0');
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', 'Open ' + (b.title || 'book'));
-    const openCard = async () => {
+    const openCardInner = async () => {
       const curTitle = getActiveTitle();
       // 1. If currently active book in memory, resume reading directly
       if(state.book && state.rendition && curTitle === b.title){
@@ -5036,6 +5233,13 @@ function renderRecentShelf(){
       // 5. Book unavailable
       hideLoader();
       toast(`Could not open "${b.title}" — file may have been moved.`);
+    };
+    // Double-click guard: the second click re-entered mid-flight and queued
+    // a second full open (loader flash, session reset, duplicated work).
+    const openCard = async () => {
+      if(state.loading || openCardInner._busy) return;
+      openCardInner._busy = true;
+      try{ await openCardInner(); } finally { openCardInner._busy = false; }
     };
     card.addEventListener('click', openCard);
     card.addEventListener('keydown', e => {
@@ -5168,11 +5372,16 @@ function cfiElementStep(cfi){
 function computeAnchorSteps(spineIndex, baseName){
   if(chNavAnchorSteps.has(spineIndex) || chNavAnchorComputing.has(spineIndex)) return;
   chNavAnchorComputing.add(spineIndex);
+  const ownerBook = state.book;
   (async () => {
     try{
       const sec = state.book.spine.get(spineIndex);
       if(!sec) return;
       if(!sec.document) await sec.load(state.book.load.bind(state.book));
+      // The step table is per-book (cleared on switch): a stale compute
+      // landing after the switch wrote the OLD book's element steps into
+      // the live map and blocked the new book's own compute for the index.
+      if(state.book !== ownerBook){ chNavAnchorComputing.delete(spineIndex); return; }
       const doc = sec.document;
       const steps = new Map();
       if(doc && doc.getElementById && sec.cfiFromElement){
@@ -5226,7 +5435,7 @@ function resolveTocIdx(loc){
   // 1. Exact match (base file + anchor id from the CFI)
   if(cfiFrag){
     idx = tocItems.findIndex(i =>
-      base(i.href) === base(curHref) && frag(i.href) === cfiFrag
+      sameBookFile(i.href, curHref) && frag(i.href) === cfiFrag
     );
   }
   // 2. Base-only. A single match is unambiguous. Several matches mean the
@@ -5235,11 +5444,16 @@ function resolveTocIdx(loc){
   if(idx === -1){
     const baseMatches = tocItems
       .map((item, i) => ({ item, i }))
-      .filter(x => base(x.item.href) === base(curHref));
+      .filter(x => sameBookFile(x.item.href, curHref));
     if(baseMatches.length === 1){
       idx = baseMatches[0].i;
     } else if(baseMatches.length > 1){
       const curMatch = baseMatches.find(x => x.i === tocCurIdx);
+      // The visible page's LAST cfi element step decides: a page that
+      // straddles two sections is labeled by the section it ends in (the
+      // CN1/CN2 multi-anchor contract). Start-cfi matching regressed the
+      // just-jumped case — the page top sits on a lower element step than
+      // the anchor itself.
       const endCfi = (loc && loc.end && loc.end.cfi) || (loc && loc.start && loc.start.cfi) || '';
       const curStep = cfiElementStep(endCfi);
       const steps = curIndex >= 0 ? chNavAnchorSteps.get(curIndex) : null;
@@ -5437,6 +5651,9 @@ function renderBookmarks(){
     li.appendChild(text);
 
     li.addEventListener('click', () => {
+      if(state.turning || state.recreating) return;
+      // Arm the return anchor like the vocab jump does — Esc/back returns.
+      NavHistory.push(state.currentCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
       closePanels();
       state.rendition.display(b.cfi);
     });
@@ -5466,6 +5683,19 @@ const Highlights = {
   add(cfi, color, snippet){
     if(!cfi) return;
     const list = this.all();
+    const bookTitle = currentBookKey();
+    // Same passage re-highlighted: recolor the existing record instead of
+    // adding a duplicate. epub.js keys annotations by cfi+type, so two
+    // records for one CFI orphan the first injected mark — deleting both
+    // then left a ghost highlight with zero records in the store.
+    const ex = list.find(x => x.bookTitle === bookTitle && x.cfi === cfi);
+    if(ex){
+      ex.color = color || 'yellow';
+      if(snippet && !ex.snippet) ex.snippet = snippet.slice(0, 160);
+      this.persist(list);
+      this.applyToRendition();
+      return;
+    }
     let ch = 'Chapter';
     try{ ch = chapterFor(state.rendition.currentLocation().start.href) || ch; }catch(e){}
     list.unshift({
@@ -5486,6 +5716,9 @@ const Highlights = {
     if(h && state.rendition && state.rendition.annotations){
       try{ state.rendition.annotations.remove(h.cfi, 'highlight'); }catch(e){}
     }
+    // Rebuild the remaining marks: duplicates of the same CFI leave orphaned
+    // injections that a single annotations.remove cannot detach.
+    this.applyToRendition();
   },
   setColor(id, color){
     const list = this.all();
@@ -5603,6 +5836,9 @@ const Highlights = {
       li.appendChild(text);
 
       li.addEventListener('click', () => {
+        if(state.turning || state.recreating) return;
+        // Arm the return anchor like the vocab jump does — Esc/back returns.
+        NavHistory.push(state.currentCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
         closePanels();
         state.rendition.display(h.cfi);
       });
@@ -5637,6 +5873,9 @@ const Highlights = {
     const x = (e && e.clientX) || this.lastPtr.x;
     const y = (e && e.clientY) || this.lastPtr.y;
 
+    // Capture the unsaved note BEFORE the rebuild — the textarea is the
+    // only place an in-progress note lives.
+    const prevTa = p.querySelector('textarea');
     p.innerHTML = '';
 
     const dots = document.createElement('div');
@@ -5658,7 +5897,9 @@ const Highlights = {
 
     const ta = document.createElement('textarea');
     ta.placeholder = 'Add a note…';
-    ta.value = h.note || '';
+    // prevTa (captured before the rebuild above) carries over what the user
+    // typed but had not saved yet.
+    ta.value = h.note || (prevTa ? prevTa.value : '');
     p.appendChild(ta);
 
     const row = document.createElement('div');
@@ -5848,6 +6089,11 @@ const SearchIndex = {
 let currentSearchAbort = null;
 async function doSearch(query){
   if(currentSearchAbort){ currentSearchAbort.abort(); currentSearchAbort = null; }
+  // Bump the token BEFORE any early return: an in-flight search resuming
+  // after this call must die even when this path clears the list without
+  // rendering (the old code only bumped after the <2-char return, so ghost
+  // results re-rendered after clearing).
+  const myToken = ++searchToken;
   const q = (query || '').trim();
   const resultsEl = el('searchResults');
   const metaEl = el('searchMeta');
@@ -5865,7 +6111,6 @@ async function doSearch(query){
   if(!spine){ metaEl.textContent = 'No book loaded'; return; }
   const title = getActiveTitle();
 
-  const myToken = ++searchToken;
   const matches = [];
   const maxMatches = 120;
 
@@ -5965,6 +6210,7 @@ async function doSearch(query){
   }
 
   if(searchToken !== myToken) return;
+  if(state.book !== book) return; // book switched mid-search: drop the results
   renderSearchResults(matches, q);
 }
 
@@ -6016,6 +6262,7 @@ function renderSearchResults(matches, q){
     li.appendChild(chEl);
     li.appendChild(snipEl);
     li.addEventListener('click', () => {
+      if(state.turning || state.recreating) return;
       const curLoc = state.rendition ? state.rendition.currentLocation() : null;
       const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
       NavHistory.push(fromCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
@@ -6271,6 +6518,13 @@ class PageCacheManager {
               let s = sectionDoc.getElementById('folio-dyn');
               if(!s){ s = sectionDoc.createElement('style'); s.id = 'folio-dyn'; (sectionDoc.head||sectionDoc.documentElement).appendChild(s); }
               s.textContent = buildCSS();
+              // Mirror onContent's enrichment BEFORE serialization: the turn
+              // compositor replays this HTML, and a neighbor captured raw
+              // revealed pages missing bionic bolding + ornament corners
+              // when the reader crossed into them.
+              try{ if(settings.bionic && sectionDoc.body.dataset.fioBionic!=='1'){ bionifyDoc(sectionDoc); sectionDoc.body.dataset.fioBionic='1'; } }catch(e0){}
+              try{ sectionDoc.querySelectorAll('img').forEach(im=>{ im.setAttribute('loading','lazy'); im.setAttribute('decoding','async'); }); }catch(e1){}
+              try{ if(settings.pageOrnaments && !sectionDoc.getElementById('folio-pcs')){ sectionDoc.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(spineIndex)); } }catch(e2){}
               const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(sectionDoc.documentElement.outerHTML);
               this.chapterHtmls.set(spineIndex, cleanHtml);
               // Feature 6: pre-render the neighbor chapter off-screen — fonts,
@@ -7485,7 +7739,9 @@ class TurnGestureController {
       const totalDx = Math.abs(pt.x - sX);
       const totalDy = Math.abs(pt.y - sY);
       const dt = performance.now() - startT;
-      if(totalDx < 8 && totalDy < 8 && dt < 450) {
+      // pointercancel (second finger, system gesture takeover) arrives with
+      // ~zero movement — it is NOT a tap and must not turn the page.
+      if(e.type !== 'pointercancel' && totalDx < 8 && totalDy < 8 && dt < 450) {
         this.handleClick(e, pt);
       }
       this.gestureRect = null;
@@ -7667,11 +7923,18 @@ async function playTurnFx(dir, fx){
       onProgress: curP => compositor.render(curP)
     });
     const arrived = nextRelocated(2500);
-    const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
-    await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    await moveP;
-    compositor.destroy();
+    try{
+      // closeBook can null state.rendition mid-fold (book open during the
+      // turn) — without this guard the next() threw, skipped destroy(), and
+      // the old book's compositor root stayed painted over the new view.
+      if(!state.rendition) return;
+      const moveP = (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+      await Promise.race([arrived, new Promise(r => setTimeout(r, 1200))]);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await moveP;
+    } finally {
+      compositor.destroy();
+    }
   }
 }
 
@@ -7685,7 +7948,9 @@ async function turn(dir, opts = {}){
     clearTimeout(TTS.relocT);
   }
   if(atEdge(dir)) return;
-  const fx = effectiveFx();
+  // opts.noAnim (AutoScroll steps) forces the instant path — the default
+  // paper fold throttled autoscroll to ~one fold per step.
+  const fx = (opts && opts.noAnim) ? 'none' : effectiveFx();
   if(state.turning){
     if(Math.abs(turnQueue) < 3){
       turnQueue += dir;
@@ -7694,10 +7959,23 @@ async function turn(dir, opts = {}){
   }
   if(fx === 'none'){
     state.turning = true;
+    const rGen = state.rendition;
     try {
       const arrived = nextRelocated(800);
       (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
       await arrived;
+      // Drain queued turns like the animated path — the instant branch used
+      // to leave them queued, so a later fx switch spuriously drained them
+      // as extra page turns.
+      while(turnQueue !== 0){
+        if(!state.rendition || state.rendition !== rGen){ turnQueue = 0; break; }
+        const nextDir = turnQueue > 0 ? 1 : -1;
+        turnQueue -= nextDir;
+        if(atEdge(nextDir)){ turnQueue = 0; break; }
+        const a2 = nextRelocated(800);
+        (nextDir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{});
+        await a2;
+      }
     } finally {
       state.turning = false;
       if(state.spreadPending){ state.spreadPending = false; await applySpread(); }
@@ -7857,11 +8135,14 @@ const KittenRunner = {
     })().catch((e) => { this.loadP = null; this.installPct = -1; this._progressCb = null; throw e; });
     return this.loadP;
   },
-  async generate(text, voice){
+  async generate(text, voice, rate){
     const tts = await this.install();
     // kitten-tts-js wants capitalized preset names (Bella, Jasper…)
     const cap = (voice || 'bella').charAt(0).toUpperCase() + (voice || 'bella').slice(1);
-    const audio = await tts.generate(text, { voice: cap, speed: 1.0 });
+    // Speed knob applies to the narration itself (was hard-wired 1.0, so
+    // - / = only shrank the inter-paragraph gaps).
+    const speed = Math.min(2, Math.max(0.5, rate || 1));
+    const audio = await tts.generate(text, { voice: cap, speed });
     if(audio.encodeWAV) return new Uint8Array(audio.encodeWAV());
     if(audio.audio) return float32ToWav(audio.audio, audio.sampleRate || 24000);
     if(audio.toBlob) return new Uint8Array(await (await audio.toBlob()).arrayBuffer());
@@ -7907,6 +8188,10 @@ const TTS = {
     if(!state.rendition){ toast('Open a book to start read aloud'); return; }
     this.active = true; this.paused = false; this.stopped = false;
     this.gen++; this.si = 0;
+    // Sentence collection is async — -/=/V during it would speakNext into
+    // stale/empty sents (spurious auto-advance). Restarts skip while set;
+    // the in-flight load picks the new rate/voice up at speak time.
+    this._loading = true;
     let cfi = '';
     try{
       const loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null;
@@ -7917,7 +8202,7 @@ const TTS = {
     this.syncUI();
     if(this.engine === 'kitten' && !KittenRunner.installed){
       toast('Installing Kitten neural voices (~92 MB, once)…');
-      try{ await this.kittenInstall(); }catch(e){ this.stop(true); return; }
+      try{ await this.kittenInstall(); }catch(e){ this.stop(true); toast('Kitten install failed: ' + ((e && e.message) ? e.message.slice(0, 120) : 'unknown error')); return; }
     } else {
       toast('Read aloud on: ' + this.engineLabel() + ' · V switches voice · - / = speed');
     }
@@ -7926,6 +8211,10 @@ const TTS = {
   pause(){
     if(!this.active || this.paused) return;
     this.paused = true;
+    // Kill any pending inter-sentence/lead-in gap timer: with gen unchanged
+    // it would fire after resume alongside the resume watchdog's own
+    // speakNext, speaking the next sentence twice and skipping one.
+    clearTimeout(this.gapT);
     if(this.ttsCtx && this.ttsCtx.state === 'running' && !this.srcDone){
       try{ this.ttsCtx.suspend(); }catch(e){}
     }
@@ -8019,13 +8308,16 @@ const TTS = {
       this.kittenInstall();
     }
     toast('Read aloud engine: ' + (eng === 'kitten' ? 'Kitten neural' : 'System voices'));
-    if(this.active && !this.paused){
+    if(this.active && !this.paused && !this._loading){
       this.gen++;
       this.clearPcm();
       this.stopWav();
       try{ speechSynthesis.cancel(); }catch(err){}
       if(eng === 'kitten' && !KittenRunner.ready()){
-        KittenRunner.install(() => this.syncVoiceUI()).then(() => { if(this.active && !this.paused) this.speakNext(); });
+        KittenRunner.install(() => this.syncVoiceUI()).then(() => { if(this.active && !this.paused) this.speakNext(); }).catch((err) => {
+          toast('Kitten install failed: ' + ((err && err.message) ? err.message.slice(0, 120) : 'unknown error'));
+          if(this.active) this.stop(true);
+        });
         return;
       }
       this.speakNext();
@@ -8039,7 +8331,7 @@ const TTS = {
       this.syncVoiceUI();
       this.syncUI();
       toast('Narrator voice: ' + this.kittenVoiceName());
-      if(this.active && !this.paused){
+      if(this.active && !this.paused && !this._loading){
         this.gen++;
         this.clearPcm();
         this.stopWav();
@@ -8129,8 +8421,13 @@ const TTS = {
   },
 
   async previewVoice(v){
+    // Previewing over active narration overlaps clips/utterances — refuse.
+    if(this.active){ toast('Stop read aloud first to test voices'); return; }
     const prevEngine = this.engine, prevVoice = this.voice;
-    const target = v || this.voice || 'bella';
+    // System mode keeps the chosen voice in systemVoiceURI (this.voice stays
+    // a kitten preset), so without this the "Test voice" button always
+    // previewed a kitten voice — and could start the ~92 MB download.
+    const target = v || (this.engine === 'system' ? this.systemVoiceURI : this.voice) || 'bella';
     try{
       if(this.engine === 'kitten' || KITTEN_VOICES.some(k => k[0] === target)){
         this.voice = KITTEN_VOICES.some(k => k[0] === target) ? target : 'bella';
@@ -8174,7 +8471,10 @@ const TTS = {
   nudgeRate(d){
     this.rate = clamp(Math.round((this.rate + d) * 10) / 10, 0.5, 3);
     toast('Read aloud speed: ' + this.rate.toFixed(1) + '×');
-    if(this.active && !this.paused){
+    // _loading: sentence collection still in flight — speaking now would
+    // read stale/empty sents (spurious auto-advance). The pending load
+    // picks the new rate up at speak time.
+    if(this.active && !this.paused && !this._loading){
       // Invalidate any pending inter-sentence gap timer (same double-chain
       // hazard as setVoice).
       this.gen++;
@@ -8197,7 +8497,8 @@ const TTS = {
      index and invalidated wherever voice/rate/page changes (gen bump alone is
      not enough: a stored clip outlives its chain). */
   pcmCache: new Map(),
-  clearPcm(){ this.pcmCache.clear(); },
+  _genP: new Map(),
+  clearPcm(){ this.pcmCache.clear(); this._genP.clear(); },
   /* Prefetch the NEXT paragraph group (and, when it is already cached, the
      one after — long paragraphs leave plenty of playback time to fill). */
   prefetch(gu){
@@ -8215,14 +8516,16 @@ const TTS = {
   },
   genGroup(gi, gu){
     const g = this.groups[gi];
-    if(!g) return;
+    if(!g || this._genP.has(gi)) return; // one in-flight generation per group
     const voice = this.voice, rate = this.rate;
     const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
-    KittenRunner.generate(text, voice).then(bytes => {
+    const p = KittenRunner.generate(text, voice, rate);
+    this._genP.set(gi, p);
+    p.then(bytes => {
       if(this.gen !== gu || this.stopped) return;
       if(this.voice !== voice || this.rate !== rate) return; // stale params
       this.pcmCache.set(gi, bytes);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { this._genP.delete(gi); });
   },
   /* Sentence highlight that follows a playing paragraph clip: sentence
      boundaries are estimated proportionally by char length, tracked against
@@ -8287,10 +8590,17 @@ const TTS = {
             const lastSi = (endSi != null) ? endSi - 1 : this.si;
             const afterHeading = !!(this.sents[lastSi] && this.sents[lastSi].isHeading);
             this.si = (endSi != null) ? endSi : this.si + 1;
-            setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
+            this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
           };
           Promise.resolve(kick).then(() => {
-            if(this.gen !== gu || this.stopped || !this.active || this.paused){ resolve(false); return; }
+            if(this.gen !== gu || this.stopped || !this.active){ resolve(false); return; }
+            if(this.paused){
+              // Paused mid-decode: disarm the phantom node, else srcDone
+              // stays false and the resume watchdog believes audio is
+              // playing — read-aloud shows active but is silently dead.
+              this.srcDone = true; this.srcNode = null;
+              resolve(false); return;
+            }
             try{ src.start(); resolve(true); }catch(e){ console.warn('BufferSource start failed:', e); this.srcDone = true; resolve(false); }
           });
         }).catch((e) => { console.warn('WAV decode failed:', e); resolve(false); });
@@ -8441,11 +8751,13 @@ const TTS = {
   async loadPageAndSpeak(){
     if(this.stopped || !this.active) return;
     const g = this.gen;
+    this._loading = true;
     this.sents = await this.collectSentences();
     this.clearPcm(); // new page, new sentence texts — cached clips are stale
     if(this.gen !== g || this.stopped || !this.active) return;
     this.si = 0;
-    if(!this.sents.length){ setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
+    this._loading = false;
+    if(!this.sents.length){ this.gapT = setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
     /* Paragraph groups (kitten engine): consecutive sentences sharing the
        same block element form one generation unit; a run longer than 600
        chars splits so no single synthesis call dominates. */
@@ -8461,11 +8773,14 @@ const TTS = {
     }
     if(this.sents.length) this.groups.push({ start, end: this.sents.length - 1 });
     this.gi = 0;
-    // Warm the first paragraph during the lead-in breath.
+    // Warm the first paragraph during the lead-in breath (prefetch only
+    // warms gi+1 — without this the first group always synthesized on
+    // demand after the breath expired, an audible dead gap every page).
+    if(this.engine === 'kitten' && this.groups.length) this.genGroup(0, g);
     this.prefetch(g);
     // Lead-in breath on every page start: launching straight into the first
     // sentence felt rushed, especially right after a page turn.
-    setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs());
+    this.gapT = setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs());
   },
   async speakNext(){
     if(this.stopped || !this.active || this.paused) return;
@@ -8487,8 +8802,14 @@ const TTS = {
         let wavBytes = this.pcmCache.get(gi);
         if(wavBytes) this.pcmCache.delete(gi);
         else{
-          const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
-          wavBytes = await KittenRunner.generate(text, this.voice);
+          // Reuse an in-flight prefetch of this group instead of double-
+          // generating (genGroup stores the raw promise in _genP).
+          const pending = this._genP.get(gi);
+          if(pending){ wavBytes = await pending; }
+          else{
+            const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
+            wavBytes = await KittenRunner.generate(text, this.voice, this.rate);
+          }
           if(this.gen !== gu || this.stopped || !this.active) return;
         }
         const buf = (wavBytes instanceof Uint8Array)
@@ -8534,13 +8855,13 @@ const TTS = {
       if(this.gen !== gu || this.stopped || !this.active) return;
       const afterHeading = !!(sent && sent.isHeading);
       this.si++;
-      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
+      this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
     };
     u.onerror = (e) => {
       if(e && (e.error === 'canceled' || e.error === 'interrupted')) return;
       if(this.gen !== gu || this.stopped || !this.active) return;
       this.si++;
-      setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 60);
+      this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, 60);
     };
     this.utt = u;
     try{ speechSynthesis.speak(u); }catch(e){ this.stop(true); }
@@ -8566,6 +8887,11 @@ const TTS = {
       }
       const locBefore = loc && loc.start ? loc.start.cfi : '';
       await turn(1);
+      // turn() may only ENQUEUE while an animation is in flight, and the
+      // crossfade/slide fx race the relocated event — wait for the
+      // relocation before comparing CFIs, else a slow render reads as
+      // "The end" mid-book.
+      try{ await nextRelocated(1200); }catch(e){}
       const locAfter = (state.rendition && state.rendition.currentLocation && state.rendition.currentLocation().start) ? state.rendition.currentLocation().start.cfi : '';
       if(locBefore && locBefore === locAfter){
         this.stop(true);
@@ -8575,12 +8901,23 @@ const TTS = {
     }catch(e){ this.stop(true); }
   },
   onRelocated(){
-    if(!this.active || this.paused || this.stopped) return;
+    if(!this.active || this.stopped) return;
     let loc = null;
     try{ loc = (state.rendition && state.rendition.currentLocation) ? state.rendition.currentLocation() : null; }catch(e){}
     const cfi = loc && loc.start ? loc.start.cfi : '';
     if(cfi && cfi === this.currentCfi) return;
     this.currentCfi = cfi;
+    // A relocation (manual page turn, chapter jump) invalidates the in-flight
+    // read: kill the playing clip/utterance and the pending chain NOW. With
+    // gen unchanged the old onended chain raced the debounced reload here and
+    // double-advanced si (skipped sentences, a ghost second page-turn). The
+    // paused case invalidates too — resuming then reads the NEW page from its
+    // first sentence instead of the remainder of the page that's gone.
+    this.gen++;
+    this.stopWav();
+    try{ speechSynthesis.cancel(); }catch(e){}
+    this.stopGroupHighlight();
+    this.clearHighlight();
     clearTimeout(this.relocT);
     this.relocT = setTimeout(() => this.loadPageAndSpeak(), 260);
   }
@@ -9526,6 +9863,10 @@ function applyTheme(){
     b.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
   applyReadingRoom();
+  // Env cards read theme/font/warmth — every applyTheme path (theme row,
+  // OS change, environments, auto tick) must re-sync them or the cards go
+  // stale while the same sheet's Paper row / warmth slider change inputs.
+  syncEnvCards();
 }
 
 /* Reading Room: overlay the desk axis (surroundings, pattern, gilt, dressing
@@ -9578,7 +9919,7 @@ function buildFontGrid(){
     noteSpan.textContent = f.note;
     b.appendChild(nameSpan);
     b.appendChild(noteSpan);
-    b.addEventListener('click',()=>{ settings.font=k; save(); syncFontSel(); relayout(); });
+    b.addEventListener('click',()=>{ settings.font=k; save(); syncFontSel(); syncEnvCards(); relayout(); });
     g.appendChild(b);
   });
   syncFontSel();
@@ -9761,6 +10102,8 @@ function syncEnvCards(){
   if(e) e.classList.toggle('sel', isEmber);
   if(v) v.classList.toggle('sel', isVelvet);
   if(em) em.classList.toggle('sel', isEmerald);
+  // Screen-reader selected state, matching the RR/theme/font controls.
+  [p,c,n,a,e,v,em].forEach(b => { if(b) b.setAttribute('aria-pressed', b.classList.contains('sel') ? 'true' : 'false'); });
 }
 /* Reading Room selection + toggles; called from applyReadingRoom() so the
    sheet always mirrors the active room. */
@@ -10095,10 +10438,10 @@ el('swOldstyle').addEventListener('change',e=>{ settings.oldstyle=e.target.check
 
 // Night warmth
 el('warmRange').addEventListener('input',e=>{
-  settings.warmth=+e.target.value; save(); syncWarm();
+  settings.warmth=+e.target.value; save(); syncWarm(); syncEnvCards();
 });
 el('warmOff').addEventListener('click',()=>{
-  settings.warmth=0; save(); syncWarm();
+  settings.warmth=0; save(); syncWarm(); syncEnvCards();
 });
 
 // Per-book typography memory
@@ -10118,6 +10461,10 @@ el('bookmarkRibbon').addEventListener('click', toggleBookmark);
 // did nothing. Resolve the anchor element's CFI from the section document
 // and display THAT — a real relocation the compositor can ride.
 async function jumpToTocIndex(idx){
+  // A mid-fold display() races the queued page change and lands forward of
+  // the fold target (same race the pills/keys guard) — ignore jumps until
+  // the turn settles.
+  if(state.turning || state.recreating) return;
   if(!state.rendition || !tocItems || idx < 0 || idx >= tocItems.length) return;
   const curLoc = state.rendition.currentLocation();
   const fromCfi = curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi;
@@ -10333,28 +10680,32 @@ async function exportBookData(){
   let vocab = [];
   try{ vocab = StoreKV.get('vocab:' + title) || []; }catch(e){}
   if(!hls.length && !bms.length && !vocab.length){ toast('Nothing collected yet in this book'); return; }
+  // Keep user text from hijacking the Markdown structure: newlines would
+  // break the line out of its block, and a leading #/> would fake a heading
+  // or quote inside its own line.
+  const mdLine = (s) => String(s || '').replace(/\r?\n/g, ' ').replace(/^(\s*)([#>])/, '$1\\$2');
   const L = ['# ' + title, '', '_' + new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) + ' — exported from Folio_'];
   if(hls.length){
     L.push('', '## Highlights');
     hls.forEach(h => {
-      L.push('', '> ' + (h.snippet || '').replace(/\n/g, ' '));
-      const meta = [h.chapter, h.date].filter(Boolean).join(' · ');
+      L.push('', '> ' + mdLine(h.snippet));
+      const meta = [mdLine(h.chapter), h.date].filter(Boolean).join(' · ');
       if(meta) L.push('— _' + meta + '_');
-      if(h.note) L.push('**Note:** ' + h.note);
+      if(h.note) L.push('**Note:** ' + mdLine(h.note));
     });
   }
   if(bms.length){
     L.push('', '## Bookmarks');
     bms.forEach(b => {
-      L.push('', '- ' + (b.snippet || b.chapter || 'Bookmark') + (b.chapter ? ' — _' + b.chapter + '_' : ''));
+      L.push('', '- ' + mdLine(b.snippet || b.chapter || 'Bookmark') + (b.chapter ? ' — _' + mdLine(b.chapter) + '_' : ''));
     });
   }
   if(vocab.length){
     L.push('', '## Vocabulary');
     vocab.forEach(v => {
-      L.push('', '**' + v.word + '**' + (v.chapter ? ' — _' + v.chapter + '_' : ''));
+      L.push('', '**' + mdLine(v.word) + '**' + (v.chapter ? ' — _' + mdLine(v.chapter) + '_' : ''));
       const def = DictCache.get(v.word);
-      if(def) L.push('> ' + def.replace(/\n/g, ' '));
+      if(def) L.push('> ' + mdLine(def));
     });
   }
   const md = L.join('\n');
@@ -10399,8 +10750,12 @@ el('searchInput').addEventListener('input', e => {
   const q = e.target.value || '';
   const clearBtn = el('searchClear');
   if(clearBtn) clearBtn.classList.toggle('visible', q.trim().length > 0);
-  if(q.trim().length < 3){
+  // 2-char queries are searchable (doSearch accepts them — the selection
+  // toolbar always did); below that, clear any stale list instead of
+  // leaving the previous query's results visible.
+  if(q.trim().length < 2){
     if(!q.trim()) doSearch('');
+    else { clearTimeout(searchDebounceTimer); doSearch(''); }
     return;
   }
   searchDebounceTimer = setTimeout(() => {
@@ -10412,7 +10767,7 @@ el('searchInput').addEventListener('keydown', e => {
   if(e.key === 'Enter'){
     e.preventDefault();
     clearTimeout(searchDebounceTimer);
-    if((e.target.value || '').trim().length >= 3) doSearch(e.target.value);
+    if((e.target.value || '').trim().length >= 2) doSearch(e.target.value);
   }
 });
 
@@ -10429,7 +10784,9 @@ document.querySelectorAll('#engineSeg button').forEach(b => b.addEventListener('
   TTS.setEngine(b.dataset.engine);
 }));
 const btnKittenInstall = el('btnKittenInstall');
-if(btnKittenInstall) btnKittenInstall.addEventListener('click', () => { TTS.kittenInstall(); });
+if(btnKittenInstall) btnKittenInstall.addEventListener('click', () => {
+  TTS.kittenInstall().catch((err) => toast('Kitten install failed: ' + ((err && err.message) ? err.message.slice(0, 120) : 'unknown error')));
+});
 const btnPrevVoice = el('btnPreviewVoice');
 if(btnPrevVoice){
   btnPrevVoice.addEventListener('click', () => {
@@ -10465,7 +10822,15 @@ function updateRailPreview(f){
     if(cfi){
       const loc = LocEngine.forCfi(cfi);
       if(loc){ pageStr = `Page ${loc.page} of ${loc.total} · ${Math.round(f * 100)}%`; }
-      chTitle = chapterFor(cfi);
+      // chapterFor matches hrefs, not CFIs (was always '') — resolve the
+      // spine index from the CFI's /6/N step (N = 2·(index+1)) so the
+      // preview names the chapter the release will actually land in.
+      const m6 = /\/6\/(\d+)/.exec(String(cfi));
+      if(m6 && state.book && state.book.spine){
+        const idx = Math.floor((parseInt(m6[1], 10) - 1) / 2);
+        const sec = state.book.spine.get(clamp(idx, 0, state.book.spine.length - 1));
+        if(sec) chTitle = chapterFor(sec.href);
+      }
     }
   }
   if(!pageStr){ pageStr = `${Math.round(f * 100)}%`; }
@@ -10904,7 +11269,7 @@ async function openEpubPath(path){
   if(state.loading){
     // Never drop an Open-With request: park the path; openBuffer's finally
     // drains it once the current open settles.
-    window.__folioPendingOpen = { tauriPath: path };
+    (window.__folioPendingQueue = window.__folioPendingQueue || []).push({ tauriPath: path });
     toast('Still opening a book — queued');
     return;
   }
@@ -10929,13 +11294,14 @@ async function openEpubPath(path){
       console.warn('book_open failed, falling back to read_file_bytes:', errDisk);
     }
     const bytes = await invoke('read_file_bytes', { path });
-    if(ipcByteLength(bytes) === 0){ toast('Could not open that file'); return; }
+    if(ipcByteLength(bytes) === 0){ hideLoader(); toast('Could not open that file'); return; }
     const buf = ipcToBuffer(bytes);
 
 
     await openBuffer(buf, title, path);
   }catch(err){
     console.warn('openEpubPath failed:', err);
+    hideLoader(); // loadFile pre-shows a loader before delegating here
     toast('Could not open that file');
   }
 }
@@ -10953,6 +11319,21 @@ async function checkStartupFile(){
     if(api && api.event && typeof api.event.listen === 'function'){
       await api.event.listen('open-epub-file', (e) => {
         if(e && e.payload) openEpubPath(e.payload);
+      });
+    }
+  }catch(e){}
+  // 3. Drag & drop: with dragDropEnabled:true (Windows) WebView2 never
+  // delivers HTML5 drop events, so the landing's "drop an ebook anywhere"
+  // hint was dead — route Tauri's own drag-drop through openEpubPath.
+  try{
+    const api = window.__TAURI__;
+    const tv = api && api.webview && api.webview.getCurrentWebview ? api.webview.getCurrentWebview() : null;
+    if(tv && typeof tv.onDragDropEvent === 'function'){
+      await tv.onDragDropEvent((ev) => {
+        const p = ev && ev.payload;
+        if(p && p.type === 'drop' && Array.isArray(p.paths) && p.paths.length){
+          openEpubPath(p.paths[0]);
+        }
       });
     }
   }catch(e){}

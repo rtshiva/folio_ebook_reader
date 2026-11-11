@@ -912,8 +912,18 @@ fn fix_entities(text: &str) -> String {
                 let well_formed = !digits.is_empty()
                     && rest[digits_start + digits.len()..].starts_with(';');
                 if well_formed {
+                    // Form alone isn't enough: XML rejects codepoint 0,
+                    // surrogates and anything above U+10FFFF, and producers
+                    // emit &#0; in the wild — a served chapter carrying one
+                    // is a fatal parse error. Rewrite invalid refs to U+FFFD.
+                    let cp = u32::from_str_radix(&digits, if hex { 16 } else { 10 }).unwrap_or(0x110000);
+                    let valid = cp != 0 && !(0xD800..=0xDFFF).contains(&cp) && cp <= 0x10FFFF;
                     let consumed = 1 + digits_start + digits.len() + 1;
-                    out.push_str(&text[i..i + consumed]);
+                    if valid {
+                        out.push_str(&text[i..i + consumed]);
+                    } else {
+                        out.push('\u{FFFD}');
+                    }
                     i += consumed;
                 } else {
                     replaced = Some("&amp;".to_string());
@@ -990,12 +1000,73 @@ pub fn is_xml_mime(mime: &str) -> bool {
 pub fn xml_response_body(mime: &str, bytes: Vec<u8>) -> Vec<u8> {
     if is_xml_mime(mime) {
         match std::str::from_utf8(&bytes) {
-            Ok(text) => fix_entities(text).into_bytes(),
+            Ok(text) => strip_meta_refresh(&fix_entities(text)),
             Err(_) => bytes,
         }
     } else {
         bytes
     }
+}
+
+/* Strip <meta http-equiv=refresh> from served XHTML/HTML: the rendition
+   iframe performs self-navigation on it (sandbox/CSP do not govern
+   navigation), replacing the reader with an attacker page. The MOBI path
+   (clean_chapter_body) already strips these; this covers the EPUB path. */
+pub fn strip_meta_refresh(text: &str) -> Vec<u8> {
+    if !text.to_ascii_lowercase().contains("<meta") {
+        return text.as_bytes().to_vec();
+    }
+    let mut out = String::with_capacity(text.len());
+    let lower = text.to_ascii_lowercase();
+    let bytes_in = text.as_bytes();
+    let mut i = 0usize;
+    while i < text.len() {
+        if lower[i..].starts_with("<meta") {
+            let after = i + 5;
+            let bounded = after >= text.len() || {
+                match text[after..].chars().next() {
+                    Some(c) => c.is_ascii_whitespace() || c == '/' || c == '>',
+                    None => true,
+                }
+            };
+            if bounded {
+                // Quote-aware tag end (mirrors mobi.rs find_tag_end).
+                let mut in_quote: Option<u8> = None;
+                let mut end_rel: Option<usize> = None;
+                for (idx, b) in bytes_in[i..].iter().enumerate() {
+                    match (*b, in_quote) {
+                        (b'"', None) => in_quote = Some(b'"'),
+                        (b'"', Some(b'"')) => in_quote = None,
+                        (b'\'', None) => in_quote = Some(b'\''),
+                        (b'\'', Some(b'\'')) => in_quote = None,
+                        (b'>', None) => { end_rel = Some(idx); break; }
+                        _ => {}
+                    }
+                }
+                if let Some(gt) = end_rel {
+                    let tag = lower[i..i + gt].to_string();
+                    // http-equiv=refresh (either attribute order, any quoting)
+                    let is_refresh = tag.contains("http-equiv")
+                        && tag.contains("refresh");
+                    let tag_src = &text[i..i + gt + 1];
+                    if is_refresh {
+                        i += gt + 1; // drop the tag entirely
+                        continue;
+                    }
+                    out.push_str(tag_src);
+                    i += gt + 1;
+                    continue;
+                }
+                // Unterminated meta: keep as-is and stop scanning this tag.
+                out.push_str(&text[i..]);
+                break;
+            }
+        }
+        let ch_len = text[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        out.push_str(&text[i..i + ch_len]);
+        i += ch_len;
+    }
+    out.into_bytes()
 }
 
 pub fn merge_gpu_flags(existing: &str) -> String {
@@ -2209,5 +2280,35 @@ mod tests {
         *ACTIVE_READING_HASH.lock().unwrap() = None;
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_u35_fix_entities_rejects_xml_invalid_char_refs() {
+        // Form-valid but XML-illegal refs: NUL, surrogates, out of range.
+        // They used to pass through and made the served chapter a fatal
+        // XML parse error.
+        assert_eq!(fix_entities("a&#0;b"), "a\u{FFFD}b");
+        assert_eq!(fix_entities("&#xD800;"), "\u{FFFD}");
+        assert_eq!(fix_entities("&#55296;"), "\u{FFFD}");
+        assert_eq!(fix_entities("&#x110000;"), "\u{FFFD}");
+        // Valid refs still pass through untouched.
+        assert_eq!(fix_entities("&#65;&#x41;"), "&#65;&#x41;");
+        // Overflowing digit runs parse as invalid, not as a panic.
+        assert_eq!(fix_entities("&#999999999999999999999999;"), "\u{FFFD}");
+    }
+
+    #[test]
+    fn test_u36_strip_meta_refresh_in_served_xhtml() {
+        // Either attribute order, any case, any quoting: dropped.
+        let out = xml_response_body("application/xhtml+xml", br#"<html><head><meta HTTP-EQUIV='Refresh' content="0;url=https://evil.example"/><title>t</title></head></html>"#.to_vec());
+        let s = std::str::from_utf8(&out).unwrap();
+        assert!(!s.to_ascii_lowercase().contains("refresh"), "meta refresh survived: {}", s);
+        assert!(s.contains("<title>t</title>"), "chapter content lost: {}", s);
+        // Benign meta stays.
+        let out2 = xml_response_body("application/xhtml+xml", br#"<html><meta name="author" content="x"/></html>"#.to_vec());
+        assert!(std::str::from_utf8(&out2).unwrap().contains("author"));
+        // Non-XML mimes pass through untouched.
+        let passthru = b"<meta http-equiv=refresh content=0>".to_vec();
+        assert_eq!(xml_response_body("text/plain", passthru.clone()), passthru);
     }
 }

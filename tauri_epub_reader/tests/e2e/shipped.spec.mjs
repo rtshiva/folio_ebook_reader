@@ -125,23 +125,30 @@ test.describe('R6 TTS auto-advance', () => {
   // so no last page exists to stop on — verified by probe).
   test.use({ viewport: { width: 700, height: 860 } });
   test('calls turn once, stops at book end', async ({ page }) => {
+    test.setTimeout(60000); // phase 2 walks the whole last page (~14s at mock pace)
     await page.addInitScript(SPEECH_MOCK);
     await fresh(page);
     await openDemo(page);
+    // Phase 1: a turn that never relocates. autoAdvance calls turn once,
+    // waits ~1.2s for a relocation, then reads the unchanged CFI as the end
+    // and stops ("The end") — turn called exactly once.
     await page.evaluate(() => {
       window.__turnCalls = [];
       window.__turnOrig = window.turn;
       window.turn = async () => { window.__turnCalls.push(1); };
     });
     await page.evaluate(() => TTS.toggle());
-    await page.waitForFunction(() => (window.__turnCalls || []).length >= 1, null, { timeout: 12000 });
+    await page.waitForFunction(() => typeof TTS !== 'undefined' && TTS.active === false, null, { timeout: 20000 });
     expect(await page.evaluate(() => window.__turnCalls.length)).toBe(1);
-    // End case: restore the real turn and let TTS walk to the true last page
-    // via its natural relocated → speak → autoAdvance loop, then stop.
+    // End case: from the true last page, read-aloud walks the natural
+    // relocated → speak → autoAdvance loop and stops WITHOUT turning —
+    // isLastPage short-circuits before turn is ever reached.
     await page.evaluate(() => { window.turn = window.__turnOrig; });
+    await page.evaluate(() => { window.__turnCalls = []; });
     await page.evaluate(() => railSeek(1));
-    await page.waitForFunction(() => typeof TTS !== 'undefined' && TTS.active === false, null, { timeout: 12000 });
-    expect(await page.evaluate(() => window.__turnCalls.length)).toBe(1);
+    await page.evaluate(() => TTS.toggle());
+    await page.waitForFunction(() => typeof TTS !== 'undefined' && TTS.active === false, null, { timeout: 30000 });
+    expect(await page.evaluate(() => window.__turnCalls.length)).toBe(0);
   });
 });
 

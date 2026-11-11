@@ -990,7 +990,11 @@ pub fn rewrite_images_and_links(
 
     while i < html.len() {
         if html[i..].starts_with('<') {
-            if let Some(tag_end_rel) = html[i..].find('>') {
+            // Quote-aware tag end (find_tag_end): a '>' inside a quoted
+            // attribute ("Chapter 5 > notes") truncated the tag mid-value
+            // and the recindex/src rewrite never saw it — broken image.
+            // Bounded: an unterminated tag must not rescan to the text end.
+            if let Some(tag_end_rel) = find_tag_end_bounded(&html[i..], 65536) {
                 let tag_end = i + tag_end_rel + 1;
                 let tag_str = &html[i..tag_end];
                 let tag_lower = tag_str.to_ascii_lowercase();
@@ -1230,6 +1234,19 @@ fn collect_filepos_targets(html: &str) -> BTreeSet<usize> {
 }
 
 /// Rewrites `#filepos_N` and `filepos="N"` references into `ch_XXXX.xhtml#filepos_N` cross-chapter links.
+/* True when `pos` sits inside a tag (nearest '<' is closer than the nearest
+   '>'): filepos= rewrites must only touch markup, not prose like
+   `<pre>see filepos=12345 for details</pre>`. */
+fn in_tag_at(html: &str, pos: usize) -> bool {
+    let last_lt = html[..pos].rfind('<');
+    let last_gt = html[..pos].rfind('>');
+    match (last_lt, last_gt) {
+        (Some(lt), Some(gt)) => lt > gt,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
 fn prefix_cross_chapter_links(html: &str, filepos_to_chapter: &HashMap<usize, String>) -> String {
     let mut out = String::with_capacity(html.len() + 256);
     let mut i = 0;
@@ -1241,7 +1258,7 @@ fn prefix_cross_chapter_links(html: &str, filepos_to_chapter: &HashMap<usize, St
                 .chars()
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
-            if !digits.is_empty() {
+            if !digits.is_empty() && in_tag_at(html, i) {
                 if let Ok(num) = digits.parse::<usize>() {
                     let ch_file = filepos_to_chapter.get(&num).map(|s| s.as_str()).unwrap_or("");
                     out.push_str("href=\"");
@@ -1260,7 +1277,7 @@ fn prefix_cross_chapter_links(html: &str, filepos_to_chapter: &HashMap<usize, St
                 .skip_while(|&c| c == '"' || c == '\'')
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
-            if !digits.is_empty() {
+            if !digits.is_empty() && in_tag_at(html, i) {
                 if let Ok(num) = digits.parse::<usize>() {
                     let ch_file = filepos_to_chapter.get(&num).map(|s| s.as_str()).unwrap_or("");
                     out.push_str("href=\"");
@@ -1316,7 +1333,7 @@ pub fn split_into_chapters(html: &str) -> Vec<ChapterChunk> {
             || ci_starts_at(html, i, "<pagebreak")
             || ci_starts_at(html, i, "<div style=\"page-break-before:always\"")
         {
-            if let Some(close) = html[i..].find('>') {
+            if let Some(close) = find_tag_end_bounded(&html[i..], 65536) {
                 let tag_end = i + close + 1;
                 let chunk = html[last_end..i].trim();
                 if !chunk.is_empty() {
@@ -1605,6 +1622,14 @@ fn find_tag_end(text: &str) -> Option<usize> {
     None
 }
 
+/* find_tag_end bounded to a window: scanning an unterminated tag to the end
+   of a 256MB text made every subsequent '<' a quadratic rescan (a crafted
+   few-MB .mobi pinned a book_open worker for tens of minutes). */
+fn find_tag_end_bounded(text: &str, limit: usize) -> Option<usize> {
+    let win_end = next_boundary(text, limit.min(text.len()));
+    find_tag_end(&text[..win_end])
+}
+
 /// Cleans legacy Mobipocket tags and repairs void tags for XML compliance,
 /// while stripping scripts, dangerous embeds, and event handlers.
 fn clean_chapter_body(text: &str) -> String {
@@ -1613,21 +1638,50 @@ fn clean_chapter_body(text: &str) -> String {
 
     while i < text.len() {
         if text[i..].starts_with('<') {
-            // Completely strip script tags and their inner content
-            if ci_starts_at(text, i, "<script") {
-                if let Some(close_idx) = ci_find(&text[i..], "</script") {
-                    if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
-                        i = i + close_idx + end_gt + 1;
-                        continue;
-                    }
-                }
-                // Skip past unclosed "<script" tag rather than dropping the rest of the chapter
-                if let Some(open_gt) = find_tag_end(&text[i..]) {
-                    i += open_gt + 1;
-                } else {
-                    i += "<script".len();
-                }
+            // A '<' that isn't tag markup (e.g. "a < b > c" in prose) must be
+            // escaped: chapters are served as application/xhtml+xml, where a
+            // bare '<' is a fatal parse error and a bogus "<10" starts an
+            // invalid tag name that blanks the whole chapter. Markup = next
+            // char is a letter, '!', '/' or '?'.
+            let is_markup = text[i + 1..].chars().next()
+                .map(|c| c.is_ascii_alphabetic() || c == '!' || c == '/' || c == '?')
+                .unwrap_or(false);
+            if !is_markup {
+                out.push_str("&lt;");
+                i += 1;
                 continue;
+            }
+            // Completely strip script tags and their inner content. The
+            // boundary check keeps longer names (<scriptx>) out of the strip.
+            if ci_starts_at(text, i, "<script") {
+                let after = i + "<script".len();
+                let bounded = after >= text.len() || {
+                    match text[after..].chars().next() {
+                        Some(c) => c.is_ascii_whitespace() || c == '/' || c == '>',
+                        None => true,
+                    }
+                };
+                if bounded {
+                    // Bound the close-tag search: a document stuffed with
+                    // unclosed <iframe/<script tags made ci_find quadratic
+                    // over the whole remaining text (seconds of CPU inside
+                    // book_open). 64KB window, then fall back to skipping
+                    // this tag alone.
+                    let win_end = next_boundary(text, (i + 65536).min(text.len()));
+                    if let Some(close_idx) = ci_find(&text[i..win_end], "</script") {
+                        if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
+                            i = i + close_idx + end_gt + 1;
+                            continue;
+                        }
+                    }
+                    // Skip past unclosed "<script" tag rather than dropping the rest of the chapter
+                    if let Some(open_gt) = find_tag_end_bounded(&text[i..], 65536) {
+                        i += open_gt + 1;
+                    } else {
+                        i += "<script".len();
+                    }
+                    continue;
+                }
             }
             // Strip <meta ...> (e.g. http-equiv=refresh navigation hijacks).
             // Void tag — no closing pair to look for. The extra boundary
@@ -1641,25 +1695,36 @@ fn clean_chapter_body(text: &str) -> String {
                     }
                 };
                 if bounded {
-                    match find_tag_end(&text[i..]) {
+                    match find_tag_end_bounded(&text[i..], 65536) {
                         Some(open_gt) => i += open_gt + 1,
                         None => i = after, // unterminated tag: skip the prefix
                     }
                     continue;
                 }
             }
-            // Completely strip iframe, object, embed tags
+            // Completely strip iframe, object, embed tags. Boundary check:
+            // <objects> must not match the <object prefix (its close-tag
+            // search then ate everything up to a legitimate </object>).
             let mut stripped_tag = false;
             for dangerous_tag in &["<iframe", "<object", "<embed"] {
                 if ci_starts_at(text, i, dangerous_tag) {
+                    let after = i + dangerous_tag.len();
+                    let bounded = after >= text.len() || {
+                        match text[after..].chars().next() {
+                            Some(c) => c.is_ascii_whitespace() || c == '/' || c == '>',
+                            None => true,
+                        }
+                    };
+                    if !bounded { continue; }
+                    let win_end = next_boundary(text, (i + 65536).min(text.len()));
                     let close_tag = format!("</{}", &dangerous_tag[1..]);
-                    if let Some(close_idx) = ci_find(&text[i..], &close_tag) {
+                    if let Some(close_idx) = ci_find(&text[i..win_end], &close_tag) {
                         if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
                             i = i + close_idx + end_gt + 1;
                             stripped_tag = true;
                             break;
                         }
-                    } else if let Some(self_close) = find_tag_end(&text[i..]) {
+                    } else if let Some(self_close) = find_tag_end_bounded(&text[i..], 65536) {
                         i = i + self_close + 1;
                         stripped_tag = true;
                         break;
@@ -1670,7 +1735,7 @@ fn clean_chapter_body(text: &str) -> String {
                 continue;
             }
 
-            if let Some(close) = find_tag_end(&text[i..]) {
+            if let Some(close) = find_tag_end_bounded(&text[i..], 65536) {
                 let tag_end = i + close + 1;
                 let tag = &text[i..tag_end];
                 let tag_lower = tag.to_ascii_lowercase();
@@ -1697,6 +1762,12 @@ fn clean_chapter_body(text: &str) -> String {
                 i = tag_end;
                 continue;
             }
+            // Unterminated tag (or >64KB of quoted run-on): pushing the raw
+            // text put an unparseable tag into the XHTML and blanked the
+            // chapter — escape the '<' and let the rest flow as text.
+            out.push_str("&lt;");
+            i += 1;
+            continue;
         }
 
         let nb = next_boundary(text, i + 1);
@@ -1929,6 +2000,49 @@ mod mobi_fix_tests {
         let unterminated = clean_chapter_body("<p>a</p><meta http-equiv=\"refresh");
         assert!(unterminated.contains("<p>a</p>"), "chapter body lost: {}", unterminated);
         assert!(!unterminated.to_ascii_lowercase().contains("<meta"), "meta prefix survived: {}", unterminated);
+    }
+
+    #[test]
+    fn test_fix9_clean_chapter_body_escapes_stray_lt() {
+        // Prose '<' must become &lt; — served as XHTML, a bare '<' is a
+        // fatal parse error that blanks the whole chapter.
+        assert_eq!(clean_chapter_body("a < b > c"), "a &lt; b > c");
+        let mixed = clean_chapter_body("i<10 <b>bold</b>");
+        assert!(mixed.contains("i&lt;10 <b>bold</b>"), "bogus '<10' tag survived: {}", mixed);
+        // Real markup still processed.
+        assert_eq!(clean_chapter_body("<p>x</p>"), "<p>x</p>");
+        // Longer tag names sharing a dangerous prefix are content, not markup.
+        assert!(clean_chapter_body("<objects>1</objects>").contains("<objects>"));
+        assert!(clean_chapter_body("<scripture>x</scripture>").contains("<scripture>"));
+        // <objects> must not trigger the <object close-tag search that ate
+        // everything up to a legitimate </object>.
+        let mixed_obj = clean_chapter_body("<objects>a</objects><object>evil</object><p>keep</p>");
+        assert!(mixed_obj.contains("<objects>a</objects>"), "objects content lost: {}", mixed_obj);
+        assert!(!mixed_obj.contains("evil"), "object not stripped: {}", mixed_obj);
+        // filepos= in prose stays prose; in markup it rewrites.
+        let mut map = HashMap::new();
+        map.insert(12345usize, "ch_0002.xhtml".to_string());
+        let prose = prefix_cross_chapter_links("<pre>see filepos=12345 for details</pre>", &map);
+        assert!(prose.contains("see filepos=12345"), "prose rewritten: {}", prose);
+        let markup = prefix_cross_chapter_links("<a filepos=\"12345\">x</a>", &map);
+        assert!(markup.contains("href=\"ch_0002.xhtml#filepos_12345\""), "markup not rewritten: {}", markup);
+        // A quote '>' inside an img attribute must not truncate the tag —
+        // the recindex rewrite still applies.
+        let img = rewrite_images_and_links(
+            "<img alt=\"Chapter 5 > notes\" recindex=\"1\">",
+            &[(1usize, "images/img_0001.jpg".to_string())].into_iter().collect(),
+            &HashMap::new(),
+        );
+        assert!(img.contains("src=\"images/img_0001.jpg\""), "recindex rewrite lost to quoted '>': {}", img);
+        // 1600 unclosed iframes (quadratic ci_find) must stay fast — assert
+        // completion and correctness; the window bound is the fix.
+        let big: String = "<iframe src=x>".repeat(1600) + "<p>tail</p>";
+        let cleaned = clean_chapter_body(&big);
+        assert_eq!(cleaned, "<p>tail</p>");
+        // Run-on unclosed tags (no '>' until far ahead) degrade to the
+        // single-tag skip: the giant tag swallows up to the first '>'.
+        let runon: String = "<iframe src=x".repeat(1600) + "<p>tail</p>";
+        assert_eq!(clean_chapter_body(&runon), "tail</p>");
     }
 }
 
