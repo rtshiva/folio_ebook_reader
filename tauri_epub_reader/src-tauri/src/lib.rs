@@ -451,6 +451,20 @@ const DISK_CACHE_MAX_BOOKS: usize = 30;
 
 pub static ACTIVE_READING_HASH: Mutex<Option<String>> = Mutex::new(None);
 static ACTIVE_BOOK_HASHES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+// Debounce flag for the background eviction thread (module-level so the
+// drop guard below can reset it on any exit path, panics included).
+static EVICT_IN_FLIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// Reset the eviction debounce flag and drop the book-hash protection no
+// matter how the eviction thread exits — a panic mid-eviction must not wedge
+// eviction off for the rest of the process or leak a protection slot.
+struct EvictRunGuard(String);
+impl Drop for EvictRunGuard {
+    fn drop(&mut self) {
+        unprotect_book_hash(&self.0);
+        EVICT_IN_FLIGHT.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
 
 pub fn protect_book_hash(hash: &str) {
     if let Ok(mut lock) = ACTIVE_BOOK_HASHES.lock() {
@@ -535,7 +549,7 @@ pub fn evict_disk_cache(
             if is_book_hash_protected(dir_name) {
                 continue;
             }
-            if Some(dir_name) == ACTIVE_READING_HASH.lock().unwrap().as_deref() {
+            if Some(dir_name) == ACTIVE_READING_HASH.lock().unwrap_or_else(|p| p.into_inner()).as_deref() {
                 continue;
             }
             let atime = fs::read_to_string(p.join("atime"))
@@ -589,7 +603,7 @@ async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, St
 
         protect_book_hash(&hash);
         let _guard = HashProtectionGuard(hash.clone());
-        *ACTIVE_READING_HASH.lock().unwrap() = Some(hash.clone());
+        *ACTIVE_READING_HASH.lock().unwrap_or_else(|p| p.into_inner()) = Some(hash.clone());
 
         let lower = clean_str.to_lowercase();
         let is_mobi = lower.ends_with(".mobi") || lower.ends_with(".azw") || lower.ends_with(".azw3");
@@ -628,16 +642,15 @@ async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, St
         // Spawn background eviction — debounced: rapid book_open calls must not
         // stack eviction threads each walking the whole cache tree.
         {
-            static EVICT_IN_FLIGHT: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
             let evict_root = cache_root.clone();
             let protect_hash = hash.clone();
             if !EVICT_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::AcqRel) {
                 std::thread::spawn(move || {
+                    // Drop guard resets the debounce flag and drops the
+                    // protection even if eviction panics mid-walk.
+                    let _guard = EvictRunGuard(protect_hash.clone());
                     protect_book_hash(&protect_hash);
                     evict_disk_cache(&evict_root, DISK_CACHE_MAX_BYTES, DISK_CACHE_MAX_BOOKS, Some(&protect_hash));
-                    unprotect_book_hash(&protect_hash);
-                    EVICT_IN_FLIGHT.store(false, std::sync::atomic::Ordering::Release);
                 });
             }
         }
@@ -1125,7 +1138,7 @@ pub fn run() {
                             // images.
                             .header(
                                 "Content-Security-Policy",
-                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost; base-uri 'none';",
+                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost; base-uri 'none'; form-action 'none';",
                             )
                             .body(body)
                             .unwrap_or_else(|_| {

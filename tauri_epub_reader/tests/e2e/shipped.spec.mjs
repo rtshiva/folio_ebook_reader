@@ -18,7 +18,17 @@ test('R1 book opens, badge shows global pages', async ({ page }) => {
 test('R2 locations persist, second open skips generate()', async ({ page }) => {
   await openDemo(page);
   await page.waitForFunction(() => typeof LocEngine !== 'undefined' && LocEngine.ready(), null, { timeout: 12000 });
-  const key = await page.evaluate(() => localStorage.getItem('folio-locs:The Time Machine'));
+  // Locations persist through StoreKV (IndexedDB) since 811142c; localStorage
+  // is only the StoreKV-unavailable fallback. Read through the same mirror
+  // LocEngine.fetch uses.
+  await page.waitForFunction(() => {
+    if (typeof StoreKV === 'undefined' || !StoreKV.get) return false;
+    return !!StoreKV.get('folio-locs:The Time Machine') ||
+           !!localStorage.getItem('folio-locs:The Time Machine');
+  }, null, { timeout: 12000 });
+  const key = await page.evaluate(() =>
+    StoreKV.get('folio-locs:The Time Machine') ||
+    localStorage.getItem('folio-locs:The Time Machine'));
   expect(key).toBeTruthy();
   // Reload; install the generate() counter the moment the book object exists,
   // before the idle-scheduled ensure() can run.
@@ -256,7 +266,12 @@ test('R13 dictionary cache: network then offline', async ({ page }) => {
   await page.waitForFunction(
     () => (document.getElementById('selDef') || {}).textContent === '(noun) a test',
     null, { timeout: 9000 });
-  expect(await page.evaluate(() => localStorage.getItem('folio-dict:test'))).toBe('(noun) a test');
+  // DictCache persists through StoreKV (IndexedDB); localStorage is only the
+  // fallback when StoreKV is unavailable.
+  expect(await page.evaluate(() =>
+    (typeof StoreKV !== 'undefined' && StoreKV.get && StoreKV.get('dict:test')) ||
+    localStorage.getItem('folio-dict:test')
+  )).toBe('(noun) a test');
   await page.unrouteAll({ behavior: 'wait' });
   await page.route('**/api.dictionaryapi.dev/**', (route) => route.abort());
   await page.evaluate(() => { selText = 'test'; document.getElementById('selDefine').click(); });

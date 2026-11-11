@@ -1286,9 +1286,14 @@ fn prefix_cross_chapter_links(html: &str, filepos_to_chapter: &HashMap<usize, St
                 }
             }
         }
-        let next_cand = html[i + 1..]
+        // `i` is always a char boundary here (ASCII-anchored advances), but
+        // i + 1 can sit inside a multi-byte char when a rewrite lands right
+        // before one (e.g. `<a href="#filepos_123你`) — slice from the next
+        // boundary like the sibling scanners do.
+        let scan_from = next_boundary(html, i + 1);
+        let next_cand = html[scan_from..]
             .find(['h', 'H', 'f', 'F'])
-            .map(|p| i + 1 + p)
+            .map(|p| scan_from + p)
             .unwrap_or(html.len());
         let safe_end = next_boundary(html, next_cand);
         out.push_str(&html[i..safe_end]);
@@ -1624,6 +1629,25 @@ fn clean_chapter_body(text: &str) -> String {
                 }
                 continue;
             }
+            // Strip <meta ...> (e.g. http-equiv=refresh navigation hijacks).
+            // Void tag — no closing pair to look for. The extra boundary
+            // check keeps longer tags like <metadata> untouched.
+            if ci_starts_at(text, i, "<meta") {
+                let after = i + "<meta".len();
+                let bounded = after >= text.len() || {
+                    match text[after..].chars().next() {
+                        Some(c) => c.is_ascii_whitespace() || c == '/' || c == '>',
+                        None => true,
+                    }
+                };
+                if bounded {
+                    match find_tag_end(&text[i..]) {
+                        Some(open_gt) => i += open_gt + 1,
+                        None => i = after, // unterminated tag: skip the prefix
+                    }
+                    continue;
+                }
+            }
             // Completely strip iframe, object, embed tags
             let mut stripped_tag = false;
             for dangerous_tag in &["<iframe", "<object", "<embed"] {
@@ -1855,6 +1879,56 @@ mod mobi_fix_tests {
         assert!(!cleaned.to_ascii_lowercase().contains("object"));
         assert!(!cleaned.to_ascii_lowercase().contains("embed"));
         assert!(cleaned.contains("<p>Safe</p>"));
+    }
+
+    #[test]
+    fn test_fix7_prefix_links_char_boundary_after_rewrite() {
+        // Both rewrite branches can leave the cursor immediately before a
+        // multi-byte char; the scanner used to slice html[i + 1..] there and
+        // panic ("byte index is not a char boundary") on attacker-controlled
+        // MOBI content.
+        let mut map = HashMap::new();
+        map.insert(123usize, "ch_0002.xhtml".to_string());
+
+        // href="#filepos_" branch: digits end directly before 你
+        let out1 = prefix_cross_chapter_links("<a href=\"#filepos_123你>", &map);
+        assert!(
+            out1.contains("href=\"ch_0002.xhtml#filepos_123"),
+            "href branch not rewritten: {}",
+            out1
+        );
+        assert!(out1.contains('你'), "multi-byte char dropped: {}", out1);
+
+        // filepos=" branch: closing quote is followed directly by 你
+        let out2 = prefix_cross_chapter_links("<a filepos=\"123\"你>", &map);
+        assert!(
+            out2.contains("href=\"ch_0002.xhtml#filepos_123\""),
+            "filepos branch not rewritten: {}",
+            out2
+        );
+        assert!(out2.contains('你'), "multi-byte char dropped: {}", out2);
+
+        // Pure multi-byte text with no markers round-trips untouched.
+        assert_eq!(prefix_cross_chapter_links("你好世界", &map), "你好世界");
+    }
+
+    #[test]
+    fn test_fix8_clean_chapter_body_strips_meta_refresh() {
+        let hijack = "<p>Start</p><meta http-equiv=\"refresh\" content=\"0;url=https://evil.example\"><p>End</p>";
+        let cleaned = clean_chapter_body(hijack);
+        assert!(!cleaned.to_ascii_lowercase().contains("meta"), "meta survived: {}", cleaned);
+        assert!(!cleaned.to_ascii_lowercase().contains("evil.example"), "refresh target survived: {}", cleaned);
+        assert!(cleaned.contains("<p>Start</p>"));
+        assert!(cleaned.contains("<p>End</p>"));
+
+        // Longer tags that merely start with "meta" must be left alone.
+        let kept = clean_chapter_body("<metadata><dc:title>x</dc:title></metadata>");
+        assert!(kept.contains("<metadata>"), "metadata tag was stripped: {}", kept);
+
+        // Unterminated meta must not wedge the scanner or eat the chapter.
+        let unterminated = clean_chapter_body("<p>a</p><meta http-equiv=\"refresh");
+        assert!(unterminated.contains("<p>a</p>"), "chapter body lost: {}", unterminated);
+        assert!(!unterminated.to_ascii_lowercase().contains("<meta"), "meta prefix survived: {}", unterminated);
     }
 }
 

@@ -1,6 +1,6 @@
 // Deterministic page-turn probe v2: cache introspection + per-step visuals.
 import { chromium } from 'playwright';
-import { openDemo, spreadInfo } from './helpers.mjs';
+import { openDemo, spreadInfo } from '../../e2e/helpers.mjs';
 import { mkdirSync } from 'node:fs';
 
 mkdirSync('tests/e2e/artifacts/probe', { recursive: true });

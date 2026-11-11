@@ -217,11 +217,30 @@ body:not(.spread) #runHeadRight{max-width:90%;}
    book on the DESK — outside the page like the boards/fore-edges, so no
    pagination impact and no reservation. One of three procedural designs per
    chapter (swapped on spine change); hidden on narrow desks/screens. */
-.folio-vine{position:absolute;top:8px;bottom:8px;height:calc(100% - 16px);width:auto;
-  aspect-ratio:180/1200;pointer-events:none;z-index:3;display:none;opacity:.92;
+/* Two botanical columns flank the book: the gilded multicolor underlay sits
+   INNER (touching the book edge), the flowering vine OUTER, with a gap
+   between them. A flex group anchors each side so the stacking needs no
+   pixel math — children size from aspect-ratio and flow with the gap. The
+   group is an always-on formatting box; the children stay display:none until
+   body.page-orn, so toggles/geometry keep working on the spans. */
+.folio-vine-grp{position:absolute;top:8px;bottom:8px;pointer-events:none;z-index:3;
+  display:flex;gap:14px;align-items:center}
+/* Anchor just OUTSIDE the gilt frame (#rrFrame sits 8px outside #wrap, its
+   gold band ~6px + rings): the column abuts the frame band from the desk
+   side, so the frame line stays visible between column and page — and the
+   column never crosses the paper edge (the page surface starts exactly at
+   #wrap's edge; #rrFrame's inset is the only thing outside it). */
+.folio-vine-grp.left{right:calc(100% + 8px)}
+.folio-vine-grp.right{left:calc(100% + 8px)}
+/* The left gilt art reads mirrored: flip it so its dense side faces the
+   book, matching the right flank (which carries the author's right file). */
+.folio-vine.under.left{transform:scaleX(-1)}
+/* --vine-h (set by syncVineSpace) shrinks both columns together when the
+   desk margin is too narrow for the pair at full height. */
+.folio-vine{width:auto;height:calc(100% * var(--vine-h,1));aspect-ratio:180/1200;pointer-events:none;
+  display:none;opacity:.92;
   background-repeat:no-repeat;background-position:center;background-size:100% 100%}
-.folio-vine.left{right:calc(100% + 14px)}
-.folio-vine.right{left:calc(100% + 14px);transform:scaleX(-1)}
+.folio-vine.right{transform:scaleX(-1)}
 body.page-orn .folio-vine{display:block}
 .rr-no-med .folio-vine{display:none!important}
 @media (max-width:1100px){.folio-vine{display:none!important}}
@@ -1369,8 +1388,12 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <div id="finis" aria-hidden="true"><span class="finis-row"><span>Finis</span></span><span id="finisMeta"></span></div>
     <div id="gutter"></div>
     <div id="stand"><i id="standBlockL"></i><i id="standBlockR"></i></div>
-    <span class="folio-vine left" aria-hidden="true"></span>
-    <span class="folio-vine right" aria-hidden="true"></span>
+    <span class="folio-vine-grp left" aria-hidden="true">
+      <span class="folio-vine left" aria-hidden="true"></span><span class="folio-vine under left" aria-hidden="true"></span>
+    </span>
+    <span class="folio-vine-grp right" aria-hidden="true">
+      <span class="folio-vine under right" aria-hidden="true"></span><span class="folio-vine right" aria-hidden="true"></span>
+    </span>
     <div id="rrFrame" aria-hidden="true"></div>
     <span class="rr-spine-orn top" aria-hidden="true"></span>
     <span class="rr-spine-orn bottom" aria-hidden="true"></span>
@@ -2421,11 +2444,13 @@ const StoreKV = {
   ready: false,
   failed: false,
   LEGACY_KEYS: ['folio-bookmarks', 'folio-highlights', 'folio-stats'],
-  LEGACY_PREFIXES: ['folio-typo:', 'folio-bstat:', 'folio-pos:', 'folio-vocab:'],
+  LEGACY_PREFIXES: ['folio-typo:', 'folio-bstat:', 'folio-pos:', 'folio-vocab:', 'folio-locs:', 'folio-dict:'],
+  initPromise: null,
 
   init(){
     if(this.ready || this.failed) return Promise.resolve();
-    return new Promise((resolve) => {
+    if(this.initPromise) return this.initPromise; // one open, ever
+    this.initPromise = new Promise((resolve) => {
       let req;
       try { req = indexedDB.open(this.DB_NAME, this.DB_VERSION); }
       catch(e){ this.failed = true; resolve(); return; }
@@ -2445,9 +2470,17 @@ const StoreKV = {
       req.onerror = () => { this.failed = true; resolve(); };
       req.onblocked = () => { this.failed = true; resolve(); };
     });
+    return this.initPromise;
   },
 
   kvKey(legacyKey){ return legacyKey.replace(/^folio-/, ''); },
+  /* Key the migrated value is stored under. LocEngine reads and writes the
+     full 'folio-locs:<title>' key (its localStorage fallback uses the same
+     form), so unlike the other prefixes it keeps the folio- prefix. */
+  migrateTarget(legacyKey){
+    if(legacyKey.startsWith('folio-locs:')) return legacyKey;
+    return this.kvKey(legacyKey);
+  },
 
   legacyKeys(){
     const out = [];
@@ -2473,7 +2506,11 @@ const StoreKV = {
         continue;
       }
       if(val === undefined) continue;
-      await this.idbPut(this.kvKey(k), val);
+      // Only drop the legacy copy once the IDB put actually succeeded —
+      // a quota/transaction failure must not destroy the only copy
+      // (the key stays and migration retries next boot).
+      const ok = await this.idbPut(this.migrateTarget(k), val);
+      if(!ok) continue;
       try{ localStorage.removeItem(k); }catch(e2){}
     }
   },
@@ -2518,6 +2555,9 @@ const StoreKV = {
       });
     }catch(e){ return; }
     for(const k of keys){
+      // A write that landed before init resolved is newer than the stored
+      // copy — keep it and re-persist instead of letting hydration clobber.
+      if(this.mem.has(k)){ this.idbPut(k, this.mem.get(k)); continue; }
       const val = await this.idbGet(k);
       if(this.validShape(k, val)) this.mem.set(k, val);
     }
@@ -2878,7 +2918,11 @@ function loadStats(){
 function saveStatsSoon(){
   clearTimeout(statsSaveT);
   statsSaveT = setTimeout(() => {
-    try{ localStorage.setItem('folio-stats', JSON.stringify(statsCache)); }catch(e){}
+    // StoreKV is the source of truth (loadStats reads it); the old raw
+    // localStorage write here kept re-migrating a stale copy over the newer
+    // IDB record on every boot. set() falls back to localStorage itself
+    // when IDB is unavailable.
+    StoreKV.set('stats', statsCache);
     if(bookStat){ StoreKV.set('bstat:'+bookStatTitle, bookStat); }
   }, 2000);
 }
@@ -3242,7 +3286,11 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
 
     el('bookTitle').textContent = initialTitle;
     el('bookTitle').setAttribute('title', initialTitle);
-    const bookIdentifier = (opts && opts.url && opts.url.match(/folio-cache[/:]([a-f0-9_]+)/i))
+    /* Cache books open via folioCacheUrl(): 'http://folio-cache.localhost/<hash>/'
+       (and historically the literal 'folio-cache://<hash>' scheme form). Match
+       both so positions key off the content hash, not the file path — a
+       moved/renamed book keeps its reading position. */
+    const bookIdentifier = (opts && opts.url && opts.url.match(/(?:folio-cache\.localhost|folio-cache:)\/+([a-f0-9_]+)/i))
       ? RegExp.$1
       : (filePath ? filePath.replace(/[^a-zA-Z0-9_-]/g, '_') : initialTitle);
     state.posKey = 'pos:' + initialTitle + ':' + bookIdentifier;
@@ -3286,6 +3334,12 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
         if(settings.perBookType && realTitle !== initialTitle) loadPerBookType(realTitle);
         saveRecentBook(realTitle, state.currentAuthor, undefined, targetCfi, state.currentFilePath);
         fetchCoverThumb(book, realTitle);
+        // cacheBookCover ran before metadata with the filename-derived
+        // title; once the real title differs, that thumb key is orphaned
+        // (the shelf reads by real title) — drop it.
+        if(realTitle !== initialTitle && typeof StoreKV !== 'undefined' && StoreKV.del){
+          StoreKV.del('thumb:' + initialTitle);
+        }
         SearchIndex.prepare(book, realTitle);
         // Real title known now — retry global pagination under the right key
         // (generate itself is chained after the index settles, inside prepare).
@@ -3480,7 +3534,17 @@ function loadFile(file, optionalPath){
    the wrapper (relocation page state) picks grand vs continuation. */
 const PAGE_ORN = {
   keys: Object.keys(window.PAGE_ART || {}).filter(k => k.indexOf('gold-') === 0),
-  sideDesigns: [['vine-01-l', 'vine-01-r'], ['vine-02-l', 'vine-02-r'], ['vine-03-l', 'vine-03-r']]
+  /* One botanical pair flanks the book — the user-supplied triple flowering
+     ivy (see page-art.js header). Page-turn variant hashing kept for the
+     day a second design returns; with a single pair every chapter matches. */
+  /* sideDesigns = the outer vine — the ORIGINAL richvines trio, one pair per
+     chapter (restored 2026-11-11; the triple-flowering-ivy experiment was
+     rolled back). sideUnderlays = the gilded multicolor column on the INNER
+     slot, touching the book edge — the same pair under every chapter.
+     Separate .folio-vine / .folio-vine.under spans per side (flex group
+     .folio-vine-grp stacks them with a gap). */
+  sideDesigns: [['vine-01-l', 'vine-01-r'], ['vine-02-l', 'vine-02-r'], ['vine-03-l', 'vine-03-r']],
+  sideUnderlays: [['gilt-01-l', 'gilt-01-r']]
 };
 function pageOrnVariant(idx){
   const s = 'c' + String(idx == null ? 0 : idx);
@@ -3523,11 +3587,37 @@ function syncPageOrnamentsLive(){
     });
   }catch(e){}
 }
+/* The two vine columns (gilt at the book edge + outer vine, 14px gap) each
+   keep their 180/1200 aspect at the full column height, needing ~300px of
+   desk margin per side. When the book edge sits closer to the viewport than
+   that, BOTH columns shrink their height (continuous --vine-h fraction,
+   floor 0.34, vertically centered) so the pair still fits without clipping
+   or hiding — the outer vine never vanishes. One rect read + one class
+   toggle; runs on relocation and on resize (debounced re-check after the
+   epub.js relayout settles). */
+function syncVineSpace(){
+  try{
+    const v = el('viewer').getBoundingClientRect();
+    const wrapH = el('wrap').getBoundingClientRect().height - 16;
+    // Desk margin runs to the gilt frame (8px outside the viewer box) where
+    // the gilt column's edge must land.
+    const fit = margin => Math.max(0.34, Math.min(1, (margin - 14 - 2) / (0.3 * wrapH)));
+    const f = Math.min(fit(v.left - 8), fit(innerWidth - v.right - 8));
+    body.classList.toggle('vine-tight', f < 0.999);
+    body.style.setProperty('--vine-h', f.toFixed(4));
+  }catch(e){}
+}
+addEventListener('resize', () => {
+  syncVineSpace();
+  clearTimeout(syncVineSpace._t);
+  syncVineSpace._t = setTimeout(syncVineSpace, 450);
+});
 /* Opening vs continuation: the chapter's first rendered page carries the
    grand corner set, every later page the running fleuron. Called from the
    relocation hot path — two classList toggles + the park-offset tracking,
    no layout work. */
 function syncPageOrnPageState(loc, defer){
+  syncVineSpace();
   try{
     const m = state.rendition && state.rendition.manager;
     const list = m && m.views && m.views._views ? m.views._views : [];
@@ -3546,13 +3636,24 @@ function syncPageOrnPageState(loc, defer){
     const idx = loc && loc.start ? loc.start.index : null;
     if(idx != null && PAGE_ORN._lastSideIdx !== idx){
       PAGE_ORN._lastSideIdx = idx;
-      const pair = PAGE_ORN.sideDesigns[pageOrnVariant(idx) % PAGE_ORN.sideDesigns.length];
-      const set = (cls, key) => {
-        const el = document.querySelector('.folio-vine.' + cls);
-        if(el && window.PAGE_ART && window.PAGE_ART[key]) el.style.backgroundImage = "url('" + window.PAGE_ART[key] + "')";
+      const vIdx = pageOrnVariant(idx) % PAGE_ORN.sideDesigns.length;
+      const pair = PAGE_ORN.sideDesigns[vIdx];
+      const under = PAGE_ORN.sideUnderlays && PAGE_ORN.sideUnderlays[vIdx % PAGE_ORN.sideUnderlays.length];
+      // Outer span = vine, inner span (.under) = gilded underlay touching the
+      // book edge — one background per element (they're separate columns now).
+      const set = (cls, key, underKey) => {
+        if(!window.PAGE_ART) return;
+        // :not(.under) is load-bearing — the right group's gilt span comes
+        // FIRST in document order, so a bare '.folio-vine.right' matches it
+        // and the vine background lands on the wrong element (the right vine
+        // went invisible; only one side had the vine).
+        const el = document.querySelector('.folio-vine.' + cls + ':not(.under)');
+        if(el && window.PAGE_ART[key]) el.style.backgroundImage = "url('" + window.PAGE_ART[key] + "')";
+        const uEl = document.querySelector('.folio-vine.under.' + cls);
+        if(uEl && underKey && window.PAGE_ART[underKey]) uEl.style.backgroundImage = "url('" + window.PAGE_ART[underKey] + "')";
       };
-      set('left', pair[0]);
-      set('right', pair[1]);
+      set('left', pair[0], under && under[0]);
+      set('right', pair[1], under && under[1]);
     }
     // epub.js parks the iframe AFTER the relocation event fires — re-run the
     // park-offset tracking once the geometry settles (defer=false inside).
@@ -4740,7 +4841,19 @@ function _flushRecentBook(){
   });
   if(list.length > 4) list = list.slice(0, 4);
   try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
-  // Drop cached buffers for books that fell out of history (fire-and-forget).
+  // Drop cached buffers AND cover thumbnails for books that fell out of
+  // history (fire-and-forget) — thumbs live in folio-kv-db (~10-15 KB each)
+  // and used to accumulate one orphaned entry per book ever opened.
+  try{
+    const keep = new Set(list.map(x => x.title));
+    all.forEach(x => {
+      if(keep.has(x.title)) return;
+      if(typeof StoreKV !== 'undefined' && StoreKV.del){
+        StoreKV.del('thumb:' + x.title);
+        if(x.thumbKey && x.thumbKey !== 'thumb:' + x.title) StoreKV.del(x.thumbKey);
+      }
+    });
+  }catch(e){}
   try{ BookStorage.pruneExcept(list.map(x => x.title)); }catch(e){}
   BookStorage.updateProgress(title, pct, cfi);
   renderRecentShelf();
@@ -8577,6 +8690,40 @@ const Footnotes = {
       p.appendChild(bodyDiv);
       document.body.appendChild(p);
       closeBtn.addEventListener('click', () => this.close());
+      // Delegated link guard: footnote content is book-controlled and this is
+      // a top-level popup, so the chapter-iframe link interception in
+      // wireContents does not cover it — a plain <a href> would navigate the
+      // whole webview. Mirror wireContents' strict scheme allowlist.
+      p.addEventListener('click', (ev) => {
+        const a = ev.target.closest && ev.target.closest('a');
+        if(!a) return;
+        ev.preventDefault(); ev.stopPropagation();
+        const rawHref = (a.getAttribute('href') || '').trim();
+        if(!rawHref) return;
+        if(rawHref.startsWith('#')){
+          let t = null;
+          try{ t = p.querySelector(rawHref); }catch(_){}
+          if(t){ try{ t.scrollIntoView({ behavior: 'smooth' }); }catch(_){} }
+          return;
+        }
+        let parsed;
+        try{ parsed = new URL(rawHref, location.href); }catch(_){ return; }
+        if(parsed.protocol === 'https:' || parsed.protocol === 'http:' || parsed.protocol === 'mailto:'){
+          try{
+            if(window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl){
+              window.__TAURI__.opener.openUrl(parsed.href);
+            } else if(window.__TAURI__ && window.__TAURI__.shell && window.__TAURI__.shell.open){
+              window.__TAURI__.shell.open(parsed.href);
+            } else {
+              window.open(parsed.href, '_blank', 'noopener,noreferrer');
+            }
+          }catch(_){
+            window.open(parsed.href, '_blank', 'noopener,noreferrer');
+          }
+        }
+        // Any other scheme (javascript:, data:, ms-settings:, book-relative
+        // paths, …) is strictly dropped.
+      });
     }
     const bodyEl = p.querySelector('.fn-body');
     bodyEl.innerHTML = '';

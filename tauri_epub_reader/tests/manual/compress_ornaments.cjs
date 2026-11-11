@@ -2,7 +2,7 @@
 // transforms, 1-decimal d) + render a contact sheet for visual verification.
 const { chromium } = require('playwright');
 const fs = require('fs');
-const p = __dirname.replace(/\/g, '/') + '/';
+const p = __dirname.replace(/\\/g, '/') + '/';
 
 const raw = JSON.parse(fs.readFileSync(p + 'orn-extracted.json', 'utf8'));
 const out = {};

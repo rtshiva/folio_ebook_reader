@@ -141,26 +141,90 @@ test('PO7 side vines flank the book on the desk and swap per chapter', async ({ 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await openDemoReady(page);
   const read = () => page.evaluate(() => {
-    const l = document.querySelector('.folio-vine.left');
-    const r = document.querySelector('.folio-vine.right');
+    const q = (s2) => document.querySelector(s2);
+    const viewer = document.getElementById('viewer').getBoundingClientRect();
+    const l = q('.folio-vine.left:not(.under)');
+    const g = q('.folio-vine.under.left');
+    // NOTE the :not(.under) — the right group's gilt span precedes the vine
+    // span in document order, so a bare '.folio-vine.right' matches the gilt
+    // (that collision once left the right vine permanently invisible).
+    const r = q('.folio-vine.right:not(.under)');
+    const gr = q('.folio-vine.under.right');
     return {
-      shown: getComputedStyle(l).display,
-      w: Math.round(l.getBoundingClientRect().width),
-      lBg: (l.style.backgroundImage || '').match(/margin-vine|vine-\d+-l/) ? l.style.backgroundImage.slice(0, 40) : l.style.backgroundImage.slice(0, 40),
+      tight: document.body.classList.contains('vine-tight'),
+      ivyShown: getComputedStyle(l).display,
+      giltShown: getComputedStyle(g).display,
+      giltW: Math.round(g.getBoundingClientRect().width),
+      giltBg: (g.style.backgroundImage || '').slice(0, 40),
+      ivyBg: (l.style.backgroundImage || '').slice(0, 40),
+      // gilt abuts the gilt frame (8px outside the viewer box) on BOTH
+      // flanks and never crosses onto the paper (paper starts at viewer edge)
+      giltAtBook: Math.abs(g.getBoundingClientRect().right - (viewer.left - 8)) < 12,
+      deskClear: g.getBoundingClientRect().right <= viewer.left + 2,
+      ivyShownR: getComputedStyle(r).display,
       rBg: (r.style.backgroundImage || '').slice(0, 40),
-      deskClear: l.getBoundingClientRect().right <= document.getElementById('viewer').getBoundingClientRect().left,
+      grBg: (gr.style.backgroundImage || '').slice(0, 40),
+      giltAtBookR: Math.abs(gr.getBoundingClientRect().left - (viewer.right + 8)) < 12,
+      deskClearR: gr.getBoundingClientRect().left >= viewer.right - 2,
     };
   });
+  // 1920 spread: the desk margin is too narrow for both columns at full
+  // height — both shrink (vine-tight) but stay visible, gilt at the book.
   const s = await read();
-  expect(s.shown).toBe('block');
-  expect(s.w).toBeGreaterThan(80);
-  expect(s.deskClear).toBe(true); // vine sits between page edge and desk, never on the page
+  expect(s.tight).toBe(true);
+  expect(s.giltShown).toBe('block');
+  expect(s.ivyShown).toBe('block');
+  expect(s.giltW).toBeGreaterThan(50);
+  expect(s.giltW).toBeLessThan(141); // shrunk to fit
+  expect(s.giltAtBook).toBe(true);
+  expect(s.deskClear).toBe(true);
+  expect(s.giltBg).toContain('data:image/svg+xml');
+  expect(s.ivyBg).toContain('data:image/svg+xml');
+  // Right flank mirrors the left (vine span must carry its own background).
+  expect(s.ivyShownR).toBe('block');
+  expect(s.rBg).toContain('data:image/svg+xml');
+  expect(s.grBg).toContain('data:image/svg+xml');
+  expect(s.giltAtBookR).toBe(true);
+  expect(s.deskClearR).toBe(true);
+  // Wide desk: both columns at full height — gilt inner (touching the book),
+  // vine outer, ~14px gap between them.
+  await page.setViewportSize({ width: 2560, height: 1080 });
+  await page.waitForTimeout(1100); // relayout + debounced vine-space recheck
+  const wide = await page.evaluate(() => {
+    const l = document.querySelector('.folio-vine.left:not(.under)').getBoundingClientRect();
+    const g = document.querySelector('.folio-vine.under.left').getBoundingClientRect();
+    const r = document.querySelector('.folio-vine.right:not(.under)').getBoundingClientRect();
+    const gr = document.querySelector('.folio-vine.under.right').getBoundingClientRect();
+    const viewer = document.getElementById('viewer').getBoundingClientRect();
+    return {
+      tight: document.body.classList.contains('vine-tight'),
+      ivyShown: getComputedStyle(document.querySelector('.folio-vine.left:not(.under)')).display,
+      fullHeight: Math.round(g.height),
+      gap: Math.round(g.left - l.right),
+      gapR: Math.round(r.left - gr.right),
+      giltAtBook: Math.abs(g.right - (viewer.left - 8)) < 12,
+      giltAtBookR: Math.abs(gr.left - (viewer.right + 8)) < 12,
+      deskClearIvy: l.right <= viewer.left + 2,
+      deskClearIvyR: r.left >= viewer.right - 2,
+    };
+  });
+  expect(wide.tight).toBe(false);
+  expect(wide.ivyShown).toBe('block');
+  expect(wide.fullHeight).toBeGreaterThan(900); // --vine-h back to 1
+  expect(Math.abs(wide.gap - 14)).toBeLessThanOrEqual(2);
+  expect(Math.abs(wide.gapR - 14)).toBeLessThanOrEqual(2);
+  expect(wide.giltAtBook).toBe(true);
+  expect(wide.giltAtBookR).toBe(true);
+  expect(wide.deskClearIvy).toBe(true);
+  expect(wide.deskClearIvyR).toBe(true);
+  // Ornament toggle strips and restores both columns.
+  await page.setViewportSize({ width: 2560, height: 1080 });
   await page.keyboard.press('s');
   await page.waitForFunction(() => document.body.classList.contains('sheet-open'), null, { timeout: 5000 });
   await page.evaluate(() => { document.getElementById('swPageOrn').click(); });
   await page.waitForTimeout(600);
-  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.folio-vine.left')).display)).toBe('none');
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.folio-vine.under.left')).display)).toBe('none');
   await page.evaluate(() => { document.getElementById('swPageOrn').click(); });
   await page.waitForTimeout(600);
-  expect(await read().then(s => s.shown)).toBe('block');
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.folio-vine.under.left')).display)).toBe('block');
 });

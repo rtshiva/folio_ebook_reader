@@ -1,6 +1,6 @@
 // D8 replica with turn-call logging to find the relocation cascade.
 import { chromium } from 'playwright';
-import { openDemoReady, badge, badgeWait, slowDrag, fastFling, synUp, curCfi } from './helpers.mjs';
+import { openDemoReady, badge, badgeWait, slowDrag, fastFling, synUp, curCfi } from '../../e2e/helpers.mjs';
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1360, height: 860 } });

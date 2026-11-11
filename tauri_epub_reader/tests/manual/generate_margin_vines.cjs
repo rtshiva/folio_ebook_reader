@@ -3,7 +3,7 @@
 // specs and builders, with the shared helpers (fmt/rot/leaf/tendril)
 // reconstructed. Outputs rich_ebook_ornaments/*.svg at the repo root.
 const fs = require('fs');
-const path = require('path').resolve(__dirname, '../../rich_ebook_ornaments').replace(/\/g, '/') + '/';
+const path = require('path').resolve(__dirname, '../../rich_ebook_ornaments').replace(/\\/g, '/') + '/';
 fs.mkdirSync(path, { recursive: true });
 
 function fmt(n) {

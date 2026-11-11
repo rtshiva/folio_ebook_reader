@@ -4,7 +4,7 @@
 // excluded), and precision-reduces per piece for data-URI embedding.
 const { chromium } = require('playwright');
 const fs = require('fs');
-const path = require('path').resolve(__dirname, '../..').replace(/\/g, '/') + '/';
+const path = require('path').resolve(__dirname, '../..').replace(/\\/g, '/') + '/';
 
 const JOBS = [
   { file: 'vecteezy_page-border-line-vectors_95547.svg', name: 'corner', cols: 3, rows: 2, waterMinY: 880 },

@@ -48,7 +48,12 @@ jobs:
           cache-dependency-path: tauri_epub_reader/package-lock.json
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2025-11 (was stable)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2025-11
+        # On this action the git ref is the toolchain selector; the master
+        # branch (unlike e.g. the stable branch) declares `toolchain` as a
+        # required input with no default, so pass it explicitly.
+        with:
+          toolchain: stable
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684 # v2.8.0

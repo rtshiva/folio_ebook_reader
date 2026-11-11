@@ -19,6 +19,8 @@ const htmlScriptRules = {
       // vendor bundles loaded via <script src> (src/vendor/)
       ePub: 'readonly',
       JSZip: 'readonly',
+      // ornament data URIs loaded via <script src> (src/assets/ornaments/page-art.js)
+      PAGE_ART: 'readonly',
       // CSS Custom Highlight API (present in WebView2/Chromium; the call
       // site already guards with typeof checks for older engines)
       Highlight: 'readonly',

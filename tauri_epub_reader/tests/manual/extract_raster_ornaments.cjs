@@ -3,7 +3,7 @@
 // PNG crops (not vector surgery) — pixel-perfect fidelity to the source art.
 const { chromium } = require('playwright');
 const fs = require('fs');
-const path = require('path').resolve(__dirname, '../..').replace(/\/g, '/') + '/';
+const path = require('path').resolve(__dirname, '../..').replace(/\\/g, '/') + '/';
 const SRC = (f) => path + f;
 
 (async () => {
