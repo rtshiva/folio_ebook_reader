@@ -2080,13 +2080,17 @@ function rgba(hex,a){
    swaps in late: the visible "font and alignment change per page visit".
    file:// has no usable origin, so the absolute source is skipped there. */
 const FONT_APP_ORIGIN = /^https?:$/.test(location.protocol) ? location.origin + '/vendor/fonts/' : null;
+/* Inside Tauri the CSP's font-src can never admit the CDN, so emitting that
+   source only manufactures console violations on every face load — drop it
+   there; the vendored copies above always serve. */
+const FONT_CDN_OFF = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
 const FS=(fam,slug,w,style)=>{
   const st=style||'normal';
   const file=`${slug}-${w}-${st}.woff2`;
   const sources=[
     `url('vendor/fonts/${file}') format('woff2')`,
     FONT_APP_ORIGIN ? `url('${FONT_APP_ORIGIN}${file}') format('woff2')` : null,
-    `url('https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${st}.woff2') format('woff2')`,
+    FONT_CDN_OFF ? null : `url('https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${st}.woff2') format('woff2')`,
   ].filter(Boolean).join(',');
   return `@font-face{font-family:'${fam}';font-style:${st};font-weight:${w};font-display:swap;`+
     `src:${sources};}`;
@@ -3725,11 +3729,20 @@ function pageOrnMarkup(idx){
   const uh = "url('" + PAGE_ART['head-large'] + "')";
   const us = "url('" + PAGE_ART['head-small'] + "')";
   const g = p => '<span class="folio-pg ' + p + '" style="background-image:' + ug + '"></span>';
-  /* The wrapper is absolute + 100vw/vh and gets scroll-translated by the
-     track() listener below — epub.js renders the whole section as one long
-     multicol canvas inside a parked iframe (measured 3108px wide), so CSS
-     `position:fixed` does NOT stay viewport-glued in that space. */
-  return '<div id="folio-pcs" style="position:absolute;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:1">' +
+  /* The wrapper ships with ZERO size and gets its real (viewer-sized,
+     canvas-clamped) box only from trackPageOrnRun below. Two hard
+     constraints drive this:
+     - epub.js's Contents.textWidth() is a Range over BODY's contents, and
+       its expand() widens the iframe to ceil(textWidth/pageWidth)*pageWidth.
+       The serialized chapter HTML carries this markup AFTER </body>, and the
+       HTML parser reparents it INTO the body when a cached chapter is
+       replayed — a viewport-sized wrapper (100vw) then rides inside that
+       Range, so every canvas widening grew the wrapper, which grew
+       textWidth again: the chapter's page total ratcheted up on every turn
+       and chapter crossing flipped into empty phantom pages forever.
+     - the box trackPageOrnRun assigns is clamped to the canvas, so the
+       wrapper's rect can never push the measure past clientWidth. */
+  return '<div id="folio-pcs" style="position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1">' +
     g('tl') + g('tr') + g('bl') + g('br') +
     '<span class="folio-ph grand" style="background:#c9a45c;mask-image:' + uh + ';-webkit-mask-image:' + uh + '"></span>' +
     '<span class="folio-ph simple" style="background:#c9a45c;mask-image:' + us + ';-webkit-mask-image:' + us + '"></span>' +
@@ -3867,9 +3880,23 @@ function trackPageOrnRun(d, w){
         const key = [v.left.toFixed(1), v.width.toFixed(1), (v.left - fr.left).toFixed(1), (v.top - fr.top).toFixed(1), sx, sy].join('|');
         if(key !== last){
           last = key;
-          w.style.width = v.width + 'px';
-          w.style.height = v.height + 'px';
-          w.style.transform = 'translate(' + ((v.left - fr.left) + sx).toFixed(1) + 'px,' + ((v.top - fr.top) + sy).toFixed(1) + 'px)';
+          // The wrapper rides the visible spread (park offset + body scroll
+          // compensation). During a fold the iframe slides transiently PAST
+          // the spread boundary; an unclamped translate would push the
+          // wrapper beyond the canvas, and epub.js's page map reads
+          // documentElement.scrollWidth to total the section — every
+          // overshoot then locked in as phantom pages and the chapter never
+          // ended (perpetual empty flips, crossing dead). Clamp so the
+          // wrapper always fits inside the canvas and can never widen the
+          // measure.
+          const cw = d.documentElement.clientWidth, chh = d.documentElement.clientHeight;
+          const ww = Math.max(1, Math.min(v.width, cw));
+          const wh = Math.max(1, Math.min(v.height, chh));
+          const tx = Math.max(0, Math.min((v.left - fr.left) + sx, cw - ww));
+          const ty = Math.max(0, Math.min((v.top - fr.top) + sy, chh - wh));
+          w.style.width = ww + 'px';
+          w.style.height = wh + 'px';
+          w.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px)';
         }
       }
     }catch(e){}
@@ -3878,11 +3905,78 @@ function trackPageOrnRun(d, w){
   requestAnimationFrame(step);
 }
 
+/* epub.js renders chapters as SRCDOC iframes, which inherit the APP's base
+   URL — the book's relative resource references (cover <img>, inline images,
+   publisher <link> stylesheets, SVG images) then resolve against the app
+   root (tauri.localhost/cover.jpeg) and load the SPA fallback: the visible
+   broken-image placeholder on title pages. Anchor the chapter to its own
+   section URL and re-write the relative resource attributes to absolute;
+   the attribute rewrite re-fires the loads against the corrected base. */
+function applyChapterBase(d, secUrl){
+  if(!d || !secUrl || !/^https?:/i.test(secUrl)) return;
+  if(!d.querySelector('base')){
+    const b = d.createElement('base');
+    b.href = secUrl;
+    (d.head || d.documentElement).insertBefore(b, (d.head || d.documentElement).firstChild);
+  }
+  // Every relative resource reference is rewritten to an absolute URL — even
+  // when a <base> already exists (epub.js injects its own during content
+  // processing, AFTER the initial parse): images whose first load failed
+  // against the app root never retry on their own, and re-SETTING the
+  // attribute is what re-fires the load. SVG <image> carries its ref on
+  // xlink:href (cover pages: <image xlink:href="cover.jpeg">), so the
+  // selector matches the ELEMENT, not the attribute form.
+  d.querySelectorAll('img,image,link[href],video[poster],audio[src],source[src],source[srcset],track[src]').forEach(el => {
+    ['src', 'href', 'xlink:href', 'srcset', 'poster'].forEach(a => {
+      let v = null;
+      try{ v = el.getAttribute(a); }catch(e){}
+      if((a === 'xlink:href') && !v){
+        try{ v = el.getAttributeNS && el.getAttributeNS('http://www.w3.org/1999/xlink', 'href'); }catch(e){}
+      }
+      if(v && !/^(https?:|data:|blob:|about:|#)/i.test(v.trim())){
+        try{ el.setAttribute(a, new URL(v, secUrl).href); }catch(e){}
+      }
+    });
+  });
+}
+
 function onContent(contents){
   const d=contents.document;
   let s=d.getElementById('folio-dyn');
   if(!s){ s=d.createElement('style'); s.id='folio-dyn'; (d.head||d.documentElement).appendChild(s); }
   s.textContent=buildCSS();
+  // epub.js's View.expand() sizes the section canvas from Contents.textWidth()
+  // — a Range over BODY's contents. The corner-art overlay (#folio-pcs) can
+  // end up inside that Range (replayed chapters parse the wrapper — captured
+  // after </body> — back INTO the body), and its viewer-sized box then pushes
+  // textWidth past the canvas, so expand() rounds up, the canvas widens, the
+  // next spread's overlay reaches the new edge and inflates it again: the
+  // page total ratcheted +1 spread per turn and chapter crossing flipped
+  // into empty phantom pages forever. Measure with the overlay display:none
+  // so the canvas only ever grows for real content.
+  try{
+    if(contents && !contents.__folioTwPatched){
+      contents.__folioTwPatched = true;
+      const origTw = contents.textWidth.bind(contents);
+      contents.textWidth = function(){
+        const dd = this.document;
+        const w = dd ? dd.getElementById('folio-pcs') : null;
+        if(!w) return origTw();
+        const prev = w.style.display;
+        w.style.display = 'none';
+        try{ return origTw(); } finally { w.style.display = prev; }
+      };
+    }
+  }catch(e){}
+  // Anchor the chapter to its own URL before anything else reads the DOM:
+  // srcdoc documents otherwise keep the app base, breaking relative book
+  // resources (covers, images, publisher stylesheets). Must run BEFORE the
+  // cache capture below so replays carry corrected absolute URLs too.
+  try{
+    const siB = (typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
+    const secB = (siB !== undefined && state.book && state.book.spine) ? state.book.spine.get(siB) : null;
+    if(secB && secB.url) applyChapterBase(d, secB.url);
+  }catch(e){}
   // Page corner art goes in before the cache capture below so the serialized
   // chapter HTML (turn-compositor replays) carries the identical markup.
   // Anchored on documentElement, NOT body: a fixed child of the body (the
@@ -6525,6 +6619,10 @@ class PageCacheManager {
           // the section itself (same quirk jumpToTocIndex works around).
           const sectionDoc = (item && item.document) || doc;
           if (sectionDoc && sectionDoc.body) {
+            // Same srcdoc-base fix as onContent: the captured HTML feeds the
+            // turn compositor's replays, so relative resource refs must be
+            // absolutized here or covers/images break in the replays.
+            try{ const secU = item.url || (state.book && state.book.spine && state.book.spine.get(spineIndex) || {}).url; if(secU) applyChapterBase(sectionDoc, secU); }catch(eB){}
             const txt = sectionDoc.body.innerText || sectionDoc.body.textContent || '';
             this.chapterTexts.set(spineIndex, txt);
             try{
