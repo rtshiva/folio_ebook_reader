@@ -18,7 +18,7 @@
 //      load, and the rewrite must run even when a <base> already exists
 //      (epub.js injects its own, after first paint).
 import { test, expect } from '@playwright/test';
-import { fresh, openDemoReady } from './helpers.mjs';
+import { fresh, openDemoReady, buildMultiChapterEpub } from './helpers.mjs';
 
 test.beforeEach(async ({ page }) => { await fresh(page); });
 
@@ -126,17 +126,22 @@ test('G5 applyChapterBase rewrites relative resource refs (SVG image + img) even
       `<!DOCTYPE html><html><head><base href="http://tauri.localhost/"></head><body>`
       + `<svg width="10" height="10"><image width="4" height="6" xlink:href="cover.jpeg"></image></svg>`
       + `<img src="pics/p1.jpeg"><img src="https://already/abs.jpeg"><img src="data:image/png;base64,AA">`
-      + `<link rel="stylesheet" href="style.css"></body></html>`,
+      + `<link rel="stylesheet" href="style.css">`
+      + `<video poster="post/p.jpeg" src="vid/v1.mp4"></video><audio src="aud/a1.mp3"></audio>`
+      + `<picture><source srcset="r/r-1x.jpeg 1x, r/r-2x.jpeg 2x, r/r-3x.jpeg 3x" type="image/jpeg"><img src="r/fallback.jpeg"></picture>`
+      + `</body></html>`,
       'text/html');
     applyChapterBase(doc, SEC);
-    const abs = (el, attrs) => attrs.map((a) => el.getAttribute(a)).filter(Boolean);
-    const image = doc.querySelector('image');
     return {
-      xlinkAbs: (image.getAttribute('xlink:href') || '').startsWith(SEC.replace(/[^/]*$/, '')),
+      xlinkAbs: (doc.querySelector('image').getAttribute('xlink:href') || '').startsWith(SEC.replace(/[^/]*$/, '')),
       imgRel: doc.querySelectorAll('img')[0].getAttribute('src'),
       imgAbsKept: doc.querySelectorAll('img')[1].getAttribute('src'),
       imgDataKept: doc.querySelectorAll('img')[2].getAttribute('src'),
       linkAbs: doc.querySelector('link').getAttribute('href'),
+      videoSrc: doc.querySelector('video').getAttribute('src'),
+      posterAbs: doc.querySelector('video').getAttribute('poster'),
+      audioSrc: doc.querySelector('audio').getAttribute('src'),
+      srcset: doc.querySelector('source').getAttribute('srcset'),
       baseAlone: doc.querySelectorAll('base').length,
     };
   });
@@ -145,5 +150,41 @@ test('G5 applyChapterBase rewrites relative resource refs (SVG image + img) even
   expect(res.imgAbsKept, 'absolute srcs stay untouched').toBe('https://already/abs.jpeg');
   expect(res.imgDataKept.startsWith('data:'), 'data: srcs stay untouched').toBe(true);
   expect(res.linkAbs, 'publisher link href must be absolutized').toBe('http://folio-cache.localhost/abc123/OEBPS/text/style.css');
+  expect(res.videoSrc, 'video src must be absolutized').toBe('http://folio-cache.localhost/abc123/OEBPS/text/vid/v1.mp4');
+  expect(res.posterAbs, 'video poster must be absolutized').toBe('http://folio-cache.localhost/abc123/OEBPS/text/post/p.jpeg');
+  expect(res.audioSrc, 'audio src must be absolutized').toBe('http://folio-cache.localhost/abc123/OEBPS/text/aud/a1.mp3');
+  expect(res.srcset, 'srcset must stay a per-candidate list with descriptors intact')
+    .toBe('http://folio-cache.localhost/abc123/OEBPS/text/r/r-1x.jpeg 1x, '
+        + 'http://folio-cache.localhost/abc123/OEBPS/text/r/r-2x.jpeg 2x, '
+        + 'http://folio-cache.localhost/abc123/OEBPS/text/r/r-3x.jpeg 3x');
   expect(res.baseAlone, 'no duplicate <base> injected when one exists').toBe(1);
+});
+
+test('G6 bionic capture: cached chapter HTML carries ALL bolded nodes, not just the first batch', async ({ page }) => {
+  // A chapter with >120 text nodes: bionifyDoc batches past 120 on idle ticks,
+  // and a cache capture that runs before the continuation completes bakes
+  // mixed-weight text into the turn compositor's replays.
+  const buf = buildMultiChapterEpub('Bionic Capture Test', 1, 60);
+  await page.goto('/');
+  await page.evaluate(() => { localStorage.clear(); try { indexedDB.deleteDatabase('folio-kv-db'); } catch (e) {} });
+  await page.setInputFiles('#file', { name: 'bionic-capture.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(buf) });
+  await page.waitForFunction(() => document.body.classList.contains('state-reading'), null, { timeout: 15000 });
+  await page.evaluate(() => { try { settings.bionic = true; save(); eachContent((c) => { if (c.document.body.dataset.fioBionic !== '1') { c.document.body.dataset.fioBionic = '1'; bionifyDoc(c.document); } }); refreshCSS(); } catch (e) {} });
+  // wait for the idle continuation + capture to settle
+  await page.waitForTimeout(1800);
+  const counts = await page.evaluate(() => {
+    const frs = [...document.querySelectorAll('#viewer iframe')]
+      .map((f) => ({ f, r: f.getBoundingClientRect() }))
+      .sort((a, b) => (b.r.width * b.r.height) - (a.r.width * a.r.height));
+    const d = frs[0].f.contentDocument;
+    const live = d.querySelectorAll('b.fio-b').length;
+    let cached = -1;
+    try {
+      const html = pageCache.getChapterHtml();
+      cached = (html.match(/<b class="fio-b">/g) || []).length;
+    } catch (e) {}
+    return { live, cached };
+  });
+  expect(counts.live, 'live doc must be bionified').toBeGreaterThan(120);
+  expect(counts.cached, `cached replay must carry every bolded node (live=${counts.live})`).toBeGreaterThanOrEqual(counts.live);
 });

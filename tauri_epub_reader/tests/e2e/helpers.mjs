@@ -176,7 +176,9 @@ function zipStore(files) {
 
 // Multi-chapter variant for crossing tests: n paginated chapters so flips
 // actually cross spine boundaries (buildTestEpub has a single chapter).
-export function buildMultiChapterEpub(title = 'Smoke Test', chapters = 3) {
+// parasPerChapter controls chapter size (60+ text nodes exercise bionify's
+// idle continuation in the capture tests).
+export function buildMultiChapterEpub(title = 'Smoke Test', chapters = 3, parasPerChapter = 4) {
   const manifest = [];
   const spine = [];
   const files = [
@@ -192,8 +194,8 @@ export function buildMultiChapterEpub(title = 'Smoke Test', chapters = 3) {
       '<?xml version="1.0" encoding="utf-8"?>\n' +
       `<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter ${i + 1}</title></head><body>\n` +
       `<h1>Chapter ${i + 1}</h1>` +
-      Array.from({ length: 4 }, (_, k) =>
-        `<p>Chapter ${i + 1} paragraph ${k + 1}: enough words per chapter to paginate across several pages, so a flip sequence genuinely crosses the spine boundary into the next chapter.</p>`).join('\n') +
+      Array.from({ length: parasPerChapter }, (_, k) =>
+        `<p>Chapter ${i + 1} paragraph ${k + 1}: enough words per chapter to paginate across several pages, so a flip sequence genuinely crosses the spine boundary into the next chapter and exercises every enrichment pass.</p>`).join('\n') +
       '\n</body></html>']);
     manifest.push(`<item id="c${i}" href="ch${i}.xhtml" media-type="application/xhtml+xml"/>`);
     spine.push(`<itemref idref="c${i}"/>`);

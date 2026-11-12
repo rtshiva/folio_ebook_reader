@@ -241,13 +241,25 @@ pub struct ExtractedMetadata {
     pub cover_offset: Option<usize>,
 }
 
+/// MOBI metadata strings (the record-0 title and every EXTH string record) are
+/// NUL-padded to alignment boundaries. Rust's `str::trim` does NOT strip NUL
+/// — it is not whitespace — so padding used to leak into the generated
+/// content.opf / toc.ncx, where a literal U+0000 is a fatal XML error:
+/// epub.js's packaging load rejected, the spine unpacked empty (`isOpen` never
+/// became true), and every MOBI opened through the packaged exe hung forever
+/// on "Loading contents…" (found 2026-11-13). Strip control characters, then
+/// trim whitespace.
+fn sanitize_meta_string(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()
+}
+
 pub fn parse_exth_and_metadata(
     rec0: &[u8],
     mobi_hdr: &MobiHeader,
     fallback_title: &str,
 ) -> ExtractedMetadata {
     let mut meta = ExtractedMetadata {
-        title: fallback_title.to_string(),
+        title: sanitize_meta_string(fallback_title),
         author: "Unknown".to_string(),
         publisher: None,
         description: None,
@@ -270,9 +282,9 @@ pub fn parse_exth_and_metadata(
         } else {
             String::from_utf8_lossy(raw_title).to_string()
         };
-        let trimmed = t.trim();
+        let trimmed = sanitize_meta_string(&t);
         if !trimmed.is_empty() {
-            meta.title = trimmed.to_string();
+            meta.title = trimmed;
         }
     }
 
@@ -321,22 +333,22 @@ pub fn parse_exth_and_metadata(
                 match r_type {
                     100 => {
                         // Author
-                        let a = String::from_utf8_lossy(r_data).trim().to_string();
+                        let a = sanitize_meta_string(&String::from_utf8_lossy(r_data));
                         if !a.is_empty() {
                             meta.author = a;
                         }
                     }
                     101 => {
                         // Publisher
-                        meta.publisher = Some(String::from_utf8_lossy(r_data).trim().to_string());
+                        meta.publisher = Some(sanitize_meta_string(&String::from_utf8_lossy(r_data)));
                     }
                     103 => {
                         // Description
-                        meta.description = Some(String::from_utf8_lossy(r_data).trim().to_string());
+                        meta.description = Some(sanitize_meta_string(&String::from_utf8_lossy(r_data)));
                     }
                     104 => {
                         // ISBN
-                        meta.isbn = Some(String::from_utf8_lossy(r_data).trim().to_string());
+                        meta.isbn = Some(sanitize_meta_string(&String::from_utf8_lossy(r_data)));
                     }
                     201 => {
                         // Cover offset
@@ -352,14 +364,14 @@ pub fn parse_exth_and_metadata(
                     }
                     503 => {
                         // Updated title
-                        let t = String::from_utf8_lossy(r_data).trim().to_string();
+                        let t = sanitize_meta_string(&String::from_utf8_lossy(r_data));
                         if !t.is_empty() {
                             meta.title = t;
                         }
                     }
                     524 => {
                         // Language
-                        let l = String::from_utf8_lossy(r_data).trim().to_string();
+                        let l = sanitize_meta_string(&String::from_utf8_lossy(r_data));
                         if !l.is_empty() {
                             meta.language = l;
                         }
@@ -1669,8 +1681,12 @@ fn clean_chapter_body(text: &str) -> String {
                     // this tag alone.
                     let win_end = next_boundary(text, (i + 65536).min(text.len()));
                     if let Some(close_idx) = ci_find(&text[i..win_end], "</script") {
-                        if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
-                            i = i + close_idx + end_gt + 1;
+                        // Bound the tag-end scan to the same window — an
+                        // unbounded scan over the rest of the body is the
+                        // quadratic-CPU shape 893e8e3 fixed elsewhere.
+                        let close_abs = i + close_idx;
+                        if let Some(end_gt) = find_tag_end(&text[close_abs..(close_abs + 65536).min(text.len())]) {
+                            i = close_abs + end_gt + 1;
                             continue;
                         }
                     }
@@ -1719,8 +1735,10 @@ fn clean_chapter_body(text: &str) -> String {
                     let win_end = next_boundary(text, (i + 65536).min(text.len()));
                     let close_tag = format!("</{}", &dangerous_tag[1..]);
                     if let Some(close_idx) = ci_find(&text[i..win_end], &close_tag) {
-                        if let Some(end_gt) = find_tag_end(&text[i + close_idx..]) {
-                            i = i + close_idx + end_gt + 1;
+                        // Same-window bound (see the </script> site above).
+                        let close_abs = i + close_idx;
+                        if let Some(end_gt) = find_tag_end(&text[close_abs..(close_abs + 65536).min(text.len())]) {
+                            i = close_abs + end_gt + 1;
                             stripped_tag = true;
                             break;
                         }

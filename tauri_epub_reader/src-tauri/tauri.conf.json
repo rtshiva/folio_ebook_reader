@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' folio-cache: http://folio-cache.localhost; img-src 'self' data: blob: folio-cache: http://folio-cache.localhost; font-src 'self' data: folio-cache: http://folio-cache.localhost; connect-src 'self' folio-cache: http://folio-cache.localhost https://api.dictionaryapi.dev https://huggingface.co https://*.hf.co https://*.huggingface.co data: blob:; media-src 'self' blob: data:; frame-src 'self' blob: data: folio-cache: http://folio-cache.localhost about:; base-uri 'self'; form-action 'none'; object-src 'none'",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' folio-cache: http://folio-cache.localhost; img-src 'self' data: blob: folio-cache: http://folio-cache.localhost; font-src 'self' data: folio-cache: http://folio-cache.localhost; connect-src 'self' folio-cache: http://folio-cache.localhost https://api.dictionaryapi.dev https://huggingface.co https://*.hf.co https://*.huggingface.co data: blob:; media-src 'self' blob: data: folio-cache: http://folio-cache.localhost; frame-src 'self' blob: data: folio-cache: http://folio-cache.localhost about:; base-uri 'self'; form-action 'none'; object-src 'none'",
       "dangerousDisableAssetCspModification": ["style-src"]
     }
   },

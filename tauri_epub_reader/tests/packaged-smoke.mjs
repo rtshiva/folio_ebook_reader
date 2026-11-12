@@ -11,7 +11,7 @@
 //      src-tauri/target/release/app.exe — run `npm run build` first if stale)
 // Windows-only. Not part of `npm test` (needs a release build + a window).
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { statSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative } from 'node:path';
@@ -128,6 +128,61 @@ for (let i = 0; i < 10; i++) {
 }
 if (crossed === 0) fail(`no chapter crossing in 10 fast turns (stuck at spine ${last}) — the page-total ratchet is back`);
 console.log(`PASS  fast flips cross chapters (crossings=${crossed}, spine=${last})`);
+
+// ---- MOBI leg: the unpack path generates content.opf/toc.ncx from MOBI
+// metadata whose strings are NUL-padded — leaking one U+0000 makes the OPF a
+// fatal XML error for epub.js (packaging load rejects, spine unpacks empty,
+// open hangs forever on "Loading contents…"). A non-ASCII title maximizes
+// the padding coverage. ----
+try { child.kill(); } catch {}
+try { execSync('taskkill /IM app.exe /F', { stdio: 'ignore' }); } catch {}
+await new Promise((r) => setTimeout(r, 1200));
+try { browser.close(); } catch {}
+await new Promise((r) => setTimeout(r, 500));
+
+const helpers = await import('./e2e/helpers.mjs');
+const mobiTitle = "Zoë's Café ☕ — 中文测试 & Ünïcode";
+const mobiPath = join(dir, `${mobiTitle}.mobi`);
+writeFileSync(mobiPath, Buffer.from(helpers.buildTestMobi(mobiTitle, 'Ünïcode Àuthor')));
+
+console.log('launching packaged exe with a non-ASCII MOBI (file-association open)…');
+const child2 = spawn(exe, [mobiPath], {
+  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9391' },
+  stdio: 'ignore',
+});
+process.on('exit', () => { try { child2.kill(); } catch {} });
+let browser2 = null;
+for (let i = 0; i < 30; i++) {
+  await new Promise((r) => setTimeout(r, 500));
+  try { browser2 = await chromium.connectOverCDP(CDP); break; } catch { /* restarting */ }
+}
+if (!browser2) fail('MOBI leg: WebView2 CDP endpoint never came up');
+const ctx2 = browser2.contexts()[0];
+const page2 = ctx2.pages().find((p) => p.url().includes('tauri.localhost')) || ctx2.pages()[0];
+if (!page2) fail('MOBI leg: no tauri.localhost page');
+let mobiOk = null;
+for (let i = 0; i < 10; i++) {
+  await page2.waitForTimeout(2000);
+  mobiOk = await page2.evaluate(() => {
+    const frames = document.querySelectorAll('#viewer iframe').length;
+    const toc = ((document.getElementById('tocList') || {}).textContent || '');
+    const frs = [...document.querySelectorAll('#viewer iframe')]
+      .map((f) => ({ f, r: f.getBoundingClientRect() }))
+      .sort((a, b) => (b.r.width * b.r.height) - (a.r.width * a.r.height));
+    const d = frs.length && frs[0].f.contentDocument;
+    return {
+      reading: document.body.classList.contains('state-reading'),
+      frames, tocFilled: toc.length > 0 && !toc.includes('Loading contents'),
+      text: d && d.body ? (d.body.innerText || '').slice(0, 40).replace(/\n/g, ' ') : '',
+    };
+  }).catch(() => null);
+  if (mobiOk && mobiOk.reading && mobiOk.frames > 0 && mobiOk.tocFilled) break;
+}
+if (!mobiOk) fail('MOBI leg: page unreachable');
+if (!mobiOk.reading || mobiOk.frames === 0 || !mobiOk.tocFilled) {
+  fail(`non-ASCII MOBI never rendered (reading=${mobiOk && mobiOk.reading}, frames=${mobiOk && mobiOk.frames}, tocFilled=${mobiOk && mobiOk.tocFilled}) — MOBI metadata NUL padding is corrupting the generated OPF again`);
+}
+console.log(`PASS  non-ASCII MOBI renders (${JSON.stringify(mobiOk.text)})`);
 
 console.log('PACKAGED SMOKE: all green');
 cleanup();

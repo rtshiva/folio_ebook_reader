@@ -3939,7 +3939,7 @@ function applyChapterBase(d, secUrl){
   // attribute is what re-fires the load. SVG <image> carries its ref on
   // xlink:href (cover pages: <image xlink:href="cover.jpeg">), so the
   // selector matches the ELEMENT, not the attribute form.
-  d.querySelectorAll('img,image,link[href],video[poster],audio[src],source[src],source[srcset],track[src]').forEach(el => {
+  d.querySelectorAll('img,image,link[href],video[poster],video[src],audio[src],source[src],source[srcset],track[src]').forEach(el => {
     ['src', 'href', 'xlink:href', 'srcset', 'poster'].forEach(a => {
       let v = null;
       try{ v = el.getAttribute(a); }catch(e){}
@@ -3947,7 +3947,19 @@ function applyChapterBase(d, secUrl){
         try{ v = el.getAttributeNS && el.getAttributeNS('http://www.w3.org/1999/xlink', 'href'); }catch(e){}
       }
       if(v && !/^(https?:|data:|blob:|about:|#)/i.test(v.trim())){
-        try{ el.setAttribute(a, new URL(v, secUrl).href); }catch(e){}
+        try{
+          // srcset is a comma-separated LIST of "URL descriptor" candidates —
+          // pushing the whole string through new URL() bakes one garbage URL
+          // (percent-encoded spaces) over every candidate. Absolutize each.
+          if(a === 'srcset'){
+            el.setAttribute(a, v.split(',').map(c => {
+              const t = c.trim(); const m = t.match(/^(\S+)(.*)$/); if(!m) return c;
+              try{ return new URL(m[1], secUrl).href + (m[2] ? ' ' + m[2].trim() : ''); }catch(e){ return c; }
+            }).join(', '));
+            return;
+          }
+          el.setAttribute(a, new URL(v, secUrl).href);
+        }catch(e){}
       }
     });
   });
@@ -4008,25 +4020,33 @@ function onContent(contents){
       }
     }
   }catch(e){}
-  if(settings.bionic && d.body.dataset.fioBionic!=='1'){ bionifyDoc(d); d.body.dataset.fioBionic='1'; }
+  // Bionification continues past the first 120 text nodes on idle ticks —
+  // await its completion before the cache capture, or the serialized HTML
+  // bakes the first ~120 bolded nodes plus plain text after them (visible
+  // mixed-weight text mid-flip). Identity-guarded: a capture landing after
+  // closeBook must not file the old doc under the new book's cache.
+  const bookAtContent = state.book;
+  const captureNow = () => {
+    try{
+      if(!bookAtContent || bookAtContent !== state.book) return;
+      const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
+      // Key by the rendered section, not currentSpine: relocated() runs after
+      // this hook, so the unkeyed write would file the new chapter under the
+      // previous spine and feed the turn compositor the wrong adjacent page.
+      const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
+      if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
+    }catch(e){}
+  };
+  if(settings.bionic && d.body.dataset.fioBionic!=='1'){
+    d.body.dataset.fioBionic='1';
+    Promise.resolve(bionifyDoc(d)).then(captureNow);
+  } else captureNow();
   // Illustrated chapters paginate faster when off-screen images decode lazily.
   try{
     d.querySelectorAll('img').forEach(im=>{
       im.setAttribute('loading','lazy');
       im.setAttribute('decoding','async');
     });
-  }catch(e){}
-  // Cache capture runs AFTER bionification and the lazy-img attributes:
-  // the turn compositor replays this serialized HTML, so capturing earlier
-  // made adjacent/turning pages render without the bionic styling the live
-  // page had (visible mismatch mid-flip).
-  try{
-    const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
-    // Key by the rendered section, not currentSpine: relocated() runs after
-    // this hook, so the unkeyed write would file the new chapter under the
-    // previous spine and feed the turn compositor the wrong adjacent page.
-    const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
-    if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
   }catch(e){}
   wireContents(contents);
 }
@@ -4188,7 +4208,7 @@ function bionifyDoc(doc){
     return NodeFilter.FILTER_ACCEPT;
   }});
   const nodes=[]; while(walker.nextNode())nodes.push(walker.currentNode);
-  const WORD=/^([\P{L}\P{N}]*)([\p{L}\p{N}]+)([\s\S]*)$/u;
+  const WORD=/^([^\p{L}\p{N}]*)([\p{L}\p{N}]+)([\s\S]*)$/u;
   const processNode=node=>{
     if(!node.parentNode)return;
     const frag=doc.createDocumentFragment();
@@ -4205,9 +4225,16 @@ function bionifyDoc(doc){
     });
     node.parentNode.replaceChild(frag,node);
   };
+  // Batches of 120 nodes per idle tick keep the first paint responsive, but
+  // the RETURNED promise must be awaited before anything serializes this doc:
+  // the cache capture in onContent feeds the turn compositor's replays, and
+  // capturing mid-continuation baked the first ~120 bolded nodes plus plain
+  // text after them into the replay — visible mixed-weight text mid-flip.
   const syncCount=Math.min(nodes.length, 120);
   for(let i=0; i<syncCount; i++) processNode(nodes[i]);
-  if(nodes.length > syncCount){
+  for(let i=0; i<syncCount; i++) processNode(nodes[i]);
+  if(nodes.length <= syncCount) return Promise.resolve();
+  return new Promise((done) => {
     let idx = syncCount;
     const step = () => {
       const end = Math.min(idx + 120, nodes.length);
@@ -4216,11 +4243,11 @@ function bionifyDoc(doc){
       if(idx < nodes.length){
         if('requestIdleCallback' in window) requestIdleCallback(step);
         else requestAnimationFrame(step);
-      }
+      } else done();
     };
     if('requestIdleCallback' in window) requestIdleCallback(step);
     else requestAnimationFrame(step);
-  }
+  });
 }
 function debionify(doc){
   doc.querySelectorAll('b.fio-b').forEach(b=>b.replaceWith(doc.createTextNode(b.textContent)));
@@ -6645,8 +6672,9 @@ class PageCacheManager {
               // Mirror onContent's enrichment BEFORE serialization: the turn
               // compositor replays this HTML, and a neighbor captured raw
               // revealed pages missing bionic bolding + ornament corners
-              // when the reader crossed into them.
-              try{ if(settings.bionic && sectionDoc.body.dataset.fioBionic!=='1'){ bionifyDoc(sectionDoc); sectionDoc.body.dataset.fioBionic='1'; } }catch(e0){}
+              // when the reader crossed into them. Await the full bionify —
+              // capturing mid-continuation baked mixed-weight text.
+              try{ if(settings.bionic && sectionDoc.body.dataset.fioBionic!=='1'){ sectionDoc.body.dataset.fioBionic='1'; await bionifyDoc(sectionDoc); } }catch(e0){}
               try{ sectionDoc.querySelectorAll('img').forEach(im=>{ im.setAttribute('loading','lazy'); im.setAttribute('decoding','async'); }); }catch(e1){}
               try{ if(settings.pageOrnaments && !sectionDoc.getElementById('folio-pcs')){ sectionDoc.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(spineIndex)); } }catch(e2){}
               const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(sectionDoc.documentElement.outerHTML);
@@ -9737,6 +9765,7 @@ function wireCmdPalette(){
 function onKey(e){
   const openDialog = (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show, aside[role="dialog"], div[role="dialog"]'))
     || document.querySelector('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show')
+    || (typeof CmdPalette !== 'undefined' && CmdPalette.open && el('cmdPalette'))
     || (body.classList.contains('sheet-open') && el('sheet'))
     || (body.classList.contains('toc-open') && el('toc'))
     || (body.classList.contains('search-open') && el('searchDrawer'))

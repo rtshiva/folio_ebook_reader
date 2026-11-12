@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(join(root, 'src/index.html'), 'utf8');
 const rust = readFileSync(join(root, 'src-tauri/src/lib.rs'), 'utf8');
+const rustMobi = readFileSync(join(root, 'src-tauri/src/mobi.rs'), 'utf8');
 const conf = readFileSync(join(root, 'src-tauri/tauri.conf.json'), 'utf8');
 
 let failures = 0;
@@ -288,5 +289,58 @@ check('ornament overlay cannot ratchet the page-total measure',
   /__folioTwPatched/.test(html) &&
   /w\.style\.display = 'none';/.test(html),
   'pageOrnMarkup must ship width:0, trackPageOrnRun must clamp to clientWidth, and onContent must patch textWidth to measure without the overlay');
+
+// 32. Book audio/video in cache-streamed books loads from folio-cache — the
+// app CSP's media-src must admit both scheme spellings (frame-src already
+// does; the omission silently muted embedded media).
+check('media-src admits folio-cache (embedded book media plays)',
+  /media-src[^"]*folio-cache:\s+http:\/\/folio-cache\.localhost/.test(conf),
+  'tauri.conf.json media-src must include folio-cache: http://folio-cache.localhost');
+
+// 33. MOBI metadata strings are NUL-padded to alignment boundaries; Rust's
+// trim() does not strip NUL, and one leaked U+0000 makes the generated
+// content.opf/toc.ncx a fatal XML error for epub.js — every MOBI hung forever
+// on "Loading contents…" in the packaged exe.
+check('MOBI metadata NUL padding stripped before OPF/NCX generation',
+  /fn sanitize_meta_string/.test(rustMobi) &&
+  (rustMobi.match(/sanitize_meta_string\(/g) || []).length >= 8 &&
+  /fn test_u39_mobi_metadata_nul_padding_stripped/.test(rust),
+  'mobi.rs metadata (record-0 title + every EXTH string record) must go through sanitize_meta_string (test_u39)');
+
+// 34. mobi.rs tag-stripping scans must never sweep the rest of the body:
+// find_tag_end on an unbounded suffix is the quadratic-CPU shape 893e8e3
+// fixed in the close-tag searches.
+{
+  const unbounded = [...rust.matchAll(/find_tag_end\(&text\[i \+ close_idx\.\.\]\)/g)].length;
+  check('mobi.rs tag-end scans stay window-bounded', unbounded === 0,
+    `unbounded find_tag_end(&text[i + close_idx..]) found ${unbounded}× — bound to the 64KB window`);
+}
+
+// 35. applyChapterBase must treat srcset as a candidate LIST (absolutizing
+// the whole string bakes one garbage URL over every candidate) and must
+// cover video[src] (failed media loads never retry).
+check('applyChapterBase handles srcset per candidate and video src',
+  /a === 'srcset'/.test(html) &&
+  /v\.split\(','\)\.map/.test(html) &&
+  /'img,image,link\[href\],video\[poster\],video\[src\]/.test(html),
+  'srcset must be absolutized per candidate with descriptors intact, and video[src] must be in the selector');
+
+// 36. Bionification continues past the first 120 text nodes on idle ticks —
+// the cache capture (onContent + preloadSpine) must await its completion or
+// replays bake mixed bold/regular text.
+check('cache capture waits for bionify completion',
+  /Promise\.resolve\(bionifyDoc\(d\)\)\.then\(captureNow\)/.test(html) &&
+  /await bionifyDoc\(sectionDoc\)/.test(html) &&
+  /bookAtContent !== state\.book/.test(html),
+  'onContent must defer captureNow until bionifyDoc resolves (identity-guarded) and preloadSpine must await it');
+
+// 37. Bionic's word regex: the prefix class must be the NEGATED union
+// ([^\p{L}\p{N}] = non-letter non-number). The original [\P{L}\P{N}] is the
+// UNION of the two complements, which matches every character — the greedy
+// prefix swallowed whole words and bionic never bolded a single word (dead
+// since the feature's introduction, surfaced by the G6 capture test).
+check('bionic word regex matches real words',
+  /\[\^\\p\{L\}\\p\{N\}\]/.test(html) && !/\[\\P\{L\}\\P\{N\}\]/.test(html),
+  'bionify WORD prefix class must be [^\\p{L}\\p{N}] — [\\P{L}\\P{N}] matches everything and disables bionic');
 
 process.exit(failures ? 1 : 0);

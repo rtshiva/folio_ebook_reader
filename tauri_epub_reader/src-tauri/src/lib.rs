@@ -2266,6 +2266,37 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
+    // The record-0 title and EXTH records are NUL-padded to alignment
+    // boundaries; that padding leaked into the generated content.opf and
+    // toc.ncx, where U+0000 is a fatal XML error — epub.js's packaging load
+    // rejected, the spine unpacked empty, and every MOBI opened through the
+    // packaged exe hung forever on "Loading contents…". The generated OPF/NCX
+    // must be control-character-free and carry the clean title.
+    #[test]
+    fn test_u39_mobi_metadata_nul_padding_stripped() {
+        let tmp = std::env::temp_dir().join(format!("folio_test_mobi_nul_{}", std::process::id()));
+        let _ = fs::create_dir_all(&tmp);
+
+        let content = "<h1>NUL Chapter</h1><p>Readable paragraph for pagination.</p>";
+        let bytes = create_synthetic_mobi_opt("NUL \u{300a}Padded\u{300b} Title", "NUL \u{c0}uthor", content, 0, false);
+        let mobi_file = tmp.join("nulmeta.mobi");
+        fs::write(&mobi_file, bytes).unwrap();
+        let meta = fs::metadata(&mobi_file).unwrap();
+
+        let target = tmp.join("out");
+        fs::create_dir_all(&target).unwrap();
+        let res = crate::mobi::unpack_mobi(&mobi_file, &target, "nulmeta.mobi", &meta, 4242);
+        assert!(res.is_ok(), "unpack failed: {:?}", res.err());
+
+        for f in ["content.opf", "toc.ncx"] {
+            let s = fs::read_to_string(target.join(f)).unwrap();
+            let nulls = s.matches('\u{0000}').count();
+            assert_eq!(nulls, 0, "{} carries {} NUL bytes (padding leaked into metadata)", f, nulls);
+            assert!(s.contains("NUL \u{300a}Padded\u{300b} Title"), "{} lost the clean title", f);
+        }
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
     // P1 regression: PalmDOC expansion must be capped mid-decode, not after.
     #[test]
     fn test_u31_palmdoc_decompression_budget() {
