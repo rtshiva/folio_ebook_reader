@@ -1085,12 +1085,38 @@ pub fn merge_gpu_flags(existing: &str) -> String {
     result
 }
 
+/// Vendored reading fonts (folio-dyn's `@font-face` src) requested through the
+/// folio-cache scheme: chapter documents resolve `vendor/fonts/…` against the
+/// BOOK base (e.g. `<hash>/OEBPS/vendor/fonts/…`), which no book contains —
+/// the face then never loads locally and book text falls back to a system
+/// serif that swaps in late (visible font/alignment shift per page visit).
+/// Serve the embedded app asset instead: same origin (folio-cache), so no
+/// CORS applies and the chapter CSP's font-src already allows it. Matched by
+/// basename against the embedded asset table — never joined to a filesystem
+/// path — so a crafted rel cannot escape the book cache.
+fn embedded_font_bytes(rel: &str, app: &tauri::AppHandle) -> Option<Vec<u8>> {
+    let name = embedded_font_asset_name(rel)?;
+    let asset = app.asset_resolver().get(name)?;
+    Some(asset.bytes.to_vec())
+}
+
+/// Pure lookup half of `embedded_font_bytes`: the vendored-font asset name a
+/// book-relative path refers to, or None for anything that is not one.
+fn embedded_font_asset_name(rel: &str) -> Option<String> {
+    let lower = rel.replace('\\', "/").to_lowercase();
+    let idx = lower.rfind("vendor/fonts/")?;
+    let name = &lower[idx..];
+    if !(name.ends_with(".woff2") || name.ends_with(".woff")) {
+        return None;
+    }
+    Some(name.to_string())
+}
+
 /// Extracts the book cache hash and inner relative path from a custom-protocol
 /// request URI, supporting both `folio-cache://{hash}/{rel}` (direct custom
 /// scheme) and `http://folio-cache.localhost/{hash}/{rel}` (Windows WebView2
 /// fetchable custom scheme host syntax).
-pub fn parse_cache_uri_hash_and_rel(host: &str, path_str: &str) -> (String, String) {
-    if !host.is_empty()
+pub fn parse_cache_uri_hash_and_rel(host: &str, path_str: &str) -> (String, String) {    if !host.is_empty()
         && host != "localhost"
         && !host.ends_with(".localhost")
         && host != "folio-cache"
@@ -1144,9 +1170,16 @@ pub fn run() {
                 || req_origin.starts_with("http://folio-cache.localhost:");
             #[cfg(not(debug_assertions))]
             let is_dev_origin = false;
+            // NOTE: on Windows the app origin is http://tauri.localhost (not
+            // https, not tauri:). Omitting it made every CORS-mode fetch/XHR
+            // from the reader (epub.js loading container.xml/OPF/chapters)
+            // fail net::ERR_FAILED, so path-based opens — file association,
+            // drag-drop, recents shelf — hung forever on "Loading contents…"
+            // with no pages. Bug seen in packaged builds 2026-11-12.
             let allow_origin = if req_origin == "tauri://localhost"
-                || req_origin == "http://localhost"
+                || req_origin == "http://tauri.localhost"
                 || req_origin == "https://tauri.localhost"
+                || req_origin == "http://localhost"
                 || req_origin == "http://folio-cache.localhost"
                 || is_dev_origin
             {
@@ -1183,7 +1216,7 @@ pub fn run() {
                 }
             };
 
-            let file_path = cache_root.join(hash).join(clean_rel);
+            let file_path = cache_root.join(hash).join(&clean_rel);
             if file_path.is_file() {
                 match fs::read(&file_path) {
                     Ok(bytes) => {
@@ -1228,6 +1261,17 @@ pub fn run() {
                             .unwrap()
                     }
                 }
+            } else if let Some(font_bytes) = embedded_font_bytes(&clean_rel.to_string_lossy(), app.app_handle()) {
+                let mime = mime_for_path(Path::new(&clean_rel));
+                tauri::http::Response::builder()
+                    .status(200)
+                    .header("Content-Type", mime)
+                    .header("Cache-Control", "max-age=31536000, immutable")
+                    .header("Access-Control-Allow-Origin", allow_origin)
+                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .body(font_bytes)
+                    .unwrap()
             } else {
                 tauri::http::Response::builder()
                     .status(404)
@@ -2310,5 +2354,33 @@ mod tests {
         // Non-XML mimes pass through untouched.
         let passthru = b"<meta http-equiv=refresh content=0>".to_vec();
         assert_eq!(xml_response_body("text/plain", passthru.clone()), passthru);
+    }
+
+    #[test]
+    fn test_u37_embedded_font_asset_name() {
+        // Book-relative request with a chapter prefix resolves to the vendored
+        // font asset (the whole tail after vendor/fonts/, lowercased).
+        assert_eq!(
+            embedded_font_asset_name("OEBPS/vendor/fonts/literata-400-normal.woff2").as_deref(),
+            Some("vendor/fonts/literata-400-normal.woff2")
+        );
+        assert_eq!(
+            embedded_font_asset_name("SomeChapter/vendor/FONTS/Lexend-600-NORMAL.WOFF2").as_deref(),
+            Some("vendor/fonts/lexend-600-normal.woff2")
+        );
+        assert_eq!(
+            embedded_font_asset_name("OEBPS\\vendor\\fonts\\opendyslexic-400-normal.woff2").as_deref(),
+            Some("vendor/fonts/opendyslexic-400-normal.woff2")
+        );
+        // Only webfonts qualify — never a book file that merely lives under a
+        // same-named directory, and never anything without the marker path.
+        assert_eq!(embedded_font_asset_name("OEBPS/vendor/fonts/payload.html"), None);
+        assert_eq!(embedded_font_asset_name("OEBPS/vendor/fontface/x.woff2"), None);
+        assert_eq!(embedded_font_asset_name("OEBPS/images/pic.woff2"), None);
+        // Traversal attempts cannot escape: the matched tail is an embedded
+        // asset-table key, not a filesystem path — but anything beyond the
+        // font tail is simply not a font name.
+        assert_eq!(embedded_font_asset_name("../../vendor/fonts/literata-400-normal.woff2").as_deref(),
+            Some("vendor/fonts/literata-400-normal.woff2"));
     }
 }

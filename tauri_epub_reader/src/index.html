@@ -2070,13 +2070,26 @@ function rgba(hex,a){
 
 /* ---------------- reading fonts (page + book iframes) ----------------
    Vendored under vendor/fonts for offline-first loading; the CDN copy stays
-   as fallback (browsers try @font-face sources in order). */
+   as fallback (browsers try @font-face sources in order).
+   Source order matters: the relative URL serves the shell and any chapter
+   iframe whose base is the app root (dev server, folio-cache's embedded
+   font fallback). The ABSOLUTE app-origin URL is the catch for chapter
+   iframes whose base is NOT the app — epub.js blob chapters (buffer opens
+   in the packaged app) can't resolve a relative URL against a blob base,
+   and a 404/failed local face left the text on a fallback serif that
+   swaps in late: the visible "font and alignment change per page visit".
+   file:// has no usable origin, so the absolute source is skipped there. */
+const FONT_APP_ORIGIN = /^https?:$/.test(location.protocol) ? location.origin + '/vendor/fonts/' : null;
 const FS=(fam,slug,w,style)=>{
   const st=style||'normal';
-  const local=`vendor/fonts/${slug}-${w}-${st}.woff2`;
-  const cdn=`https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${st}.woff2`;
+  const file=`${slug}-${w}-${st}.woff2`;
+  const sources=[
+    `url('vendor/fonts/${file}') format('woff2')`,
+    FONT_APP_ORIGIN ? `url('${FONT_APP_ORIGIN}${file}') format('woff2')` : null,
+    `url('https://cdn.jsdelivr.net/fontsource/fonts/${slug}@latest/latin-${w}-${st}.woff2') format('woff2')`,
+  ].filter(Boolean).join(',');
   return `@font-face{font-family:'${fam}';font-style:${st};font-weight:${w};font-display:swap;`+
-    `src:url('${local}') format('woff2'),url('${cdn}') format('woff2');}`;
+    `src:${sources};}`;
 };
 const FONT_FACES =
   FS('Literata','literata',400)+FS('Literata','literata',400,'italic')+FS('Literata','literata',600)+FS('Literata','literata',700)+
