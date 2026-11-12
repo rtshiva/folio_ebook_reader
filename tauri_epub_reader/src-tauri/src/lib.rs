@@ -1085,6 +1085,33 @@ pub fn merge_gpu_flags(existing: &str) -> String {
     result
 }
 
+/// CORS echo policy for folio-cache responses: trust exactly the app's own
+/// origins (and, in debug builds, the dev-server ports) and echo them back;
+/// anything else gets the non-matching fallback, which fails the CORS check.
+///
+/// REGRESSION GUARD (2026-11-12): on Windows WebView2 the app origin is
+/// `http://tauri.localhost` — omitting it from the trusted list made every
+/// CORS-mode fetch/XHR from the reader (epub.js loading container.xml, OPF,
+/// chapters) fail `net::ERR_FAILED`, and path-based opens hung forever on
+/// "Loading contents…" with zero pages. Images kept loading (no CORS), which
+/// masked the breakage. Every new origin form the app can run under MUST be
+/// added here AND asserted in test_u38.
+fn allowed_cors_origin(req_origin: &str, is_dev_origin: bool) -> String {
+    let trusted = matches!(
+        req_origin,
+        "tauri://localhost"
+            | "http://tauri.localhost"
+            | "https://tauri.localhost"
+            | "http://localhost"
+            | "http://folio-cache.localhost"
+    ) || is_dev_origin;
+    if trusted {
+        req_origin.to_string()
+    } else {
+        "tauri://localhost".to_string()
+    }
+}
+
 /// Vendored reading fonts (folio-dyn's `@font-face` src) requested through the
 /// folio-cache scheme: chapter documents resolve `vendor/fonts/…` against the
 /// BOOK base (e.g. `<hash>/OEBPS/vendor/fonts/…`), which no book contains —
@@ -1170,23 +1197,13 @@ pub fn run() {
                 || req_origin.starts_with("http://folio-cache.localhost:");
             #[cfg(not(debug_assertions))]
             let is_dev_origin = false;
-            // NOTE: on Windows the app origin is http://tauri.localhost (not
+            // NOTE: on Windows WebView2 the app origin is http://tauri.localhost (not
             // https, not tauri:). Omitting it made every CORS-mode fetch/XHR
             // from the reader (epub.js loading container.xml/OPF/chapters)
             // fail net::ERR_FAILED, so path-based opens — file association,
             // drag-drop, recents shelf — hung forever on "Loading contents…"
             // with no pages. Bug seen in packaged builds 2026-11-12.
-            let allow_origin = if req_origin == "tauri://localhost"
-                || req_origin == "http://tauri.localhost"
-                || req_origin == "https://tauri.localhost"
-                || req_origin == "http://localhost"
-                || req_origin == "http://folio-cache.localhost"
-                || is_dev_origin
-            {
-                req_origin
-            } else {
-                "tauri://localhost"
-            };
+            let allow_origin = allowed_cors_origin(&req_origin, is_dev_origin);
 
             let uri = req.uri();
             let host = uri.host().unwrap_or("");
@@ -2382,5 +2399,33 @@ mod tests {
         // font tail is simply not a font name.
         assert_eq!(embedded_font_asset_name("../../vendor/fonts/literata-400-normal.woff2").as_deref(),
             Some("vendor/fonts/literata-400-normal.woff2"));
+    }
+
+    #[test]
+    fn test_u38_cors_echoes_every_app_origin() {
+        // Every origin form the packaged app (and its chapter iframes) can
+        // present MUST be echoed back, or epub.js's CORS-mode fetch/XHR of
+        // container.xml/OPF/chapters fails net::ERR_FAILED and path-based
+        // opens hang forever. The Windows release origin (http://tauri.localhost)
+        // was missing from this list once — see allowed_cors_origin.
+        for origin in [
+            "tauri://localhost",          // macOS/Linux app origin
+            "http://tauri.localhost",     // Windows WebView2 app origin
+            "https://tauri.localhost",    // https-scheme builds
+            "http://localhost",           // dev servers without a port
+            "http://folio-cache.localhost", // chapter iframes / fetchable scheme
+        ] {
+            assert_eq!(allowed_cors_origin(origin, false), origin, "origin not echoed: {origin}");
+        }
+        // Dev-server ports echo only in debug builds.
+        assert_eq!(allowed_cors_origin("http://localhost:1420", true), "http://localhost:1420");
+        assert_eq!(allowed_cors_origin("http://folio-cache.localhost:1420", true), "http://folio-cache.localhost:1420");
+        // Release builds never reflect arbitrary localhost ports or foreign
+        // origins: they get the non-matching fallback, which fails the CORS
+        // check instead of opening the scheme to the network.
+        assert_eq!(allowed_cors_origin("http://localhost:1420", false), "tauri://localhost");
+        assert_eq!(allowed_cors_origin("http://evil.example", false), "tauri://localhost");
+        assert_eq!(allowed_cors_origin("", false), "tauri://localhost");
+        assert_eq!(allowed_cors_origin("null", false), "tauri://localhost");
     }
 }

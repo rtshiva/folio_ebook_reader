@@ -129,6 +129,12 @@ export function buildTestEpub() {
       '<p>Third paragraph closes this tiny test chapter for relocation.</p>\n' +
       '</body></html>'],
   ];
+  return zipStore(files);
+}
+
+// Assembles a stored-entry zip from [name, content(string|bytes)] pairs —
+// the writer behind the test-epub builders.
+function zipStore(files) {
   const chunks = [];
   const central = [];
   let offset = 0;
@@ -166,6 +172,42 @@ export function buildTestEpub() {
   let p = 0;
   for (const b of chunks) { out.set(b, p); p += b.length; }
   return out;
+}
+
+// Multi-chapter variant for crossing tests: n paginated chapters so flips
+// actually cross spine boundaries (buildTestEpub has a single chapter).
+export function buildMultiChapterEpub(title = 'Smoke Test', chapters = 3) {
+  const manifest = [];
+  const spine = [];
+  const files = [
+    ['mimetype', 'application/epub+zip'],
+    ['META-INF/container.xml',
+      '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n' +
+      '  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>\n' +
+      '</container>'],
+  ];
+  for (let i = 0; i < chapters; i++) {
+    files.push([`OEBPS/ch${i}.xhtml`,
+      '<?xml version="1.0" encoding="utf-8"?>\n' +
+      `<!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter ${i + 1}</title></head><body>\n` +
+      `<h1>Chapter ${i + 1}</h1>` +
+      Array.from({ length: 4 }, (_, k) =>
+        `<p>Chapter ${i + 1} paragraph ${k + 1}: enough words per chapter to paginate across several pages, so a flip sequence genuinely crosses the spine boundary into the next chapter.</p>`).join('\n') +
+      '\n</body></html>']);
+    manifest.push(`<item id="c${i}" href="ch${i}.xhtml" media-type="application/xhtml+xml"/>`);
+    spine.push(`<itemref idref="c${i}"/>`);
+  }
+  files.push(['OEBPS/content.opf',
+    '<?xml version="1.0" encoding="utf-8"?>\n' +
+    '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bid">\n' +
+    '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n' +
+    `<dc:identifier id="bid">urn:folio:test:multi</dc:identifier>\n` +
+    `<dc:title>${title}</dc:title><dc:creator>Tester</dc:creator><dc:language>en</dc:language>\n` +
+    '</metadata>\n' +
+    `<manifest>${manifest.join('')}</manifest>\n` +
+    `<spine>${spine.join('')}</spine>\n</package>`]);
+  return zipStore(files);
 }
 
 // Builds a synthetic DRM-free MOBI file in memory for tests.

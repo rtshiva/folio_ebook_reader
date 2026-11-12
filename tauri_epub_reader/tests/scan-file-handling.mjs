@@ -11,7 +11,7 @@
 //   6. desktop drag-drop stays enabled (landing page advertises file drop)
 //   7. edge-only click zones (whole-page tap-to-turn flips on body taps)
 //   8. no idle desk-dim re-arm (ambient surround must sit still)
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -226,5 +226,67 @@ check('ribbon splits multi-anchor weights, book stats ride the heartbeat',
   /loadBookStat\(getActiveTitle\(\)\)/.test(html) &&
   /bookStat\.min = \(bookStat\.min \|\| 0\) \+ 0\.5/.test(html),
   'multi-anchor weight split and the per-book heartbeat bump are missing');
+
+// ---- 2026-11-12/13 packaged-exe regressions (CORS hang, CSP-blocked styles,
+// broken covers, crossing ratchet) — these layers are invisible to the
+// browser e2e harness, so their invariants are pinned here statically. ----
+
+// 27. folio-cache CORS echo must trust the Windows app origin. On Windows
+// WebView2 the app origin is http://tauri.localhost; missing it failed every
+// CORS-mode fetch/XHR (epub.js container/OPF/chapters) and path-based opens
+// hung forever on "Loading contents…" with zero pages. Inspect the policy
+// function's own body (not the test module's copy of the literal).
+const corsFn = (rust.match(/fn allowed_cors_origin[\s\S]*?\n\}/) || [''])[0];
+check('folio-cache CORS echoes the Windows app origin',
+  /allowed_cors_origin\(&req_origin/.test(rust) &&
+  corsFn.includes('"http://tauri.localhost"') &&
+  /fn test_u38_cors_echoes_every_app_origin/.test(rust),
+  'allowed_cors_origin must list http://tauri.localhost in its trusted set and be wired into the handler (test_u38)');
+
+// 28. Tauri's style-src nonce voids 'unsafe-inline' (CSP spec) and blocks
+// every dynamically-created <style> inside srcdoc chapter iframes — book
+// text fell back to the default serif and page corner art vanished. The
+// asset-CSP modification must stay disabled for style-src (scripts keep
+// their nonce), and font-src must admit data: (embedded faces).
+check('asset CSP modification disabled for style-src (dynamic styles apply)',
+  /"dangerousDisableAssetCspModification"\s*:\s*\[\s*"style-src"\s*\]/.test(conf) &&
+  /font-src[^"]*data:/.test(conf),
+  'tauri.conf.json needs dangerousDisableAssetCspModification:["style-src"] and data: in font-src');
+
+// 29. Chapter iframes render as srcdoc/blob documents whose base cannot
+// resolve file-based font URLs; the embedded data-URI copies are the first
+// source so text never rides the CDN (font-display:swap re-render).
+check('reading fonts embedded as data URIs and used first',
+  /<script src="vendor\/fonts\/fonts-inline\.js"><\/script>/.test(html) &&
+  /const FONT_DATA = window\.FOLIO_FONT_DATA/.test(html) &&
+  /FONT_DATA\[file\.replace\(\/\\\.woff2\$\/,''\)\]/.test(html) &&
+  /FONT_CDN_OFF = !!\(window\.__TAURI_INTERNALS__/.test(html) &&
+  existsSync(join(root, 'src/vendor/fonts/fonts-inline.js')),
+  'FS() must emit the data: source first (FOLIO_FONT_DATA lookup without the .woff2 suffix) and the script tag must load fonts-inline.js');
+
+// 30. Chapter resources resolve against the APP root inside srcdoc docs —
+// covers/images fetch the SPA fallback unless the relative attributes are
+// RE-set (re-setting re-fires a failed load; a late <base> does not). The
+// selector must match SVG <image> (covers use xlink:href), and the rewrite
+// must run even when epub.js's own <base> already exists.
+check('applyChapterBase re-fires relative resource loads (SVG image covered)',
+  /function applyChapterBase/.test(html) &&
+  /querySelectorAll\('img,image,link\[href\]/.test(html) &&
+  /'xlink:href'/.test(html) &&
+  !/querySelector\('base'\)\) return;/.test(html),
+  'applyChapterBase must not bail on an existing <base>, must select image elements, and must rewrite xlink:href');
+
+// 31. The corner-art overlay must never inflate epub.js's page-total
+// measure: the wrapper ships zero-sized (a viewport-sized box rides inside
+// Contents.textWidth()'s body Range after replay reparenting and ratcheted
+// the canvas +1 spread per turn — perpetual empty flips, crossing dead),
+// the tracker clamps its box to the canvas, and textWidth is measured with
+// the overlay hidden.
+check('ornament overlay cannot ratchet the page-total measure',
+  /width:0;height:0;pointer-events:none;z-index:1/.test(html) &&
+  /d\.documentElement\.clientWidth, chh = d\.documentElement\.clientHeight/.test(html) &&
+  /__folioTwPatched/.test(html) &&
+  /w\.style\.display = 'none';/.test(html),
+  'pageOrnMarkup must ship width:0, trackPageOrnRun must clamp to clientWidth, and onContent must patch textWidth to measure without the overlay');
 
 process.exit(failures ? 1 : 0);
