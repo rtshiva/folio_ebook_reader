@@ -4636,6 +4636,28 @@ function onRelocated(loc){
   const frac = gPct != null ? gPct
     : clamp((loc.start.index+((d&&d.total)?(d.page-1)/d.total:0))/total,0,1);
 
+  // Cache layout metrics for this spine item to enable zero-guesswork backward crossings
+  if(d && d.total && typeof loc.start.index === 'number' && typeof pageCache !== 'undefined'){
+    try{
+      const v = el('viewer');
+      const vw = v ? Math.round(v.getBoundingClientRect().width) : 0;
+      if(vw > 0){
+        const isSp = !!state.spreadOn;
+        const totalSteps = isSp ? Math.ceil(d.total / 2) : d.total;
+        const lastSpreadLeft = -((totalSteps - 1) * vw);
+        const fWidth = totalSteps * vw;
+        pageCache.setChapterMetrics(loc.start.index, {
+          totalPages: d.total,
+          totalSteps,
+          lastSpreadLeft,
+          fWidth,
+          vWidth: vw,
+          isSpread: isSp
+        });
+      }
+    }catch(eM){}
+  }
+
   // ── HOT PATH: instant visual updates ──
   el('railFill').style.width=(frac*100)+'%';
   el('railKnob').style.left=(frac*100)+'%';
@@ -6519,6 +6541,7 @@ class PageCacheManager {
     this.currentCfi = '';
     this.chapterTexts = new Map(); // spineIndex -> string
     this.chapterHtmls = new Map(); // spineIndex -> string (HTML)
+    this.chapterMetrics = new Map(); // spineIndex -> { totalPages, totalSteps, lastSpreadLeft, fWidth, vWidth, isSpread }
     this.preloadingSpines = new Set();
     this.cachedChapterHtml = '';
     this._cssMark = '';            // last folio-dyn CSS retinted into the cached HTML
@@ -6531,6 +6554,7 @@ class PageCacheManager {
     this.window.clear();
     this.chapterTexts.clear();
     this.chapterHtmls.clear();
+    this.chapterMetrics.clear();
     this.preloadingSpines.clear();
     this.cachedChapterHtml = '';
     this.currentSpine = 0;
@@ -6557,6 +6581,19 @@ class PageCacheManager {
       return this.chapterHtmls.get(spineIndex);
     }
     return this.cachedChapterHtml;
+  }
+
+  setChapterMetrics(spineIndex, metrics) {
+    if(spineIndex !== undefined && spineIndex !== null && metrics){
+      this.chapterMetrics.set(spineIndex, metrics);
+    }
+  }
+
+  getChapterMetrics(spineIndex) {
+    if(spineIndex !== undefined && spineIndex !== null && this.chapterMetrics.has(spineIndex)){
+      return this.chapterMetrics.get(spineIndex);
+    }
+    return null;
   }
 
   /* Turn-compositor surfaces replay these cached HTML snapshots, and each one
@@ -6602,7 +6639,12 @@ class PageCacheManager {
     const drop = [];
     for(const k of this.chapterTexts.keys()) if(k < lo || k > hi) drop.push(k);
     for(const k of this.chapterHtmls.keys()) if(k < lo || k > hi) drop.push(k);
-    for(const k of drop){ this.chapterTexts.delete(k); this.chapterHtmls.delete(k); }
+    for(const k of this.chapterMetrics.keys()) if(k < lo || k > hi) drop.push(k);
+    for(const k of drop){
+      this.chapterTexts.delete(k);
+      this.chapterHtmls.delete(k);
+      this.chapterMetrics.delete(k);
+    }
   }
 
   /* Harvest the current chapter's text exactly once per spine. The old path
@@ -6940,7 +6982,7 @@ function snapPoolHost(){
   }
   return host;
 }
-function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
+function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft, customWidth){
   let box = null, snap = null;
   const reused = snapPool.pop();
   if(reused && reused.box && reused.snap){
@@ -6966,7 +7008,8 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft){
   box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
   const baseRelLeft = (customRelLeft !== undefined) ? customRelLeft : snapInfo.relLeft;
   const innerLeft = baseRelLeft - cropLeft;
-  snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${snapInfo.fRect.width}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
+  const frameW = (customWidth !== undefined && customWidth > 0) ? customWidth : snapInfo.fRect.width;
+  snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${frameW}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
 
   return { box, snap };
 }
@@ -7166,18 +7209,28 @@ class PageSurfacePool {
     if(!adjacentHtml) {
       adjacentHtml = snapInfo.docHtml;
     }
-    const fWidth = snapInfo.fRect ? snapInfo.fRect.width : stepW;
-    const adjacentRelLeft = dir > 0 ? 0 : -(fWidth - stepW);
+    let fWidth = snapInfo.fRect ? snapInfo.fRect.width : stepW;
+    let adjacentRelLeft = dir > 0 ? 0 : -(fWidth - stepW);
+    let measureLast = dir < 0;
+
+    if(dir < 0 && typeof pageCache !== 'undefined'){
+      const m = pageCache.getChapterMetrics(targetSpine);
+      if(m && m.vWidth === stepW && m.isSpread === isSpread && typeof m.lastSpreadLeft === 'number'){
+        adjacentRelLeft = m.lastSpreadLeft;
+        if(m.fWidth) fWidth = m.fWidth;
+      }
+    }
     return {
       html: adjacentHtml,
       relLeft: adjacentRelLeft,
+      fWidth,
       isBoundary: false,
       spineIndex: targetSpine,
       // Backward cross-chapter: the previous chapter's own width differs
-      // from the current one, so relLeft above is only a guess. The
-      // compositor measures the rendered snapshot and seats the last
+      // from the current one, so relLeft above is only a guess unless cached.
+      // The compositor measures the rendered snapshot and seats the last
       // spread precisely (fitUnderneath).
-      measureLast: dir < 0
+      measureLast
     };
   }
 }
@@ -7200,6 +7253,7 @@ class PageTurnCompositor {
     this.pendingSnaps = [];     // populated on a timer (flushSnaps) after init
     this.flushTimer = null;
     this.underSnap = null;      // incoming-page iframe (measured for backward crosses)
+    this.backSnap = null;       // back of turning leaf iframe in spread mode
     this.underCropLeft = 0;
     this.flipReady = false;     // true once snaps are flushed (and seat measured)
     this.populated = false;     // false while content surfaces stay transparent
@@ -7327,7 +7381,7 @@ class PageTurnCompositor {
         underWrap.className = 'pt-underneath-leaf pt-underneath';
         underWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
         if(hasAdj) {
-          const { box: uBox, snap: uSnap } = createSnapBox(snap, WL, WR, adjRelLeft);
+          const { box: uBox, snap: uSnap } = createSnapBox(snap, WL, WR, adjRelLeft, adj ? adj.fWidth : undefined);
           underWrap.appendChild(uBox);
           this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
           this.underSnap = uSnap;
@@ -7364,9 +7418,10 @@ class PageTurnCompositor {
           back.className = 'pt-back-sheet';
           back.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
           if(hasAdj) {
-            const { box: bBox, snap: bSnap } = createSnapBox(snap, 0, WL, adjRelLeft);
+            const { box: bBox, snap: bSnap } = createSnapBox(snap, 0, WL, adjRelLeft, adj ? adj.fWidth : undefined);
             back.appendChild(bBox);
             this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+            this.backSnap = bSnap;
           }
           if(this.quality !== 'basic') addGrain(back);
           root.appendChild(back);
@@ -7391,7 +7446,7 @@ class PageTurnCompositor {
         underWrap.className = 'pt-underneath-leaf pt-underneath';
         underWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
         if(hasAdj) {
-          const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, WL, adjRelLeft);
+          const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, WL, adjRelLeft, adj ? adj.fWidth : undefined);
           underWrap.appendChild(uBox);
           this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
           this.underSnap = uSnap;
@@ -7426,9 +7481,10 @@ class PageTurnCompositor {
           back.className = 'pt-back-sheet';
           back.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
           if(hasAdj) {
-            const { box: bBox, snap: bSnap } = createSnapBox(snap, WL, WR, adjRelLeft);
+            const { box: bBox, snap: bSnap } = createSnapBox(snap, WL, WR, adjRelLeft, adj ? adj.fWidth : undefined);
             back.appendChild(bBox);
             this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+            this.backSnap = bSnap;
           }
           if(this.quality !== 'basic') addGrain(back);
           root.appendChild(back);
@@ -7443,7 +7499,7 @@ class PageTurnCompositor {
       underWrap.className = 'pt-underneath-leaf pt-underneath';
       underWrap.style.cssText = `left:0;top:0;width:${W}px;height:${VH}px;opacity:0;`;
       if(hasAdj) {
-        const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, W, adjRelLeft);
+        const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, W, adjRelLeft, adj ? adj.fWidth : undefined);
         underWrap.appendChild(uBox);
         this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
         this.underSnap = uSnap;
@@ -7514,10 +7570,10 @@ class PageTurnCompositor {
     }));
   }
 
-  /* Backward cross-chapter: the previous chapter paginates to its own width,
-     so the last spread sits at (itsWidth - spread). The seat was a guess;
-     measure the rendered snapshot now and slide the window to the true last
-     spread. runTurnFx waits for this.flipReady before revealing the turn. */
+  /* Backward cross-chapter: the previous chapter paginates to discrete
+     quantized spread multiples. Seat on the exact integer step and synchronize
+     both underSnap (left leaf) and backSnap (right leaf) so text and margins
+     match the live renderer on frame 0. */
   fitUnderneath(){
     const snap = this.underSnap;
     if(!snap) return;
@@ -7531,10 +7587,61 @@ class PageTurnCompositor {
         // current viewer (their window would land past the content).
         const w = d.body.scrollWidth;
         if(!w || w <= 0) return false;
-        // Seat the doc's final spread: window [w-VW, w) — exactly where the
-        // live renderer parks the previous chapter's last page.
-        const rel = -Math.max(0, Math.round(w) - this.vRect.width);
-        snap.style.left = `${rel}px`;
+
+        const vw = this.vRect.width;
+        if(!vw || vw <= 0) return false;
+
+        const isSp = this.isSpread;
+        const spineIdx = this.adjacentInfo && typeof this.adjacentInfo.spineIndex === 'number'
+          ? this.adjacentInfo.spineIndex
+          : null;
+
+        let targetRel = null;
+        let totalWidth = null;
+
+        // Fast path: use cached chapter metrics if known from previous visit
+        if(typeof pageCache !== 'undefined' && spineIdx !== null){
+          const m = pageCache.getChapterMetrics(spineIdx);
+          if(m && m.vWidth === vw && m.isSpread === isSp && typeof m.lastSpreadLeft === 'number'){
+            targetRel = m.lastSpreadLeft;
+            totalWidth = Math.max(w, m.fWidth || vw);
+          }
+        }
+
+        // Discrete quantized pagination fallback
+        if(targetRel === null){
+          // Epsilon tolerance (6px) to avoid phantom blank spreads caused by sub-pixel font overhang
+          const totalSteps = Math.max(1, Math.ceil((w - 6) / vw));
+          targetRel = -((totalSteps - 1) * vw);
+          totalWidth = Math.max(w, totalSteps * vw, vw);
+
+          if(typeof pageCache !== 'undefined' && spineIdx !== null){
+            pageCache.setChapterMetrics(spineIdx, {
+              totalPages: isSp ? totalSteps * 2 : totalSteps,
+              totalSteps,
+              lastSpreadLeft: targetRel,
+              fWidth: totalWidth,
+              vWidth: vw,
+              isSpread: isSp
+            });
+          }
+        }
+
+        // 1. Seat the underneath snapshot (left leaf in spread, full in single)
+        // Ensure iframe is wide enough to contain the full paginated chapter columns
+        snap.style.width = `${totalWidth}px`;
+        snap.style.left = `${targetRel}px`;
+
+        // 2. In spread mode, synchronize the back of the turning leaf (right page)
+        if(isSp){
+          const backSnap = this.backSnap || (this.backSheet && this.backSheet.querySelector('iframe'));
+          if(backSnap){
+            backSnap.style.width = `${totalWidth}px`;
+            const leftLeafWidth = this.spineX || Math.round(vw / 2);
+            backSnap.style.left = `${targetRel - leftLeafWidth}px`;
+          }
+        }
+
         return true;
       }catch(e){ return false; }
     };
