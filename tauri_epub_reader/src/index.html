@@ -2514,6 +2514,37 @@ html body{padding:${pgTe}px ${pgS}px ${pgBe}px ${pgS}px !important;}
 #folio-pcs.opening .folio-pg{display:block}
 #folio-pcs.opening .folio-ph.grand{display:block}
 #folio-pcs:not(.opening) .folio-ph.simple{display:block}
+/* Image-only chapters (cover, titlepage, frontispiece, back cover):
+   Fit image to full viewport height while preserving aspect ratio.
+   Body retains multi-column layout in spread mode so images remain strictly
+   confined to Column 1 (no spine gutter crossover). Non-image siblings are hidden. */
+html.folio-image-only body.folio-image-only{padding:0 !important;}
+body.folio-image-only > :not(:has(img, svg)){display:none !important;}
+body.folio-image-only :is(div, p, figure, section, a):has(img, svg){
+  margin:0 !important;
+  padding:0 !important;
+  width:100% !important;
+  height:100% !important;
+  min-height:100% !important;
+  max-height:100% !important;
+  display:flex !important;
+  flex-direction:column !important;
+  justify-content:center !important;
+  align-items:center !important;
+  text-align:center !important;
+  box-sizing:border-box !important;
+}
+body.folio-image-only img,
+body.folio-image-only svg{
+  height:100% !important;
+  max-height:100% !important;
+  width:auto !important;
+  max-width:100% !important;
+  object-fit:contain !important;
+  margin:auto !important;
+  display:block !important;
+}
+body.folio-image-only #folio-pcs{display:none !important;}
 `;
   return _cssCache;
 }
@@ -3784,7 +3815,7 @@ function pageOrnMarkup(idx){
        and chapter crossing flipped into empty phantom pages forever.
      - the box trackPageOrnRun assigns is clamped to the canvas, so the
        wrapper's rect can never push the measure past clientWidth. */
-  return '<div id="folio-pcs" style="position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1">' +
+  return '<div id="folio-pcs" class="opening" style="position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:1">' +
     g('tl') + g('tr') + g('bl') + g('br') +
     '<span class="folio-ph grand" style="background:#c9a45c;mask-image:' + uh + ';-webkit-mask-image:' + uh + '"></span>' +
     '<span class="folio-ph simple" style="background:#c9a45c;mask-image:' + us + ';-webkit-mask-image:' + us + '"></span>' +
@@ -3994,6 +4025,92 @@ function applyChapterBase(d, secUrl){
   });
 }
 
+/* Detection and normalization for dedicated image-only chapters (cover, titlepage,
+   frontispiece, back cover) to fit the full page height while preserving aspect ratio. */
+function isImageOnlyDoc(d){
+  if(!d || !d.body) return false;
+  const imgs = Array.from(d.querySelectorAll('img, svg image, svg'));
+  if(!imgs.length) return false;
+
+  // Filter out documents where images are exclusively small icons/dividers (<= 64px)
+  const substantialElements = Array.from(d.querySelectorAll('img, svg')).filter(subNode => {
+    if(subNode.tagName.toLowerCase() === 'svg') return true;
+    const wAttr = parseInt(subNode.getAttribute('width') || '0', 10);
+    const hAttr = parseInt(subNode.getAttribute('height') || '0', 10);
+    if(wAttr > 0 && wAttr <= 64 && hAttr > 0 && hAttr <= 64) return false;
+    return true;
+  });
+  if(substantialElements.length !== 1) return false;
+
+  // Check visible text
+  const clone = d.body.cloneNode(true);
+  clone.querySelectorAll('script, style, title, desc, metadata, #folio-pcs').forEach(remNode => remNode.remove());
+  const text = (clone.innerText || clone.textContent || '').replace(/\s+/g, '').replace(/\u00a0/g, '').trim();
+
+  // Zero visible text -> true image-only page (covers, titleplates, frontispieces, back covers)
+  if(text.length === 0) return true;
+
+  // If text exists, only allow short text (<= 30 chars) if the document has explicit cover metadata
+  // and NO headings/captions/tables
+  if(text.length <= 30){
+    const hasHeading = !!d.querySelector('h1, h2, h3, h4, h5, h6, figcaption, table');
+    if(hasHeading) return false;
+    const isExplicitCover = /cover|titlepage/i.test(d.body.id || '') ||
+                            /cover|titlepage/i.test(d.body.className || '') ||
+                            !!d.querySelector('[epub\\:type*="cover" i], [id*="cover" i], [class*="cover" i]');
+    if(isExplicitCover) return true;
+  }
+
+  return false;
+}
+
+function normalizeImageOnlyDoc(d){
+  if(!d || !d.body || !d.documentElement) return false;
+  if(!isImageOnlyDoc(d)) return false;
+
+  d.documentElement.classList.add('folio-image-only');
+  d.body.classList.add('folio-image-only');
+
+  // Wrap any top-level direct img/svg children of body in a full-height container
+  // so they participate in flex centering without modifying body's column layout
+  Array.from(d.body.children).forEach(child => {
+    const tag = child.tagName ? child.tagName.toLowerCase() : '';
+    if(tag === 'img' || tag === 'svg'){
+      const wrap = d.createElement('div');
+      wrap.className = 'folio-image-wrapper';
+      child.parentNode.insertBefore(wrap, child);
+      wrap.appendChild(child);
+    }
+  });
+
+  // Normalize SVGs to preserve aspect ratio (xMidYMid meet) and ensure viewBox exists
+  d.querySelectorAll('svg').forEach(svgNode => {
+    if(!svgNode.getAttribute('viewBox')){
+      const w = parseFloat(svgNode.getAttribute('width') || '0');
+      const h = parseFloat(svgNode.getAttribute('height') || '0');
+      if(w > 0 && h > 0){
+        svgNode.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      }
+    }
+    if(!svgNode.getAttribute('preserveAspectRatio') || svgNode.getAttribute('preserveAspectRatio') === 'none'){
+      svgNode.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    }
+    svgNode.querySelectorAll('image').forEach(imgEl => {
+      if(!imgEl.getAttribute('preserveAspectRatio') || imgEl.getAttribute('preserveAspectRatio') === 'none'){
+        imgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      }
+    });
+  });
+
+  // Ensure cover images decode synchronously for instant rendering
+  d.querySelectorAll('img').forEach(imNode => {
+    imNode.setAttribute('loading', 'eager');
+    imNode.setAttribute('decoding', 'sync');
+  });
+
+  return true;
+}
+
 function onContent(contents){
   const d=contents.document;
   // Security parity on live content document: strip any unsafe remote stylesheets
@@ -4059,6 +4176,8 @@ function onContent(contents){
       }
     }
   }catch(e){}
+  // Normalize full-height image-only chapters (cover, titlepage, frontispiece, back cover)
+  try{ normalizeImageOnlyDoc(d); }catch(eImg){}
   // Bionification continues past the first 120 text nodes on idle ticks —
   // await its completion before the cache capture, or the serialized HTML
   // bakes the first ~120 bolded nodes plus plain text after them (visible
@@ -4109,10 +4228,12 @@ function onContent(contents){
   } else captureNow();
   // Illustrated chapters paginate faster when off-screen images decode lazily.
   try{
-    d.querySelectorAll('img').forEach(im=>{
-      im.setAttribute('loading','lazy');
-      im.setAttribute('decoding','async');
-    });
+    if(!d.body.classList.contains('folio-image-only')){
+      d.querySelectorAll('img').forEach(im=>{
+        im.setAttribute('loading','lazy');
+        im.setAttribute('decoding','async');
+      });
+    }
   }catch(e){}
   wireContents(contents);
 }
@@ -6783,8 +6904,13 @@ class PageCacheManager {
               // when the reader crossed into them. Await the full bionify —
               // capturing mid-continuation baked mixed-weight text.
               try{ if(settings.bionic && sectionDoc.body.dataset.fioBionic!=='1'){ sectionDoc.body.dataset.fioBionic='1'; await bionifyDoc(sectionDoc); } }catch(e0){}
-              try{ sectionDoc.querySelectorAll('img').forEach(im=>{ im.setAttribute('loading','lazy'); im.setAttribute('decoding','async'); }); }catch(e1){}
+              try{
+                if(!sectionDoc.body.classList.contains('folio-image-only')){
+                  sectionDoc.querySelectorAll('img').forEach(im=>{ im.setAttribute('loading','lazy'); im.setAttribute('decoding','async'); });
+                }
+              }catch(e1){}
               try{ if(settings.pageOrnaments && !sectionDoc.getElementById('folio-pcs')){ sectionDoc.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(spineIndex)); } }catch(e2){}
+              try{ normalizeImageOnlyDoc(sectionDoc); }catch(eImg){}
               // Inlining local stylesheets for instant synchronous rendering in replays
               try{
                 const links = Array.from(sectionDoc.querySelectorAll('link[rel~="stylesheet"]'));
@@ -7001,12 +7127,15 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft, customWidth
     // pagination recipe when it lands so cross-chapter pages still columnate.
     snap.addEventListener('load', () => {
       const pc = snap.__pageCSS;
-      if(!pc) return;
-      try{ const d = snap.contentDocument; if(d) applyPageCSS(d, pc); }catch(e){}
+      if(pc){
+        try{ const d = snap.contentDocument; if(d) applyPageCSS(d, pc); }catch(e){}
+      }
+      try{ const d = snap.contentDocument; if(d) syncSnapOrnaments(d, snap.__baseRelLeft); }catch(e){}
     });
   }
   box.style.cssText = `position:absolute;left:0;top:0;width:${cropWidth}px;height:${snapInfo.vRect.height}px;overflow:hidden;background:var(--page);`;
   const baseRelLeft = (customRelLeft !== undefined) ? customRelLeft : snapInfo.relLeft;
+  snap.__baseRelLeft = baseRelLeft;
   const innerLeft = baseRelLeft - cropLeft;
   const frameW = (customWidth !== undefined && customWidth > 0) ? customWidth : snapInfo.fRect.width;
   snap.style.cssText = `position:absolute;left:${innerLeft}px;top:${snapInfo.relTop}px;width:${frameW}px;height:${snapInfo.fRect.height}px;border:none;pointer-events:none;background:var(--page);`;
@@ -7015,6 +7144,7 @@ function createSnapBox(snapInfo, cropLeft, cropWidth, customRelLeft, customWidth
 }
 function blankSnap(snap){
   snap.__pageCSS = null;
+  snap.__baseRelLeft = undefined;
   try{ snap.removeAttribute('srcdoc'); }catch(e){}
   try{
     const d = snap.contentDocument;
@@ -7060,8 +7190,26 @@ function applyPageCSS(doc, pc){
   }catch(e){}
 }
 
-function populateSnap(snap, html, pageCSS){
+function syncSnapOrnaments(d, relLeft){
+  if(!d || !settings.pageOrnaments) return;
+  try{
+    const pcs = d.getElementById('folio-pcs');
+    if(!pcs) return;
+    const isOpening = Math.abs(relLeft || 0) < 10;
+    pcs.classList.toggle('opening', isOpening);
+    const v = el('viewer');
+    const vw = v ? v.getBoundingClientRect().width : innerWidth;
+    const vh = v ? v.getBoundingClientRect().height : innerHeight;
+    const tx = Math.max(0, -(relLeft || 0));
+    pcs.style.width = Math.round(vw) + 'px';
+    pcs.style.height = Math.round(vh) + 'px';
+    pcs.style.transform = 'translate(' + Math.round(tx) + 'px, 0px)';
+  }catch(e){}
+}
+
+function populateSnap(snap, html, pageCSS, relLeft){
   if(!html || typeof html !== 'string') return;
+  const rel = (relLeft !== undefined) ? relLeft : (snap.__baseRelLeft || 0);
   try{
     const sDoc = snap.contentDocument;
     if(sDoc && sDoc.readyState !== 'uninitialized'){
@@ -7070,6 +7218,7 @@ function populateSnap(snap, html, pageCSS){
       sDoc.close();
       snap.__pageCSS = null;
       if(pageCSS) applyPageCSS(sDoc, pageCSS);
+      syncSnapOrnaments(sDoc, rel);
       return;
     }
   }catch(e){}
@@ -7089,7 +7238,7 @@ async function fxSlide(dir, snapInfo){
   const { box, snap } = createSnapBox(snapInfo, 0, vRect.width);
   wrap.appendChild(box);
   document.body.appendChild(wrap);
-  populateSnap(snap, snapInfo.docHtml);
+  populateSnap(snap, snapInfo.docHtml, null, snapInfo.relLeft);
 
   const targetX = dir > 0 ? -vRect.width - 20 : vRect.width + 20;
   const anim = wrap.animate(
@@ -7304,7 +7453,7 @@ class PageTurnCompositor {
     sheet.style.cssText = `left:${bx}px;top:0;width:${bw}px;height:${VH}px;opacity:0;`;
     const { box: sBox, snap: sSnap } = createSnapBox(snap, bx, bw, relLeft);
     sheet.appendChild(sBox);
-    this.pendingSnaps.push({ snap: sSnap, html });
+    this.pendingSnaps.push({ snap: sSnap, html, relLeft });
     if(this.quality !== 'basic') addGrain(sheet);
     root.appendChild(sheet);
     this.sheet = sheet;
@@ -7371,7 +7520,7 @@ class PageTurnCompositor {
         statWrap.style.cssText = `left:0;top:0;width:${WL}px;height:${VH}px;opacity:0;`;
         const { box: statBox, snap: sSnap } = createSnapBox(snap, 0, WL, snap.relLeft);
         statWrap.appendChild(statBox);
-        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml });
+        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml, relLeft: snap.relLeft });
         if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
@@ -7383,7 +7532,7 @@ class PageTurnCompositor {
         if(hasAdj) {
           const { box: uBox, snap: uSnap } = createSnapBox(snap, WL, WR, adjRelLeft, adj ? adj.fWidth : undefined);
           underWrap.appendChild(uBox);
-          this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+          this.pendingSnaps.push({ snap: uSnap, html: adjHtml, relLeft: adjRelLeft });
           this.underSnap = uSnap;
           this.underCropLeft = WL;
         }
@@ -7420,7 +7569,7 @@ class PageTurnCompositor {
           if(hasAdj) {
             const { box: bBox, snap: bSnap } = createSnapBox(snap, 0, WL, adjRelLeft, adj ? adj.fWidth : undefined);
             back.appendChild(bBox);
-            this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+            this.pendingSnaps.push({ snap: bSnap, html: adjHtml, relLeft: adjRelLeft });
             this.backSnap = bSnap;
           }
           if(this.quality !== 'basic') addGrain(back);
@@ -7436,7 +7585,7 @@ class PageTurnCompositor {
         statWrap.style.cssText = `left:${WL}px;top:0;width:${WR}px;height:${VH}px;opacity:0;`;
         const { box: statBox, snap: sSnap } = createSnapBox(snap, WL, WR, snap.relLeft);
         statWrap.appendChild(statBox);
-        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml });
+        this.pendingSnaps.push({ snap: sSnap, html: snap.docHtml, relLeft: snap.relLeft });
         if(this.quality !== 'basic') addGrain(statWrap);
         root.appendChild(statWrap);
         this.stationaryLeaf = statWrap;
@@ -7448,7 +7597,7 @@ class PageTurnCompositor {
         if(hasAdj) {
           const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, WL, adjRelLeft, adj ? adj.fWidth : undefined);
           underWrap.appendChild(uBox);
-          this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+          this.pendingSnaps.push({ snap: uSnap, html: adjHtml, relLeft: adjRelLeft });
           this.underSnap = uSnap;
           this.underCropLeft = 0;
         }
@@ -7483,7 +7632,7 @@ class PageTurnCompositor {
           if(hasAdj) {
             const { box: bBox, snap: bSnap } = createSnapBox(snap, WL, WR, adjRelLeft, adj ? adj.fWidth : undefined);
             back.appendChild(bBox);
-            this.pendingSnaps.push({ snap: bSnap, html: adjHtml });
+            this.pendingSnaps.push({ snap: bSnap, html: adjHtml, relLeft: adjRelLeft });
             this.backSnap = bSnap;
           }
           if(this.quality !== 'basic') addGrain(back);
@@ -7501,7 +7650,7 @@ class PageTurnCompositor {
       if(hasAdj) {
         const { box: uBox, snap: uSnap } = createSnapBox(snap, 0, W, adjRelLeft, adj ? adj.fWidth : undefined);
         underWrap.appendChild(uBox);
-        this.pendingSnaps.push({ snap: uSnap, html: adjHtml });
+        this.pendingSnaps.push({ snap: uSnap, html: adjHtml, relLeft: adjRelLeft });
         this.underSnap = uSnap;
         this.underCropLeft = 0;
       }
@@ -7543,7 +7692,7 @@ class PageTurnCompositor {
     const pc = this.snapInfo.pageCSS;
     for(const item of this.pendingSnaps){
       item.snap.__pageCSS = null;
-      populateSnap(item.snap, item.html, (item.html !== this.snapInfo.docHtml) ? pc : null);
+      populateSnap(item.snap, item.html, (item.html !== this.snapInfo.docHtml) ? pc : null, item.relLeft);
     }
     this.pendingSnaps.length = 0;
     // Reveal only after the freshly-written iframes have rasterized. Revealing
@@ -7556,6 +7705,7 @@ class PageTurnCompositor {
     // never expected mid-fold while still invisible.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if(this.destroyed || !this.root) return;
+      this.syncAllSnapOrnaments();
       this.populated = true;
       // Hand the desk (or themed pattern) back to the stylesheet now that the
       // content surfaces cover the viewer.
@@ -7568,6 +7718,20 @@ class PageTurnCompositor {
       else this.flipReady = true;
       this.render(this.lastP);
     }));
+  }
+
+  syncAllSnapOrnaments(){
+    if(!this.root || !settings.pageOrnaments) return;
+    try{
+      this.root.querySelectorAll('iframe').forEach(fr => {
+        try{
+          if(fr.contentDocument){
+            const rel = typeof fr.__baseRelLeft === 'number' ? fr.__baseRelLeft : (this.snapInfo ? this.snapInfo.relLeft : 0);
+            syncSnapOrnaments(fr.contentDocument, rel);
+          }
+        }catch(e){}
+      });
+    }catch(e){}
   }
 
   /* Backward cross-chapter: the previous chapter paginates to discrete
@@ -7631,6 +7795,8 @@ class PageTurnCompositor {
         // Ensure iframe is wide enough to contain the full paginated chapter columns
         snap.style.width = `${totalWidth}px`;
         snap.style.left = `${targetRel}px`;
+        snap.__baseRelLeft = targetRel;
+        syncSnapOrnaments(d, targetRel);
 
         // 2. In spread mode, synchronize the back of the turning leaf (right page)
         if(isSp){
@@ -7639,6 +7805,8 @@ class PageTurnCompositor {
             backSnap.style.width = `${totalWidth}px`;
             const leftLeafWidth = this.spineX || Math.round(vw / 2);
             backSnap.style.left = `${targetRel - leftLeafWidth}px`;
+            backSnap.__baseRelLeft = targetRel;
+            if(backSnap.contentDocument) syncSnapOrnaments(backSnap.contentDocument, targetRel);
           }
         }
 
