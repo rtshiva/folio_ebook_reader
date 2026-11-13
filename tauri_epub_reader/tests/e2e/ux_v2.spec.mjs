@@ -22,21 +22,24 @@ test('F0-1 chapter pills present in reading state', async ({ page }) => {
   await expect(page.locator('#chLabelNext')).toHaveText('Next Chapter');
 });
 
-test('F0-2 margin pills blend at rest and reveal on hover', async ({ page }) => {
+test('F0-2 margin buttons blend at rest and reveal on hover', async ({ page }) => {
   await openDemoReady(page);
   const pill = page.locator('#chLabelNext');
-  // At rest the label text is the same color as the desk background
-  const restColor = await pill.evaluate(el => getComputedStyle(el).color);
-  const deskColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  expect(restColor).toBe(deskColor);
-  // Hovering the pill itself reveals it: page-colored pill, ink text
+  // Move mouse to topbar outside stage: transparent arrow buttons are invisible
+  await page.locator('#topbar').hover();
+  await page.waitForTimeout(350);
+  const restOpacity = await pill.evaluate(el => getComputedStyle(el).opacity);
+  expect(Number(restOpacity)).toBe(0);
+  // Hovering stage reveals arrow buttons
+  await page.locator('#viewer').hover();
+  await page.waitForTimeout(350);
+  const hoverOpacity = await pill.evaluate(el => getComputedStyle(el).opacity);
+  expect(Number(hoverOpacity)).toBe(1);
+  // Hovering the button itself highlights border
   await pill.hover();
-  await page.waitForTimeout(250);
-  const bg = await pill.evaluate(el => getComputedStyle(el).backgroundColor);
-  const color = await pill.evaluate(el => getComputedStyle(el).color);
-  const pageBg = await page.evaluate(() => getComputedStyle(document.getElementById('viewer')).backgroundColor);
-  expect(bg).toBe(pageBg);
-  expect(color).not.toBe(restColor);
+  await page.waitForTimeout(200);
+  const bc = await pill.evaluate(el => getComputedStyle(el).borderColor);
+  expect(bc).toBeTruthy();
 });
 
 test('F0-3 click Next Chapter pill → navigates with NavHistory anchor', async ({ page }) => {

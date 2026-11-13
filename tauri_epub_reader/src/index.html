@@ -200,19 +200,14 @@ body:not(.spread) #runHeadRight{max-width:90%;}
 .bookmark-ribbon:hover{transform:translateY(-2px);color:var(--accent);}
 .bookmark-ribbon.bookmarked{transform:translateY(0);color:var(--accent);}
 
-/* ---------- edge chapter labels (F0) ---------- */
-/* "Previous/Next Chapter" pills sit in the desk margins, text the same
-   color as the desk at rest (invisible); hovering a label paints a
-   page-colored pill so the text becomes readable. */
+/* ---------- edge chapter & page navigation (F0) ---------- */
 .ch-nav-panel{position:absolute;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;}
-.ch-nav-left{left:10px;}
-.ch-nav-right{right:10px;}
-/* Pills live on the desk ONLY (UX_V2 plan: "empty margin space between the
-   page and screen edges"). When the desk margin is too narrow to hold the
-   label, layoutChNavPills() adds .no-desk so the pill can never cover the
-   book and steal page-flip clicks at mid-height. */
+.ch-nav-left{left:12px;}
+.ch-nav-right{right:12px;}
 .ch-nav-panel.no-desk{pointer-events:none;}
-.ch-nav-panel.no-desk .ch-nav-label{visibility:hidden;}
+.ch-nav-panel.no-desk .ch-arrow{visibility:hidden!important;}
+body.state-landing .ch-nav-panel{display:none!important;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 /* side vines (page corner art): full-height botanical columns flanking the
    book on the DESK — outside the page like the boards/fore-edges, so no
    pagination impact and no reservation. One of three procedural designs per
@@ -244,22 +239,13 @@ body:not(.spread) #runHeadRight{max-width:90%;}
 body.page-orn .folio-vine{display:block}
 .rr-no-med .folio-vine{display:none!important}
 @media (max-width:1100px){.folio-vine{display:none!important}}
-.ch-nav-label{pointer-events:auto;display:block;width:176px;text-align:right;
-  font:600 13px/1.4 var(--sans);color:var(--desk);background:transparent;
-  padding:9px 14px;border:none;border-radius:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  transition:background 150ms ease,color 150ms ease,box-shadow 150ms ease;}
-.ch-nav-left .ch-nav-label{text-align:left;}
-.ch-nav-right .ch-nav-label{text-align:right;}
-.ch-nav-label:hover{background:var(--page);color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.16);}
-.ch-nav-label:active{transform:translateY(1px);}
-.ch-nav-label.disabled{pointer-events:none;}
-/* one-per-book discoverability pulse: the invisible labels briefly reveal */
-@keyframes pillpulse{
-  0%,100%{background:transparent;color:var(--desk);box-shadow:none}
-  40%,60%{background:var(--page);color:var(--ink);box-shadow:0 3px 14px rgba(0,0,0,.16)}
+.ch-arrow{flex-shrink:0;pointer-events:auto;}
+/* one-per-book discoverability pulse: the buttons briefly reveal */
+@keyframes arrowpulse{
+  0%,100%{opacity:0;transform:scale(1);}
+  40%,60%{opacity:1;transform:scale(1.08);box-shadow:0 0 14px color-mix(in srgb,var(--accent) 40%,transparent);}
 }
-.ch-nav-panel.pulse .ch-nav-label{animation:pillpulse 2.2s ease-in-out 2;}
-body.state-landing .ch-nav-panel{display:none!important;}
+.ch-nav-panel.pulse .ch-arrow{animation:arrowpulse 2.2s ease-in-out 2;}
 
 /* ---------- chapter-crossing title flash (F2) ---------- */
 .ch-flash{position:absolute;top:40%;left:50%;transform:translateX(-50%);z-index:25;pointer-events:none;
@@ -380,13 +366,16 @@ body.state-landing .jump-anchor{display:none!important;}
 
 .arrow{grid-row:1;align-self:center;justify-self:center;z-index:25;width:46px;height:46px;border-radius:50%;
   display:grid;place-items:center;border:1px solid var(--hair);color:var(--on-desk);
-  background:color-mix(in srgb,var(--page) 92%,transparent);opacity:0;transition:opacity .3s,border-color .2s,transform .15s}
+  background:color-mix(in srgb,var(--page) 92%,transparent);opacity:0;transition:opacity .3s,border-color .2s,transform .15s;
+  cursor:pointer}
 #stage:hover .arrow{opacity:1}
 .arrow:hover{border-color:var(--ink)}
 .arrow:active{transform:scale(.94)}
+.arrow.disabled{pointer-events:none!important;cursor:default;}
+#stage:hover .arrow.disabled{opacity:0.22!important;}
 #btnPrev{grid-column:1}#btnNext{grid-column:3}
 body:not(.state-reading) .arrow{opacity:0!important;pointer-events:none}
-#stage.no-arrows .arrow{opacity:0!important;pointer-events:none}
+#stage.no-arrows :is(#btnPrev,#btnNext){opacity:0!important;pointer-events:none}
 @media(hover:none){#stage:hover .arrow{opacity:0}}
 
 #bottombar{bottom:0;display:flex;align-items:center;gap:14px;padding:12px 0 16px;
@@ -1427,10 +1416,16 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5 16 12l-6.5 7"/></svg>
   </button>
   <div id="chNavLeft" class="ch-nav-panel ch-nav-left" aria-label="Previous chapter">
-    <button id="chLabelPrev" class="ch-nav-label" type="button">Previous Chapter</button>
+    <button id="chLabelPrev" class="arrow ch-arrow ch-nav-label" type="button" title="Previous chapter" aria-label="Previous chapter">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 5-6 7 6 7"/><path d="m11 5-6 7 6 7"/></svg>
+      <span class="sr-only">Previous Chapter</span>
+    </button>
   </div>
   <div id="chNavRight" class="ch-nav-panel ch-nav-right" aria-label="Next chapter">
-    <button id="chLabelNext" class="ch-nav-label" type="button">Next Chapter</button>
+    <button id="chLabelNext" class="arrow ch-arrow ch-nav-label" type="button" title="Next chapter" aria-label="Next chapter">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 5 6 7-6 7"/><path d="m13 5 6 7-6 7"/></svg>
+      <span class="sr-only">Next Chapter</span>
+    </button>
   </div>
 </main>
 
@@ -3870,6 +3865,7 @@ function syncVineSpace(){
 }
 addEventListener('resize', () => {
   syncVineSpace();
+  layoutChNavPills();
   clearTimeout(syncVineSpace._t);
   syncVineSpace._t = setTimeout(syncVineSpace, 450);
 });
@@ -5893,9 +5889,9 @@ function updateChapterNav(){
   layoutChNavPills();
 }
 /* Keep the chapter pills on the desk: their clickable label is clamped to
-   the margin between the screen edge and the book page. Without this the
-   fixed 176px label overlaps the page's left/right border at mid-height and
-   silently converts page-flip clicks into chapter jumps. */
+   the margin between the screen edge and the book page. If the window is
+   resized down so the chapter button and page-flip button start coming closer
+   or overlap (gap < 20px), hide the chapter button so page clicks never jump. */
 function layoutChNavPills(){
   if(document.body.classList.contains('state-landing')) return;
   const L = el('chNavLeft'), R = el('chNavRight');
@@ -5904,16 +5900,53 @@ function layoutChNavPills(){
   const vr = (v && v.getBoundingClientRect) ? v.getBoundingClientRect() : null;
   const deskL = (vr && vr.width > 0) ? Math.floor(vr.left) - 12 : 176;
   const deskR = (vr && vr.width > 0) ? Math.floor(window.innerWidth - vr.right) - 12 : 176;
-  const setPill = (panel, desk) => {
+
+  const stage = el('stage');
+  const arrowsActive = stage ? !stage.classList.contains('no-arrows') : true;
+  const bp = el('btnPrev'), bn = el('btnNext');
+
+  const calcGap = (pageBtn, label, side) => {
+    if(pageBtn && label){
+      try {
+        const pr = pageBtn.getBoundingClientRect();
+        const lr = label.getBoundingClientRect();
+        if(pr.width > 0 && lr.width > 0){
+          return side === 'left' ? (pr.left - lr.right) : (lr.left - pr.right);
+        }
+      }catch(e){}
+    }
+    if(vr && vr.width > 0){
+      if(side === 'left'){
+        const colL = Math.max(0, vr.left - 16);
+        const bpLeft = 16 + (colL - 46) / 2;
+        return bpLeft - 58;
+      } else {
+        const colR = Math.max(0, (window.innerWidth - 16) - vr.right);
+        const bnRight = vr.right + (colR + 46) / 2;
+        return (window.innerWidth - 58) - bnRight;
+      }
+    }
+    return Infinity;
+  };
+
+  const MIN_BTN_GAP = 20; // Safe clearance (px) between page flip and chapter buttons
+  const setPill = (panel, desk, pageBtn, side) => {
     if(!panel) return;
     const label = panel.querySelector('.ch-nav-label');
     if(!label) return;
-    const fit = typeof desk === 'number' && !isNaN(desk) && desk >= 40;
+    // When page flip arrows are visible on the desk, require safe clearance so the
+    // two buttons never crowd or overlap. If page arrows are inactive, desk space alone rules.
+    const gap = arrowsActive ? calcGap(pageBtn, label, side) : Infinity;
+    const fit = typeof desk === 'number' && !isNaN(desk) && desk >= 40 && (gap >= MIN_BTN_GAP);
     panel.classList.toggle('no-desk', !fit);
-    label.style.width = fit ? (Math.min(176, Math.max(40, Math.floor(desk))) + 'px') : '';
+    if(label.classList.contains('ch-arrow')){
+      if(label.style.width) label.style.width = '';
+    } else {
+      label.style.width = fit ? (Math.min(176, Math.max(40, Math.floor(desk))) + 'px') : '';
+    }
   };
-  setPill(L, deskL);
-  setPill(R, deskR);
+  setPill(L, deskL, bp, 'left');
+  setPill(R, deskR, bn, 'right');
   // Reading Room side medallion: it needs a real desk margin to hang in
   // (~170px emblem + breathing room), same measurement the pills use.
   body.classList.toggle('rr-no-med', deskR < 150);

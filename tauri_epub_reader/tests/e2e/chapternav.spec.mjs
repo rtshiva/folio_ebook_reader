@@ -141,3 +141,117 @@ test('CN3 chapter jumps resolve relative hrefs when nav document is in a subfold
   await page.waitForFunction(() => tocCurIdx === 1, null, { timeout: 9000 });
   expect(await page.evaluate(() => document.getElementById('chapter').textContent)).toBe('Chapter Two');
 });
+
+test('CN4 transparent circular chapter buttons match page flip styling and spacing', async ({ page }) => {
+  await openMultiAnchorBook(page);
+  // Unclamp spread width so the desk margin is wide and arrows are live
+  await page.evaluate(() => { settings.widthAuto = false; settings.widthSpread = 720; save(); relayout(); });
+  await page.waitForFunction(() => !document.getElementById('stage').classList.contains('no-arrows'), null, { timeout: 9000 });
+  await page.waitForTimeout(300);
+
+  const prevBtn = page.locator('#chLabelPrev');
+  const nextBtn = page.locator('#chLabelNext');
+
+  // Both buttons have .arrow, .ch-arrow and .ch-nav-label
+  await expect(prevBtn).toHaveClass(/arrow/);
+  await expect(nextBtn).toHaveClass(/arrow/);
+  await expect(prevBtn).toHaveClass(/ch-arrow/);
+  await expect(nextBtn).toHaveClass(/ch-arrow/);
+
+  // Verify exact same styling as page-turn arrow button (transparent background, matching border)
+  const [bgNext, bgPage] = await Promise.all([
+    nextBtn.evaluate(el => getComputedStyle(el).backgroundColor),
+    page.locator('#btnNext').evaluate(el => getComputedStyle(el).backgroundColor),
+  ]);
+  expect(bgNext).toBe(bgPage);
+
+  const [borderNext, borderPage] = await Promise.all([
+    nextBtn.evaluate(el => getComputedStyle(el).borderColor),
+    page.locator('#btnNext').evaluate(el => getComputedStyle(el).borderColor),
+  ]);
+  expect(borderNext).toBe(borderPage);
+
+  // Measure button geometries: circular 46x46
+  const geom = await page.evaluate(() => {
+    const p = document.getElementById('chLabelPrev').getBoundingClientRect();
+    const n = document.getElementById('chLabelNext').getBoundingClientRect();
+    const bp = document.getElementById('btnPrev').getBoundingClientRect();
+    const bn = document.getElementById('btnNext').getBoundingClientRect();
+    return {
+      p: { w: p.width, h: p.height, r: p.right, l: p.left },
+      n: { w: n.width, h: n.height, r: n.right, l: n.left },
+      bp: { w: bp.width, h: bp.height, r: bp.right, l: bp.left },
+      bn: { w: bn.width, h: bn.height, r: bn.right, l: bn.left },
+    };
+  });
+
+  expect(geom.p.w).toBeCloseTo(46, 1);
+  expect(geom.p.h).toBeCloseTo(46, 1);
+  expect(geom.n.w).toBeCloseTo(46, 1);
+  expect(geom.n.h).toBeCloseTo(46, 1);
+
+  // Double chevron SVGs present inside
+  const prevPaths = await prevBtn.locator('svg path').count();
+  const nextPaths = await nextBtn.locator('svg path').count();
+  expect(prevPaths).toBe(2); // double chevron <<
+  expect(nextPaths).toBe(2); // double chevron >>
+
+  // Single chevron SVGs in page flip buttons
+  expect(await page.locator('#btnPrev svg path').count()).toBe(1);
+  expect(await page.locator('#btnNext svg path').count()).toBe(1);
+
+  // Position: prev chapter is to the left of prev page; next chapter is to the right of next page
+  expect(geom.p.r).toBeLessThanOrEqual(geom.bp.l);
+  expect(geom.n.l).toBeGreaterThanOrEqual(geom.bn.r);
+
+  // Initial state on start of book: previous chapter is disabled
+  expect(await prevBtn.evaluate(el => el.classList.contains('disabled'))).toBe(true);
+  expect(await nextBtn.evaluate(el => el.classList.contains('disabled'))).toBe(false);
+
+  // Clicking next chapter moves to Part 2 and enables prev chapter
+  await nextBtn.click();
+  await page.waitForFunction(() => tocCurIdx === 1, null, { timeout: 9000 });
+  expect(await prevBtn.evaluate(el => el.classList.contains('disabled'))).toBe(false);
+});
+
+test('CN5 chapter buttons automatically hide when window narrows and buttons approach each other', async ({ page }) => {
+  await openMultiAnchorBook(page);
+  // Wide viewport with 720px spread width: plenty of desk margin (> 200px)
+  await page.setViewportSize({ width: 1360, height: 860 });
+  await page.evaluate(() => { settings.widthAuto = false; settings.widthSpread = 720; save(); relayout(); });
+  await page.waitForFunction(() => !document.getElementById('chNavRight').classList.contains('no-desk'), null, { timeout: 9000 });
+  await page.waitForTimeout(300);
+
+  // Both page arrow and chapter button are visible and have >= 20px clearance
+  const rightState = await page.evaluate(() => {
+    const bn = document.getElementById('btnNext').getBoundingClientRect();
+    const cn = document.getElementById('chLabelNext').getBoundingClientRect();
+    const panel = document.getElementById('chNavRight');
+    return {
+      gap: cn.left - bn.right,
+      hasNoDesk: panel.classList.contains('no-desk'),
+      chVis: getComputedStyle(document.getElementById('chLabelNext')).visibility,
+    };
+  });
+  expect(rightState.hasNoDesk).toBe(false);
+  expect(rightState.chVis).not.toBe('hidden');
+  expect(rightState.gap).toBeGreaterThanOrEqual(20);
+
+  // Shrink viewport width so desk margin narrows and buttons would crowd/overlap
+  await page.setViewportSize({ width: 920, height: 860 });
+  await page.waitForFunction(() => document.getElementById('chNavRight').classList.contains('no-desk'), null, { timeout: 9000 });
+
+  // Chapter button is cleanly hidden via no-desk, preventing accidental chapter jumps
+  const narrowState = await page.evaluate(() => ({
+    hasNoDesk: document.getElementById('chNavRight').classList.contains('no-desk'),
+    chVis: getComputedStyle(document.getElementById('chLabelNext')).visibility,
+  }));
+  expect(narrowState.hasNoDesk).toBe(true);
+  expect(narrowState.chVis).toBe('hidden');
+
+  // Widen viewport back: chapter button cleanly returns
+  await page.setViewportSize({ width: 1360, height: 860 });
+  await page.waitForFunction(() => !document.getElementById('chNavRight').classList.contains('no-desk'), null, { timeout: 9000 });
+  const restoredVis = await page.evaluate(() => getComputedStyle(document.getElementById('chLabelNext')).visibility);
+  expect(restoredVis).not.toBe('hidden');
+});
