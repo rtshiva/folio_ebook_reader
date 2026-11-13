@@ -1835,6 +1835,29 @@ function sanitizeDomNode(root){
   }
 }
 
+function isSafeStylesheetUrl(href){
+  if(!href || typeof href !== 'string') return false;
+  const h = href.trim();
+  if(/^(javascript:|vbscript:|data:text\/html)/i.test(h)) return false;
+  if(/^\/\//.test(h)) return false;
+  if(/^(blob:|folio-cache:|data:text\/css)/i.test(h)) return true;
+  if(!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(h)) return true; // relative path
+  try{
+    const u = new URL(h, 'http://tauri.localhost');
+    const proto = u.protocol.toLowerCase();
+    if(proto === 'folio-cache:' || proto === 'blob:') return true;
+    if(proto === 'http:' || proto === 'https:'){
+      const host = u.hostname.toLowerCase();
+      return host === 'tauri.localhost' ||
+             host === 'folio-cache.localhost' ||
+             host === 'localhost' ||
+             host === '127.0.0.1' ||
+             host.endsWith('.localhost');
+    }
+  }catch(e){}
+  return false;
+}
+
 function sanitizeChapterHtml(rawHtml){
   if(!rawHtml || typeof rawHtml !== 'string') return '';
   try{
@@ -1842,11 +1865,10 @@ function sanitizeChapterHtml(rawHtml){
     const doc = parser.parseFromString(rawHtml, 'text/html');
     if(!doc || !doc.body) return '';
 
-    // LINK/FORM added: remote-stylesheet beacons and phishing forms have no
-    // legit use in a chapter body (STYLE/style attrs deliberately kept —
-    // publisher styling inside <style> is real and stripping it would
-    // visibly change cached-chapter rendering).
-    const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META', 'LINK', 'FORM'];
+    // FORM/SCRIPT/IFRAME/etc. are forbidden; LINK is handled with targeted
+    // validation so local/packaged EPUB stylesheets survive in the snapshot
+    // cache while remote tracking beacons are removed.
+    const FORBIDDEN_TAGS = ['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'META', 'FORM'];
     const removeNodes = [];
 
     // TreeWalker never descends into <template>.content — sanitize those
@@ -1858,6 +1880,12 @@ function sanitizeChapterHtml(rawHtml){
       while(node){
         if(FORBIDDEN_TAGS.includes(node.nodeName)){
           removeNodes.push(node);
+        } else if(node.nodeName === 'LINK'){
+          const rel = (node.getAttribute('rel') || '').toLowerCase().trim();
+          const href = (node.getAttribute('href') || '').trim();
+          if(rel !== 'stylesheet' || !isSafeStylesheetUrl(href)){
+            removeNodes.push(node);
+          }
         } else {
           // Strip dangerous attributes
           if(node.attributes){
@@ -2452,7 +2480,8 @@ html,body{background:${t.page} !important;}
 p,li,dd,dt,blockquote,td,th,figcaption,div,section,article,span,h1,h2,h3,h4,h5,h6,a,strong,b,em,i,small,pre{
   letter-spacing:inherit !important; word-spacing:inherit !important; line-height:inherit !important;}
 p,li,dd,dt,blockquote,td,th,figcaption,div,section,article,pre{font-size:1rem !important;}
-h1,h2,h3,h4,h5,h6{font-family:${stack} !important;color:inherit !important;text-align:${j?'left':'inherit'} !important;}
+h1,h2,h3,h4,h5,h6{font-family:${stack} !important;color:inherit !important;text-align:left;}
+p,li,dd,blockquote{text-align:${j?'justify':'left'} !important;}
 p{margin:0 0 1.05em !important;text-indent:0 !important;orphans:2;widows:2;text-wrap:pretty;}
 h1,h2,h3{margin:1.6em 0 .8em !important;}
 blockquote{margin:1.3em 1.6em !important;padding-left:1.1em;border-left:2px solid ${t.hairS} !important;}
@@ -3967,6 +3996,16 @@ function applyChapterBase(d, secUrl){
 
 function onContent(contents){
   const d=contents.document;
+  // Security parity on live content document: strip any unsafe remote stylesheets
+  try{
+    d.querySelectorAll('link').forEach(l => {
+      const rel = (l.getAttribute('rel') || '').toLowerCase().trim();
+      const href = (l.getAttribute('href') || '').trim();
+      if(rel !== 'stylesheet' || !isSafeStylesheetUrl(href)){
+        l.remove();
+      }
+    });
+  }catch(e){}
   let s=d.getElementById('folio-dyn');
   if(!s){ s=d.createElement('style'); s.id='folio-dyn'; (d.head||d.documentElement).appendChild(s); }
   s.textContent=buildCSS();
@@ -4029,6 +4068,33 @@ function onContent(contents){
   const captureNow = () => {
     try{
       if(!bookAtContent || bookAtContent !== state.book) return;
+      // Inlining helper for bulletproof snapshot cache parity:
+      // Replace safe local <link rel="stylesheet"> with inline <style data-inlined-epub-css>
+      // so snapshot frames have styles active synchronously on frame 0.
+      try{
+        if(d.styleSheets && d.styleSheets.length){
+          d.querySelectorAll('link[rel~="stylesheet"]').forEach(l => {
+            const href = l.getAttribute('href');
+            if(!href || !isSafeStylesheetUrl(href)) return;
+            try{
+              for(let i=0; i<d.styleSheets.length; i++){
+                const sh = d.styleSheets[i];
+                if(sh.ownerNode === l && sh.cssRules && sh.cssRules.length){
+                  const css = Array.from(sh.cssRules).map(r => r.cssText).join('\n');
+                  if(css){
+                    const st = d.createElement('style');
+                    st.setAttribute('data-inlined-epub-css', '1');
+                    st.textContent = css;
+                    l.parentNode.insertBefore(st, l);
+                    l.remove();
+                    break;
+                  }
+                }
+              }
+            }catch(eRules){}
+          });
+        }
+      }catch(eInline){}
       const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
       // Key by the rendered section, not currentSpine: relocated() runs after
       // this hook, so the unkeyed write would file the new chapter under the
@@ -6677,6 +6743,33 @@ class PageCacheManager {
               try{ if(settings.bionic && sectionDoc.body.dataset.fioBionic!=='1'){ sectionDoc.body.dataset.fioBionic='1'; await bionifyDoc(sectionDoc); } }catch(e0){}
               try{ sectionDoc.querySelectorAll('img').forEach(im=>{ im.setAttribute('loading','lazy'); im.setAttribute('decoding','async'); }); }catch(e1){}
               try{ if(settings.pageOrnaments && !sectionDoc.getElementById('folio-pcs')){ sectionDoc.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(spineIndex)); } }catch(e2){}
+              // Inlining local stylesheets for instant synchronous rendering in replays
+              try{
+                const links = Array.from(sectionDoc.querySelectorAll('link[rel~="stylesheet"]'));
+                for(const l of links){
+                  const href = l.getAttribute('href');
+                  if(!href || !isSafeStylesheetUrl(href)) continue;
+                  try{
+                    let cssContent = null;
+                    if(state.book && typeof state.book.load === 'function'){
+                      try{ cssContent = await state.book.load(href); }catch(eBk){}
+                    }
+                    if(!cssContent && typeof fetch === 'function' && /^https?:|^folio-cache:/i.test(href)){
+                      try{
+                        const res = await fetch(href);
+                        if(res.ok) cssContent = await res.text();
+                      }catch(eF){}
+                    }
+                    if(typeof cssContent === 'string' && cssContent){
+                      const st = sectionDoc.createElement('style');
+                      st.setAttribute('data-inlined-epub-css', '1');
+                      st.textContent = cssContent;
+                      l.parentNode.insertBefore(st, l);
+                      l.remove();
+                    }
+                  }catch(eCssLoad){}
+                }
+              }catch(ePreloadInline){}
               const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(sectionDoc.documentElement.outerHTML);
               this.chapterHtmls.set(spineIndex, cleanHtml);
               // Feature 6: pre-render the neighbor chapter off-screen — fonts,
