@@ -157,6 +157,8 @@ body.state-landing #posPill{display:none}
 #btnSpeak.active .sp-wave{animation:spwave 1.2s ease-in-out infinite}
 #btnSpeak.paused .sp-wave{animation:none;opacity:.35}
 @keyframes spwave{0%,100%{opacity:.35}50%{opacity:1}}
+#btnSpeakStop{color:var(--ink);opacity:.85}
+#btnSpeakStop:hover{color:var(--accent);opacity:1}
 #stage{position:fixed;inset:0;display:grid;grid-template-columns:1fr minmax(0,var(--mw,640px)) 1fr;
   align-items:stretch;padding:calc(var(--pad-y, 28px) + 38px + env(safe-area-inset-top)) 16px calc(var(--pad-y, 28px) + 32px + env(safe-area-inset-bottom));
   transition:opacity .35s,visibility .35s,transform .4s cubic-bezier(.32,.72,.24,1)}
@@ -1375,6 +1377,9 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     </button>
     <button class="icon-btn" id="btnSpeak" title="Read aloud (R)" aria-label="Read aloud" aria-pressed="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3l5 4V5Z"/><path class="sp-wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12"/></svg>
+    </button>
+    <button class="icon-btn" id="btnSpeakStop" title="Stop read aloud (Shift+R)" aria-label="Stop read aloud" style="display:none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
     </button>
     <button class="aa-btn" id="btnSheet" title="Typography (S)" aria-label="Typography settings" aria-haspopup="dialog" aria-expanded="false">Aa</button>
   </div>
@@ -8655,70 +8660,122 @@ const KITTEN_VOICES = [
   ['kiki', 'Kiki', 'female'],
   ['leo', 'Leo', 'male']
 ];
-/* KittenTTS runner: Transformers.js text-to-speech pipeline over the
-   onnx-community Mini v0.8 export (StyleTTS-2, int8, ~92MB, 24kHz). The
-   model downloads once through progress_callback, caches in the WebView,
-   and works offline afterward. WASM backend — int8 ops have no WebGPU
-   kernels; WebView2 falls back to single-threaded WASM automatically. */
+/* KittenTTS runner: Offloaded to dedicated Web Worker (src/tts-worker.js)
+   so ONNX Runtime Web WASM CPU execution never blocks the main UI thread. */
 const KittenRunner = {
-  pipe: null, loadP: null, installed: false, installPct: -1,
+  worker: null, loadP: null, installed: false, installPct: -1,
+  _reqId: 0, _pending: new Map(), _nativeTTS: null, _activeRunId: 0,
+  isNative(){
+    return !!(window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke);
+  },
   ready(){ return this.installed; },
   progress(){ return this.installPct; },
-  install(onProgress){
-    if(this.pipe) return Promise.resolve(this.pipe);
-    if(this.loadP) return this.loadP;
-    // The vendored bundle exposes no download-progress hook, so the honest
-    // signal is the install window itself: 0 at start, 100 when the pipeline
-    // is ready (the passed callbacks used to be ignored, leaving the badge
-    // at "not installed" until it flipped to ready).
-    this._progressCb = typeof onProgress === 'function' ? onProgress : null;
-    const report = (pct) => {
-      this.installPct = pct;
-      if(this._progressCb){ try{ this._progressCb(pct); }catch(e){} }
+  _getWorker(){
+    if(this.worker) return this.worker;
+    this.worker = new Worker('./tts-worker.js', { type: 'module' });
+    this.worker.onmessage = (e) => {
+      const d = e.data;
+      if(!d) return;
+      if(d.type === 'INIT_DONE'){
+        this.installed = true; this.installPct = 100;
+        TTS.syncVoiceUI();
+      } else if(d.type === 'GEN_DONE'){
+        const cb = this._pending.get(d.id);
+        if(cb){ this._pending.delete(d.id); cb.resolve(new Uint8Array(d.buffer)); }
+      } else if(d.type === 'GEN_ERROR' || d.type === 'GEN_DROPPED'){
+        const cb = this._pending.get(d.id);
+        if(cb){
+          this._pending.delete(d.id);
+          if(d.type === 'GEN_DROPPED') cb.resolve(null);
+          else cb.reject(new Error(d.error));
+        }
+      }
     };
-    report(0);
-    this.loadP = (async () => {
-      const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
-      const tts = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8', { runtime: 'cpu' });
-      this.pipe = tts; this.installed = true;
-      report(100);
-      this._progressCb = null;
-      TTS.syncVoiceUI();
-      return tts;
-    })().catch((e) => { this.loadP = null; this.installPct = -1; this._progressCb = null; throw e; });
+    this.worker.onerror = (err) => { console.warn('TTS Worker error:', err); };
+    return this.worker;
+  },
+  async install(onProgress){
+    if(this.installed) return true;
+    if(this.loadP) return this.loadP;
+    this.installPct = 0;
+    if(typeof onProgress === 'function') onProgress(0);
+
+    if(this.isNative()){
+      this.loadP = (async () => {
+        try {
+          const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
+          this._nativeTTS = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8');
+          this.installed = true;
+          this.installPct = 100;
+          if(typeof onProgress === 'function') onProgress(100);
+          TTS.syncVoiceUI();
+          return true;
+        } catch(err) {
+          console.warn('[KittenRunner] Fast native setup failed, using worker:', err);
+          this.loadP = null;
+          this._nativeTTS = null;
+        }
+      })();
+      const res = await this.loadP;
+      if(res) return true;
+    }
+
+    const worker = this._getWorker();
+    this.loadP = new Promise((resolve, reject) => {
+      const handler = (e) => {
+        if(e.data && e.data.type === 'INIT_DONE'){
+          worker.removeEventListener('message', handler);
+          resolve(true);
+        } else if(e.data && e.data.type === 'INIT_FAIL'){
+          worker.removeEventListener('message', handler);
+          this.loadP = null; this.installPct = -1;
+          reject(new Error(e.data.error));
+        }
+      };
+      worker.addEventListener('message', handler);
+      worker.postMessage({ type: 'INIT' });
+    });
     return this.loadP;
   },
-  async generate(text, voice, rate){
-    const tts = await this.install();
-    // kitten-tts-js wants capitalized preset names (Bella, Jasper…)
-    const cap = (voice || 'bella').charAt(0).toUpperCase() + (voice || 'bella').slice(1);
-    // Speed knob applies to the narration itself (was hard-wired 1.0, so
-    // - / = only shrank the inter-paragraph gaps).
-    const speed = Math.min(2, Math.max(0.5, rate || 1));
-    const audio = await tts.generate(text, { voice: cap, speed });
-    if(audio.encodeWAV) return new Uint8Array(audio.encodeWAV());
-    if(audio.audio) return float32ToWav(audio.audio, audio.sampleRate || 24000);
-    if(audio.toBlob) return new Uint8Array(await (await audio.toBlob()).arrayBuffer());
-    throw new Error('unrecognized audio output');
+  async generate(text, voice, rate, runId, chunkId){
+    if(runId && runId < this._activeRunId) return null;
+    if(this.isNative()){
+      if(!this._nativeTTS){
+        await this.install();
+      }
+      if(runId && runId < this._activeRunId) return null;
+      if(this._nativeTTS){
+        const vKey = (voice || 'bella').trim();
+        const cap = vKey.startsWith('expr-') ? vKey : (vKey.charAt(0).toUpperCase() + vKey.slice(1).toLowerCase());
+        const speed = Math.min(2, Math.max(0.5, rate || 1));
+        const audio = await this._nativeTTS.generate(text, { voice: cap, speed });
+        if(runId && runId < this._activeRunId) return null;
+        const wav = audio.toWav ? audio.toWav() : (audio.encodeWAV ? audio.encodeWAV() : null);
+        return wav ? new Uint8Array(wav) : null;
+      }
+    }
+
+    this._getWorker();
+    const id = ++this._reqId;
+    return new Promise((resolve, reject) => {
+      this._pending.set(id, { resolve, reject });
+      this.worker.postMessage({
+        type: 'GENERATE',
+        id,
+        text,
+        voice,
+        rate,
+        runId: runId || 0,
+        chunkId
+      });
+    });
+  },
+  cancel(runId){
+    if(runId) this._activeRunId = Math.max(this._activeRunId, runId);
+    if(this.worker) this.worker.postMessage({ type: 'CANCEL', runId: runId || 0 });
+    for(const [, cb] of this._pending.entries()){ cb.resolve(null); }
+    this._pending.clear();
   }
-};
-/* Float32 mono samples -> PCM16 WAV bytes (KittenTTS outputs 24kHz). */
-function float32ToWav(f32, sampleRate){
-  const sr = sampleRate || 24000;
-  const buf = new ArrayBuffer(44 + f32.length * 2);
-  const v = new DataView(buf);
-  const wstr = (off, s2) => { for(let i = 0; i < s2.length; i++) v.setUint8(off + i, s2.charCodeAt(i)); };
-  wstr(0, 'RIFF'); v.setUint32(4, 36 + f32.length * 2, true); wstr(8, 'WAVE');
-  wstr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true); v.setUint32(24, sr, true);
-  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  wstr(36, 'data'); v.setUint32(40, f32.length * 2, true);
-  let o = 44;
-  for(let i = 0; i < f32.length; i++, o += 2){
-    const s2 = Math.max(-1, Math.min(1, f32[i]));
-    v.setInt16(o, s2 < 0 ? s2 * 0x8000 : s2 * 0x7FFF, true);
-  }
-  return new Uint8Array(buf);
 };
 const TTS = {
   active: false, paused: false, stopped: true,
@@ -8806,9 +8863,12 @@ const TTS = {
   stop(silent){
     this.stopped = true; this.active = false; this.paused = false;
     this.gen++;
+    KittenRunner.cancel(this.gen);
+    this._pumpRunning = false;
     this.sents = []; this.si = 0; this.doc = null; this.currentCfi = '';
     this.clearPcm();
     clearTimeout(this.relocT);
+    clearTimeout(this.gapT);
     this.stopWav();
     if(this.utt){
       this.utt.onend = null;
@@ -9014,6 +9074,10 @@ const TTS = {
 
   syncUI(){
     const b = el('btnSpeak');
+    const bs = el('btnSpeakStop');
+    if(bs){
+      bs.style.display = this.active ? 'grid' : 'none';
+    }
     if(!b) return;
     b.classList.toggle('active', this.active && !this.paused);
     b.classList.toggle('paused', this.active && this.paused);
@@ -9039,46 +9103,64 @@ const TTS = {
   },
 
   /* Narration breath: rate-scaled sentence gap; a heading just spoken earns
-     an extra beat before the body text starts. */
+     a dedicated ~1.8s breath before the body text starts. */
   sentGapMs(afterHeading){
-    const base = 600 / this.rate;
-    return Math.round(afterHeading ? base + 700 / this.rate : base);
+    if(afterHeading) return Math.round(1800 / Math.sqrt(this.rate));
+    return Math.round(350 / this.rate);
   },
 
-  /* Generate sentence si+1 while si plays, so the pause between sentences is
-     the tuned gap instead of engine latency. Entries are keyed by sentence
-     index and invalidated wherever voice/rate/page changes (gen bump alone is
-     not enough: a stored clip outlives its chain). */
+  /* Generate upcoming groups in background so pauses between sets are natural breaths
+     instead of engine latency. Rolling FIFO lookahead pipeline keeps up to 3 groups
+     buffered in advance. */
   pcmCache: new Map(),
   _genP: new Map(),
-  clearPcm(){ this.pcmCache.clear(); this._genP.clear(); },
-  /* Prefetch the NEXT paragraph group (and, when it is already cached, the
-     one after — long paragraphs leave plenty of playback time to fill). */
-  prefetch(gu){
-    if(this.engine !== 'kitten') return; // system voices synthesize instantly
-    const gi = this.gi;
-    const nxt = gi + 1;
-    if(nxt >= this.groups.length || this.pcmCache.has(nxt)){
-      const after = nxt + 1;
-      if(after < this.groups.length && !this.pcmCache.has(after)){
-        this.genGroup(after, gu);
-      }
-      return;
-    }
-    this.genGroup(nxt, gu);
+  _pumpRunning: false,
+  clearPcm(){
+    this.pcmCache.clear();
+    this._genP.clear();
+    this._pumpRunning = false;
   },
-  genGroup(gi, gu){
-    const g = this.groups[gi];
-    if(!g || this._genP.has(gi)) return; // one in-flight generation per group
-    const voice = this.voice, rate = this.rate;
-    const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
-    const p = KittenRunner.generate(text, voice, rate);
-    this._genP.set(gi, p);
-    p.then(bytes => {
-      if(this.gen !== gu || this.stopped) return;
-      if(this.voice !== voice || this.rate !== rate) return; // stale params
-      this.pcmCache.set(gi, bytes);
-    }).catch(() => {}).finally(() => { this._genP.delete(gi); });
+  /* Rolling lookahead buffer: keeps up to 3 groups ahead cached in FIFO order */
+  pumpPrefetch(gu){
+    if(this.engine !== 'kitten' || this.stopped || this.gen !== gu || !this.groups || !this.groups.length) return;
+    if(this._pumpRunning) return;
+    this._pumpRunning = true;
+    const runPump = async () => {
+      try {
+        while(this.gen === gu && !this.stopped && this.active && !this.paused){
+          let targetGi = -1;
+          const maxGi = Math.min(this.groups.length - 1, this.gi + 3);
+          for(let idx = this.gi; idx <= maxGi; idx++){
+            if(!this.pcmCache.has(idx) && !this._genP.has(idx)){
+              targetGi = idx;
+              break;
+            }
+          }
+          if(targetGi < 0) break;
+          const g = this.groups[targetGi];
+          if(!g) break;
+
+          let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
+          if(g.isHeading && text && !/[.!?:]$/.test(text)) text += '.';
+
+          const p = KittenRunner.generate(text, this.voice, this.rate, gu, targetGi);
+          this._genP.set(targetGi, p);
+          let bytes = null;
+          try {
+            bytes = await p;
+          } catch(e) {
+            bytes = null;
+          } finally {
+            this._genP.delete(targetGi);
+          }
+          if(this.gen !== gu || this.stopped) break;
+          if(bytes) this.pcmCache.set(targetGi, bytes);
+        }
+      } finally {
+        this._pumpRunning = false;
+      }
+    };
+    runPump();
   },
   /* Sentence highlight that follows a playing paragraph clip: sentence
      boundaries are estimated proportionally by char length, tracked against
@@ -9141,7 +9223,7 @@ const TTS = {
             this.stopGroupHighlight();
             if(this.gen !== gu || this.stopped || !this.active) return;
             const lastSi = (endSi != null) ? endSi - 1 : this.si;
-            const afterHeading = !!(this.sents[lastSi] && this.sents[lastSi].isHeading);
+            const afterHeading = !!(this.sents[lastSi] && this.sents[lastSi].isHeading) || !!(group && group.isHeading);
             this.si = (endSi != null) ? endSi : this.si + 1;
             this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
           };
@@ -9199,7 +9281,7 @@ const TTS = {
     if(!docsRanges.length) return this.cachedSentences();
 
     const allSents = [];
-    const re = /[^.!?…\n]*[.!?…]+["')\]]*\s*|[^.!?…\n]+$/g;
+    const re = /[^.!?…\n]*[.!?…]+["')\]]*\s*|[^.!?…\n]+(?:\n+|$)/g;
 
     for(const { doc, range } of docsRanges){
       this.doc = doc;
@@ -9212,9 +9294,22 @@ const TTS = {
       }
       if(!nodes.length) continue;
 
+      const getBlock = (node) => {
+        const p = node && node.parentElement;
+        return p ? (p.closest('p,li,dd,dt,blockquote,h1,h2,h3,h4,h5,h6,header,footer,div,td,th,figcaption,pre') || p) : null;
+      };
+
       const map = [];
       let buf = '';
+      let prevBlock = null;
       for(const n of nodes){
+        const curBlock = getBlock(n);
+        if(prevBlock && curBlock !== prevBlock){
+          if(buf.length > 0 && !buf.endsWith('\n')){
+            buf += '\n';
+          }
+        }
+        prevBlock = curBlock;
         const s = (n === range.startContainer) ? range.startOffset : 0;
         const e = (n === range.endContainer) ? range.endOffset : n.nodeValue.length;
         for(let i = s; i < e; i++){
@@ -9233,9 +9328,9 @@ const TTS = {
         let text = '', first = -1, last = -1;
         for(let i = s; i < e; i++){
           const ch = buf[i];
-          if(ch === ' ' && (!text || text.endsWith(' '))) continue;
-          text += ch;
-          if(ch !== ' '){ if(first < 0) first = i; last = i; }
+          if((ch === ' ' || ch === '\n') && (!text || text.endsWith(' '))) continue;
+          text += (ch === '\n' ? ' ' : ch);
+          if(ch !== ' ' && ch !== '\n'){ if(first < 0) first = i; last = i; }
         }
         if(!text.trim() || first < 0) continue;
         const segs = [];
@@ -9246,19 +9341,16 @@ const TTS = {
           if(cur && cur.node === mp.node && cur.end === mp.off){ cur.end = mp.off + 1; }
           else { cur = { node: mp.node, start: mp.off, end: mp.off + 1 }; segs.push(cur); }
         }
-        // Heading tag? Titles get a longer breath after them (sentGapMs).
+        // Heading tag or title class? Titles get an isolated group and a dedicated breath after them.
         let isHeading = false;
         let block = null;
         try{
-          const bel = segs[0] && segs[0].node && segs[0].node.parentElement &&
-            segs[0].node.parentElement.closest('h1,h2,h3,h4,h5,h6');
-          isHeading = !!bel;
-          // block container = paragraph grouping key (kitten engine generates
-          // one clip per paragraph; consecutive sentences sharing the same
-          // block element belong to the same group)
-          block = segs[0] && segs[0].node && segs[0].node.parentElement &&
-            segs[0].node.parentElement.closest('p,li,dd,dt,blockquote,h1,h2,h3,h4,h5,h6,td,figcaption,pre') ||
-            (segs[0] && segs[0].node && segs[0].node.parentElement) || null;
+          const pEl = segs[0] && segs[0].node && segs[0].node.parentElement;
+          const hEl = pEl && pEl.closest('h1,h2,h3,h4,h5,h6,header,[role="heading"],[epub\\:type*="title"],[epub\\:type*="chapter"]');
+          const classEl = pEl && pEl.closest('[class]');
+          const classMatch = classEl && /\b(title|chapter|heading|part)\b/i.test(classEl.className || '');
+          isHeading = !!(hEl || classMatch);
+          block = pEl && pEl.closest('p,li,dd,dt,blockquote,h1,h2,h3,h4,h5,h6,header,td,figcaption,pre') || pEl || null;
         }catch(err){}
         allSents.push({ doc, text: text.trim(), segs, isHeading, block });
         if(m.index === re.lastIndex) re.lastIndex++;
@@ -9311,29 +9403,33 @@ const TTS = {
     this.si = 0;
     this._loading = false;
     if(!this.sents.length){ this.gapT = setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
-    /* Paragraph groups (kitten engine): consecutive sentences sharing the
-       same block element form one generation unit; a run longer than 600
-       chars splits so no single synthesis call dominates. */
+    /* Paragraph groups: progressive chunking (first non-heading group <= 120 chars for fast TTFA,
+       group 1 <= 200 chars, later groups <= 380 chars) while strictly isolating headings. */
     this.groups = [];
-    let start = 0, cur = this.sents[0].block, chars = 0;
+    let start = 0, cur = this.sents[0].block, chars = 0, nonHeadingCount = 0;
     for(let i = 0; i < this.sents.length; i++){
       const len = this.sents[i].text.length;
-      if(i > start && (this.sents[i].block !== cur || chars + len > 600)){
-        this.groups.push({ start, end: i - 1 });
+      const prevHeading = i > 0 ? !!this.sents[i - 1].isHeading : false;
+      const curHeading = !!this.sents[i].isHeading;
+      const headingBoundary = i > start && (curHeading !== prevHeading);
+      const limit = curHeading ? 300 : (nonHeadingCount === 0 ? 120 : (nonHeadingCount === 1 ? 200 : 380));
+      const blockChanged = this.sents[i].block !== cur;
+      const breakGroup = headingBoundary || (chars + len > limit) || (blockChanged && (curHeading || chars > 150));
+      if(i > start && breakGroup){
+        this.groups.push({ start, end: i - 1, isHeading: prevHeading });
+        if(!prevHeading) nonHeadingCount++;
         start = i; chars = 0;
       }
       cur = this.sents[i].block; chars += len;
     }
-    if(this.sents.length) this.groups.push({ start, end: this.sents.length - 1 });
+    if(this.sents.length) {
+      this.groups.push({ start, end: this.sents.length - 1, isHeading: !!this.sents[start].isHeading });
+    }
     this.gi = 0;
-    // Warm the first paragraph during the lead-in breath (prefetch only
-    // warms gi+1 — without this the first group always synthesized on
-    // demand after the breath expired, an audible dead gap every page).
-    if(this.engine === 'kitten' && this.groups.length) this.genGroup(0, g);
-    this.prefetch(g);
-    // Lead-in breath on every page start: launching straight into the first
-    // sentence felt rushed, especially right after a page turn.
-    this.gapT = setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs());
+    if(this.engine === 'kitten' && this.groups.length) {
+      this.pumpPrefetch(g);
+    }
+    this.gapT = setTimeout(() => { if(this.gen === g && !this.paused) this.speakNext(); }, this.sentGapMs(false));
   },
   async speakNext(){
     if(this.stopped || !this.active || this.paused) return;
@@ -9344,8 +9440,8 @@ const TTS = {
     const gu = this.gen;
     if(this.engine === 'kitten'){
       /* Paragraph-level synthesis: one clip per paragraph group, seamless
-         audio within the paragraph, and the NEXT paragraph generates while
-         this one plays (prefetch). Sentence highlight follows the clip by
+         audio within the paragraph, and upcoming groups generate in background
+         via rolling pumpPrefetch. Sentence highlight follows the clip by
          proportional timing (startGroupHighlight). */
       const gi = this.groups.findIndex(g2 => this.si >= g2.start && this.si <= g2.end);
       if(gi < 0){ this.autoAdvance(); return; }
@@ -9355,13 +9451,13 @@ const TTS = {
         let wavBytes = this.pcmCache.get(gi);
         if(wavBytes) this.pcmCache.delete(gi);
         else{
-          // Reuse an in-flight prefetch of this group instead of double-
-          // generating (genGroup stores the raw promise in _genP).
+          // Reuse an in-flight prefetch of this group instead of double-generating
           const pending = this._genP.get(gi);
           if(pending){ wavBytes = await pending; }
           else{
-            const text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ');
-            wavBytes = await KittenRunner.generate(text, this.voice, this.rate);
+            let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
+            if(g.isHeading && text && !/[.!?:]$/.test(text)) text += '.';
+            wavBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
           }
           if(this.gen !== gu || this.stopped || !this.active) return;
         }
@@ -9369,7 +9465,7 @@ const TTS = {
           ? wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength) : wavBytes;
         if(buf && buf.byteLength > 0){
           const started = await this.playWav(buf, gu, g.end + 1, g);
-          if(started){ this.prefetch(gu); return; }
+          if(started){ this.pumpPrefetch(gu); return; }
         }
       }catch(e){
         console.warn('Kitten generation failed, falling back to system voice:', e);
@@ -10829,6 +10925,8 @@ el('posPill').addEventListener('click',toggleToc);
 el('tocClose').addEventListener('click',closePanels);
 el('btnFullscreen').addEventListener('click',toggleFullscreen);
 el('btnSpeak').addEventListener('click',()=>TTS.toggle());
+const btnSpeakStop = el('btnSpeakStop');
+if(btnSpeakStop) btnSpeakStop.addEventListener('click',()=>TTS.stop());
 el('btnPrev').addEventListener('click',()=>turn(-1));
 el('btnNext').addEventListener('click',()=>turn(1));
 el('sizeMinus').addEventListener('click',()=>nudgeSize(-0.5));

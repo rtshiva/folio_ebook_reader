@@ -13,6 +13,7 @@ Thumbs.db
 tauri_epub_reader/tests/e2e/artifacts/
 voice_testing/
 .audit_chunks/
+.repro/
 
 # Local-only Piper / KittenTTS neural voice bundle, bundled via
 # tauri.conf.json resources; fetch/install manually, never commit

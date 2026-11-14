@@ -17,17 +17,25 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "additionalBrowserArgs": "--enable-features=msWebView2EnableSharedArrayBuffer --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' folio-cache: http://folio-cache.localhost; img-src 'self' data: blob: folio-cache: http://folio-cache.localhost; font-src 'self' data: folio-cache: http://folio-cache.localhost; connect-src 'self' folio-cache: http://folio-cache.localhost https://api.dictionaryapi.dev https://huggingface.co https://*.hf.co https://*.huggingface.co data: blob:; media-src 'self' blob: data: folio-cache: http://folio-cache.localhost; frame-src 'self' blob: data: folio-cache: http://folio-cache.localhost about:; base-uri 'self'; form-action 'none'; object-src 'none'",
+      "headers": {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp"
+      },
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline' folio-cache: http://folio-cache.localhost; img-src 'self' data: blob: folio-cache: http://folio-cache.localhost; font-src 'self' data: folio-cache: http://folio-cache.localhost; connect-src 'self' http://ipc.localhost ipc: folio-cache: http://folio-cache.localhost https://api.dictionaryapi.dev https://huggingface.co https://*.hf.co https://*.huggingface.co data: blob:; media-src 'self' blob: data: folio-cache: http://folio-cache.localhost; frame-src 'self' blob: data: folio-cache: http://folio-cache.localhost about:; base-uri 'self'; form-action 'none'; object-src 'none'",
       "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "models/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

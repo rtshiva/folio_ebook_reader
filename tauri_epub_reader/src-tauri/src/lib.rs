@@ -249,6 +249,187 @@ fn pick_file() -> Option<String> {
     file.map(|p| p.to_string_lossy().to_string())
 }
 
+// ---------------- Native KittenTTS Inference ----------------
+
+pub fn float32_to_wav_bytes(samples: &[f32], sample_rate: u32) -> Vec<u8> {
+    let num_samples = samples.len();
+    let data_len = num_samples * 2;
+    let mut wav = Vec::with_capacity(44 + data_len);
+
+    // RIFF header
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&((36 + data_len) as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+
+    // fmt subchunk
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());  // 1 = PCM
+    wav.extend_from_slice(&1u16.to_le_bytes());  // 1 = mono
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    let byte_rate = sample_rate * 2;
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());  // block align
+    wav.extend_from_slice(&16u16.to_le_bytes()); // 16-bit
+
+    // data subchunk
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data_len as u32).to_le_bytes());
+
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        let sample_i16 = if clamped < 0.0 {
+            (clamped * 32768.0) as i16
+        } else {
+            (clamped * 32767.0) as i16
+        };
+        wav.extend_from_slice(&sample_i16.to_le_bytes());
+    }
+
+    wav
+}
+
+pub fn resolve_tts_model_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // 1. Bundle resource directory: app.path().resource_dir()
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let p = res_dir.join("models").join("kitten_tts_mini_v0_8.onnx");
+        if p.is_file() {
+            return Some(p);
+        }
+        let p2 = res_dir.join("kitten_tts_mini_v0_8.onnx");
+        if p2.is_file() {
+            return Some(p2);
+        }
+    }
+    // 2. Relative to current executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let p = exe_dir.join("models").join("kitten_tts_mini_v0_8.onnx");
+            if p.is_file() {
+                return Some(p);
+            }
+            let p2 = exe_dir.join("kitten_tts_mini_v0_8.onnx");
+            if p2.is_file() {
+                return Some(p2);
+            }
+            // If running target/release/app.exe or target/debug/app.exe -> src-tauri/models
+            if let Some(target_dir) = exe_dir.parent() {
+                if let Some(src_tauri_dir) = target_dir.parent() {
+                    let p3 = src_tauri_dir.join("models").join("kitten_tts_mini_v0_8.onnx");
+                    if p3.is_file() {
+                        return Some(p3);
+                    }
+                }
+            }
+        }
+    }
+    // 3. Dev / working directory relative paths
+    for candidate in [
+        "models/kitten_tts_mini_v0_8.onnx",
+        "src-tauri/models/kitten_tts_mini_v0_8.onnx",
+        "../src-tauri/models/kitten_tts_mini_v0_8.onnx",
+    ] {
+        let p = PathBuf::from(candidate);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    // 4. App data directory
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let p = data_dir.join("models").join("kitten_tts_mini_v0_8.onnx");
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+static TTS_SESSION: std::sync::OnceLock<Mutex<ort::session::Session>> = std::sync::OnceLock::new();
+static ORT_ENV: std::sync::OnceLock<ort::environment::Environment> = std::sync::OnceLock::new();
+
+fn get_or_init_tts_session(app: &tauri::AppHandle) -> Result<&'static Mutex<ort::session::Session>, String> {
+    if let Some(s) = TTS_SESSION.get() {
+        return Ok(s);
+    }
+    let model_path = resolve_tts_model_path(app)
+        .ok_or_else(|| "KittenTTS model file kitten_tts_mini_v0_8.onnx not found".to_string())?;
+
+    let env = ORT_ENV.get_or_init(|| {
+        ort::init()
+            .with_name("FolioTTS")
+            .build()
+            .expect("Failed to initialize ORT environment")
+    });
+
+    let threads = std::thread::available_parallelism()
+        .map(|n| (n.get() / 2).clamp(2, 8))
+        .unwrap_or(4);
+
+    let session = ort::session::Session::builder(env)
+        .map_err(|e| format!("Failed to create ORT SessionBuilder: {e}"))?
+        .with_intra_threads(threads)
+        .map_err(|e| format!("Failed to set intra threads: {e}"))?
+        .commit_from_file(model_path)
+        .map_err(|e| format!("Failed to load ONNX model: {e}"))?;
+
+    let _ = TTS_SESSION.set(Mutex::new(session));
+    Ok(TTS_SESSION.get().unwrap())
+}
+
+#[tauri::command]
+async fn tts_run_inference(
+    app: tauri::AppHandle,
+    input_ids: Vec<i64>,
+    style: Vec<f32>,
+    style_shape: Option<Vec<usize>>,
+    speed: Option<f32>,
+) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let session_mutex = get_or_init_tts_session(&app)?;
+        let mut session = session_mutex.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+
+        let seq_len = input_ids.len();
+        if seq_len == 0 {
+            return Err("input_ids cannot be empty".to_string());
+        }
+
+        let style_dim = if let Some(ref sh) = style_shape {
+            if sh.len() >= 2 { sh[1] } else { style.len() }
+        } else {
+            style.len()
+        };
+
+        let speed_val = speed.unwrap_or(1.0);
+
+        use ort::value::Tensor;
+        let input_ids_tensor = Tensor::from_array(([1usize, seq_len], input_ids.into_boxed_slice()))
+            .map_err(|e| format!("Failed to create input_ids tensor: {e}"))?;
+        let style_tensor = Tensor::from_array(([1usize, style_dim], style.into_boxed_slice()))
+            .map_err(|e| format!("Failed to create style tensor: {e}"))?;
+        let speed_tensor = Tensor::from_array(([1usize], vec![speed_val].into_boxed_slice()))
+            .map_err(|e| format!("Failed to create speed tensor: {e}"))?;
+
+        let outputs = session.run(ort::inputs![
+            "input_ids" => input_ids_tensor,
+            "style" => style_tensor,
+            "speed" => speed_tensor,
+        ]).map_err(|e| format!("ONNX inference error: {e}"))?;
+
+        let (_, output_val) = outputs.into_iter().next().ok_or("No output tensor from TTS model")?;
+        let (_shape, slice) = output_val.try_extract_tensor::<f32>()
+            .map_err(|e| format!("Failed to extract audio tensor: {e}"))?;
+
+        const AUDIO_TRIM: usize = 5000;
+        let trimmed_len = slice.len().saturating_sub(AUDIO_TRIM);
+        let samples = &slice[..trimmed_len];
+
+        let wav_bytes = float32_to_wav_bytes(samples, 24000);
+        Ok(tauri::ipc::Response::new(wav_bytes))
+    })
+    .await
+    .map_err(|e| format!("Inference task failed: {e}"))?
+}
+
 // ---------------- P-A: Disk cache for unzipped books ----------------
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -1215,6 +1396,7 @@ pub fn run() {
                 return tauri::http::Response::builder()
                     .status(400)
                     .header("Access-Control-Allow-Origin", allow_origin)
+                    .header("Cross-Origin-Resource-Policy", "cross-origin")
                     .header("X-Content-Type-Options", "nosniff")
                     .body(vec![])
                     .unwrap();
@@ -1227,6 +1409,7 @@ pub fn run() {
                     return tauri::http::Response::builder()
                         .status(400)
                         .header("Access-Control-Allow-Origin", allow_origin)
+                        .header("Cross-Origin-Resource-Policy", "cross-origin")
                         .header("X-Content-Type-Options", "nosniff")
                         .body(vec![])
                         .unwrap();
@@ -1252,6 +1435,7 @@ pub fn run() {
                             .header("Cache-Control", "max-age=31536000, immutable")
                             .header("Access-Control-Allow-Origin", allow_origin)
                             .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                            .header("Cross-Origin-Resource-Policy", "cross-origin")
                             .header("X-Content-Type-Options", "nosniff")
                             // The top-window CSP does not apply inside these
                             // iframes (different origin). Restrict to what
@@ -1273,6 +1457,7 @@ pub fn run() {
                         tauri::http::Response::builder()
                             .status(500)
                             .header("Access-Control-Allow-Origin", allow_origin)
+                            .header("Cross-Origin-Resource-Policy", "cross-origin")
                             .header("X-Content-Type-Options", "nosniff")
                             .body(vec![])
                             .unwrap()
@@ -1286,6 +1471,7 @@ pub fn run() {
                     .header("Cache-Control", "max-age=31536000, immutable")
                     .header("Access-Control-Allow-Origin", allow_origin)
                     .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                    .header("Cross-Origin-Resource-Policy", "cross-origin")
                     .header("X-Content-Type-Options", "nosniff")
                     .body(font_bytes)
                     .unwrap()
@@ -1293,6 +1479,7 @@ pub fn run() {
                 tauri::http::Response::builder()
                     .status(404)
                     .header("Access-Control-Allow-Origin", allow_origin)
+                    .header("Cross-Origin-Resource-Policy", "cross-origin")
                     .header("X-Content-Type-Options", "nosniff")
                     .body(vec![])
                     .unwrap()
@@ -1319,6 +1506,7 @@ pub fn run() {
             read_file_bytes,
             book_open,
             pick_file,
+            tts_run_inference,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2458,5 +2646,39 @@ mod tests {
         assert_eq!(allowed_cors_origin("http://evil.example", false), "tauri://localhost");
         assert_eq!(allowed_cors_origin("", false), "tauri://localhost");
         assert_eq!(allowed_cors_origin("null", false), "tauri://localhost");
+    }
+
+    #[test]
+    fn test_ort_syntax() {
+        use ort::value::Tensor;
+        let env = ort::init().build().unwrap();
+        let mut session = ort::session::Session::builder(&env).unwrap()
+            .with_intra_threads(4).unwrap()
+            .commit_from_file("models/kitten_tts_mini_v0_8.onnx").unwrap();
+        let input_ids = vec![1i64, 2, 3];
+        let style = vec![0.5f32; 256];
+        let speed = vec![1.0f32];
+        let input_ids_tensor = Tensor::from_array(([1usize, input_ids.len()], input_ids.into_boxed_slice())).unwrap();
+        let style_tensor = Tensor::from_array(([1usize, style.len()], style.into_boxed_slice())).unwrap();
+        let speed_tensor = Tensor::from_array(([1usize], speed.into_boxed_slice())).unwrap();
+        let outputs = session.run(ort::inputs![
+            "input_ids" => input_ids_tensor,
+            "style" => style_tensor,
+            "speed" => speed_tensor,
+        ]).unwrap();
+        let (_, output_val) = outputs.into_iter().next().ok_or("No output").unwrap();
+        let (_shape, slice) = output_val.try_extract_tensor::<f32>().unwrap();
+        assert!(!slice.is_empty(), "Inference returned empty audio slice");
+    }
+
+    #[test]
+    fn test_float32_to_wav_bytes() {
+        let samples = vec![0.0f32, 0.5f32, -0.5f32, 1.0f32, -1.0f32];
+        let wav = float32_to_wav_bytes(&samples, 24000);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(&wav[36..40], b"data");
+        assert_eq!(wav.len(), 44 + 5 * 2);
     }
 }

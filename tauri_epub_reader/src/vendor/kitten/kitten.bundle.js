@@ -31621,7 +31621,13 @@ var RawAudio = class {
    * @returns {ArrayBuffer}
    */
   toWav() {
+    if (this.data && this.data.wavBytes) {
+      return this.data.wavBytes.buffer;
+    }
     return encodeWav(this.data, this.sampling_rate);
+  }
+  encodeWAV() {
+    return this.toWav();
   }
   /**
    * Save WAV to a file path (Node.js only).
@@ -31692,6 +31698,30 @@ var KittenTTS = class _KittenTTS {
    * @returns {Promise<KittenTTS>}
    */
   static async from_pretrained(modelId = "KittenML/kitten-tts-nano-0.8", opts = {}) {
+    const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+    if (isTauri) {
+      try {
+        let config = null;
+        let voicesBuffer = null;
+        try {
+          const cfgRes = await fetch('./vendor/kitten/config.json');
+          if (cfgRes.ok) config = await cfgRes.json();
+          const vcRes = await fetch('./vendor/kitten/voices.npz');
+          if (vcRes.ok) voicesBuffer = await vcRes.arrayBuffer();
+        } catch (_) {}
+
+        if (!config || !voicesBuffer) {
+          const configBuffer = await fetchCached(modelId, "config.json");
+          config = JSON.parse(new TextDecoder().decode(configBuffer));
+          const voicesFile = config.voices || "voices.npz";
+          voicesBuffer = await fetchCached(modelId, voicesFile);
+        }
+        const voices = await loadNpz(voicesBuffer);
+        return new _KittenTTS(null, voices, config);
+      } catch (errNativeLoader) {
+        console.warn("[kitten-tts] Fast native loader error, falling back:", errNativeLoader);
+      }
+    }
     const { modelBuffer, voicesBuffer, config } = await downloadModel(modelId, opts);
     let ort;
     try {
@@ -31706,10 +31736,20 @@ var KittenTTS = class _KittenTTS {
           ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20/dist/";
         }
       }
-      ort.env.wasm.numThreads = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
+      const optimalThreads = typeof navigator !== "undefined"
+        ? Math.min(8, Math.max(4, Math.floor((navigator.hardwareConcurrency || 8) / 2)))
+        : 6;
+      ort.env.wasm.numThreads = optimalThreads;
       ort.env.wasm.simd = true;
     }
-    const sessionOptions = ort.env.wasm ? { executionProviders: ["wasm"] } : {};
+    const optimalThreads = typeof navigator !== "undefined"
+      ? Math.min(8, Math.max(4, Math.floor((navigator.hardwareConcurrency || 8) / 2)))
+      : 6;
+    const sessionOptions = ort.env.wasm ? {
+      executionProviders: ["wasm"],
+      intraOpNumThreads: optimalThreads,
+      interOpNumThreads: 1
+    } : {};
     const session = await ort.InferenceSession.create(modelBuffer, sessionOptions);
     const voices = await loadNpz(voicesBuffer);
     return new _KittenTTS(session, voices, config);
@@ -31860,6 +31900,39 @@ var KittenTTS = class _KittenTTS {
    * @private
    */
   async _runInference({ input_ids, style, styleDim, speed }) {
+    const invoke = (typeof window !== "undefined" && window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke)
+      ? window.__TAURI_INTERNALS__.invoke
+      : null;
+    if (invoke) {
+      try {
+        const rawWav = await invoke("tts_run_inference", {
+          inputIds: Array.from(input_ids),
+          style: Array.from(style),
+          styleShape: [1, styleDim],
+          speed: Number(speed || 1.0)
+        });
+        const wavArrayBuf = (rawWav instanceof ArrayBuffer)
+          ? rawWav
+          : ((rawWav && rawWav.buffer instanceof ArrayBuffer)
+              ? rawWav.buffer.slice(rawWav.byteOffset, rawWav.byteOffset + rawWav.byteLength)
+              : (rawWav ? new Uint8Array(rawWav).buffer : null));
+        if (wavArrayBuf && wavArrayBuf.byteLength > 44) {
+          const numSamples = (wavArrayBuf.byteLength - 44) / 2;
+          const view = new DataView(wavArrayBuf);
+          const float32 = new Float32Array(numSamples);
+          for (let i = 0; i < numSamples; i++) {
+            float32[i] = view.getInt16(44 + i * 2, true) / 32768;
+          }
+          float32.wavBytes = new Uint8Array(wavArrayBuf);
+          return float32;
+        } else {
+          throw new Error("tts_run_inference returned invalid buffer length: " + (wavArrayBuf ? wavArrayBuf.byteLength : 0));
+        }
+      } catch (errNative) {
+        console.warn("[kitten-tts] Native inference error:", errNative);
+        if (!this._session) throw errNative;
+      }
+    }
     let ort;
     try {
       ort = await Promise.resolve().then(() => __toESM(require_ort_node_stub(), 1));

@@ -50,7 +50,7 @@ writeFileSync(epubPath, Buffer.from(buildMultiChapterEpub('Smoke Test', 3)));
 
 console.log('launching packaged exe with a file-association open…');
 const child = spawn(exe, [epubPath], {
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9391' },
+  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9391 --enable-features=msWebView2EnableSharedArrayBuffer' },
   stdio: 'ignore',
 });
 const cleanup = () => { try { child.kill(); } catch {} try { rmSync(dir, { recursive: true, force: true }); } catch {} };
@@ -147,7 +147,7 @@ writeFileSync(mobiPath, Buffer.from(helpers.buildTestMobi(mobiTitle, 'Ünïcode 
 
 console.log('launching packaged exe with a non-ASCII MOBI (file-association open)…');
 const child2 = spawn(exe, [mobiPath], {
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9391' },
+  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9391 --enable-features=msWebView2EnableSharedArrayBuffer' },
   stdio: 'ignore',
 });
 process.on('exit', () => { try { child2.kill(); } catch {} });
