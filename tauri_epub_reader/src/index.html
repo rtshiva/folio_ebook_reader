@@ -9174,6 +9174,7 @@ const TTS = {
     this.clearHighlight();
     body.classList.remove('tts-on');
     this._starveWarned = false;
+    this.consecutiveStarveCount = 0;
     this.syncUI();
     if(!silent) toast('Read aloud stopped');
   },

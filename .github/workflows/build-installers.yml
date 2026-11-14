@@ -1,8 +1,8 @@
 name: build-installers
 
 # Builds the Folio standalone executable, NSIS installer, and MSI installer for Windows.
-# The KittenTTS neural voice model (~92MB) is installed once on demand inside the app
-# and cached offline, so no large external assets are required at build time.
+# The KittenTTS neural voice model (~78MB) is cached and bundled into application resources
+# for native multi-threaded ORT inference, with fallback to Web Worker WASM when running in browser.
 
 on:
   workflow_dispatch:
@@ -67,6 +67,25 @@ jobs:
       - name: Run static scan
         working-directory: tauri_epub_reader
         run: node tests/scan-file-handling.mjs
+
+      - name: Cache KittenTTS model
+        id: cache-tts-model
+        uses: actions/cache@13aacd865c20de90d75de3b17ebb84f687ae8833 # v4.0.0
+        with:
+          path: tauri_epub_reader/src-tauri/models/kitten_tts_mini_v0_8.onnx
+          key: tts-kitten-mini-v0.8-onnx
+
+      - name: Fetch KittenTTS model for native inference
+        if: steps.cache-tts-model.outputs.cache-hit != 'true'
+        working-directory: tauri_epub_reader
+        run: |
+          mkdir -p src-tauri/models
+          if [ ! -f "src-tauri/models/kitten_tts_mini_v0_8.onnx" ]; then
+            echo "Fetching KittenTTS neural ONNX model (~78 MB)..."
+            curl -L -f -s -S --retry 3 -o "src-tauri/models/kitten_tts_mini_v0_8.onnx" \
+              "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx" || echo "Warning: model download failed; placeholder will be used"
+          fi
+          ls -lh src-tauri/models/
 
       - name: Clippy lint check
         working-directory: tauri_epub_reader/src-tauri

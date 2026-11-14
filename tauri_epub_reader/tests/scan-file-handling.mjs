@@ -239,7 +239,7 @@ check('ribbon splits multi-anchor weights, book stats ride the heartbeat',
 // function's own body (not the test module's copy of the literal).
 const corsFn = (rust.match(/fn allowed_cors_origin[\s\S]*?\n\}/) || [''])[0];
 check('folio-cache CORS echoes the Windows app origin',
-  /allowed_cors_origin\(&req_origin/.test(rust) &&
+  /allowed_cors_origin\((&)?req_origin/.test(rust) &&
   corsFn.includes('"http://tauri.localhost"') &&
   /fn test_u38_cors_echoes_every_app_origin/.test(rust),
   'allowed_cors_origin must list http://tauri.localhost in its trusted set and be wired into the handler (test_u38)');
@@ -342,5 +342,24 @@ check('cache capture waits for bionify completion',
 check('bionic word regex matches real words',
   /\[\^\\p\{L\}\\p\{N\}\]/.test(html) && !/\[\\P\{L\}\\P\{N\}\]/.test(html),
   'bionify WORD prefix class must be [^\\p{L}\\p{N}] — [\\P{L}\\P{N}] matches everything and disables bionic');
+
+// 38. TTS PCM clearing must purge in-flight promises and started groups
+// so switching books, chapters, or cancelling speech resets the deduplication set.
+check('clearPcm purges cache, in-flight promises, and started groups',
+  /clearPcm\(\)\s*\{[\s\S]*?this\.pcmCache\.clear\(\);[\s\S]*?this\._genP\.clear\(\);[\s\S]*?this\._startedGroups\.clear\(\);/.test(html),
+  'clearPcm must purge pcmCache, _genP, and _startedGroups to prevent cross-session leaks');
+
+// 39. TTS synthesis must record started groups and reuse in-flight promises
+// to eliminate duplicate generation when pumpPrefetch and speakNext race.
+check('synthesizeGroup deduplicates promises and tracks started groups',
+  /synthesizeGroup\(gi,\s*gu\)\s*\{[\s\S]*?if\(this\._genP\.has\(gi\)\)[\s\S]*?if\(this\._startedGroups\.has\(gi\)\)[\s\S]*?this\._startedGroups\.add\(gi\);/.test(html),
+  'synthesizeGroup must check _genP, _startedGroups, and add gi to _startedGroups');
+
+// 40. getGroupText appends terminal punctuation to headings without duplicating
+// periods or mutating the underlying sentence objects in TTS.sents.
+check('getGroupText isolates heading punctuation cleanly and immutably',
+  /getGroupText\(g\)\s*\{[\s\S]*?!\/\[\.\!\?\:\;…\]\$\/\.test\(text\)[\s\S]*?text\s*\+=\s*'\.';/.test(html) &&
+  !/sents\[[^\]]+\]\.text\s*\+=/.test(html),
+  'getGroupText must check ![.!?:;…]$ and never mutate underlying sents array elements');
 
 process.exit(failures ? 1 : 0);

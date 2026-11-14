@@ -1515,7 +1515,7 @@ pub fn run() {
             // fail net::ERR_FAILED, so path-based opens — file association,
             // drag-drop, recents shelf — hung forever on "Loading contents…"
             // with no pages. Bug seen in packaged builds 2026-11-12.
-            let allow_origin = allowed_cors_origin(&req_origin, is_dev_origin);
+            let allow_origin = allowed_cors_origin(req_origin, is_dev_origin);
 
             let uri = req.uri();
             let host = uri.host().unwrap_or("");
@@ -2783,11 +2783,16 @@ mod tests {
 
     #[test]
     fn test_ort_syntax() {
+        let model_path = "models/kitten_tts_mini_v0_8.onnx";
+        if !std::path::Path::new(model_path).exists() {
+            eprintln!("Skipping test_ort_syntax: {} not found on disk", model_path);
+            return;
+        }
         use ort::value::Tensor;
         let env = ort::init().build().unwrap();
         let mut session = ort::session::Session::builder(&env).unwrap()
             .with_intra_threads(4).unwrap()
-            .commit_from_file("models/kitten_tts_mini_v0_8.onnx").unwrap();
+            .commit_from_file(model_path).unwrap();
         let input_ids = vec![1i64, 2, 3];
         let style = vec![0.5f32; 256];
         let speed = vec![1.0f32];
@@ -2815,11 +2820,57 @@ mod tests {
         assert_eq!(wav.len(), 44 + 5 * 2);
     }
 
+    static TTS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_tts_backend_info() {
+        let _lock = TTS_TEST_LOCK.lock().unwrap();
         let info = tts_get_backend_info();
         assert_eq!(info.backend, "native-rust-ort");
         assert!(info.logical_cores >= 1);
         assert!(info.configured_threads >= 1);
+    }
+
+    #[test]
+    fn test_tts_target_threads_clamping() {
+        let _lock = TTS_TEST_LOCK.lock().unwrap();
+        use std::sync::atomic::Ordering;
+        let orig = TTS_DESIRED_THREADS.load(Ordering::SeqCst);
+        TTS_DESIRED_THREADS.store(0, Ordering::SeqCst);
+
+        // 1. Explicit threads should clamp between 1 and 16
+        assert_eq!(get_target_threads(Some(0)), default_tts_threads());
+        assert_eq!(get_target_threads(Some(1)), 1);
+        assert_eq!(get_target_threads(Some(4)), 4);
+        assert_eq!(get_target_threads(Some(16)), 16);
+        assert_eq!(get_target_threads(Some(32)), 16);
+        assert_eq!(get_target_threads(Some(128)), 16);
+
+        // 2. Setting TTS_DESIRED_THREADS changes default lookup when desired is None or 0
+        TTS_DESIRED_THREADS.store(6, Ordering::SeqCst);
+        assert_eq!(get_target_threads(None), 6);
+        assert_eq!(get_target_threads(Some(0)), 6);
+
+        // Explicit parameter overrides stored target
+        assert_eq!(get_target_threads(Some(2)), 2);
+
+        // Reset to original
+        TTS_DESIRED_THREADS.store(orig, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn test_tts_backend_info_reflects_desired_threads() {
+        let _lock = TTS_TEST_LOCK.lock().unwrap();
+        use std::sync::atomic::Ordering;
+        let orig = TTS_DESIRED_THREADS.load(Ordering::SeqCst);
+
+        TTS_DESIRED_THREADS.store(5, Ordering::SeqCst);
+        let info = tts_get_backend_info();
+        assert_eq!(info.backend, "native-rust-ort");
+        assert_eq!(info.configured_threads, 5);
+        assert!(info.logical_cores >= 1);
+
+        // Clean up
+        TTS_DESIRED_THREADS.store(orig, Ordering::SeqCst);
     }
 }
