@@ -1613,6 +1613,37 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
       <button class="btn btn-ghost" id="btnKittenInstall" type="button" style="width:100%;justify-content:center;margin-top:8px" hidden>Install neural voices (~92 MB)</button>
       <div class="seg" id="voiceSeg" style="margin-top:8px"></div>
       <p class="fine" style="margin-top:6px">Press <kbd>V</kbd> while reading aloud to switch narrator anytime.</p>
+
+      <div class="tts-adv-box" style="margin-top:12px;padding:10px;background:var(--hairS);border:1px solid var(--hair);border-radius:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span class="fine" style="font-weight:600;margin:0">Execution Backend</span>
+        </div>
+        <div class="seg" id="ttsBackendSeg" style="display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px">
+          <button data-backend="auto" type="button" class="sel" title="Auto-picks Native Rust in desktop, WASM in browser">Auto (Rec.)</button>
+          <button data-backend="native-ort" type="button" title="Forces multi-threaded C++/Rust ONNX Runtime">Native Rust ONNX</button>
+          <button data-backend="wasm-worker" type="button" title="Forces background Web Worker WASM">Worker WASM</button>
+          <button data-backend="web-speech" type="button" title="Forces OS speech synthesis">System Voice</button>
+        </div>
+
+        <div id="ttsThreadsRow" style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+          <span class="fine" style="font-weight:600;margin:0">CPU Threads</span>
+          <div class="seg" id="ttsThreadsSeg" style="padding:2px">
+            <button data-threads="0" type="button" class="sel" style="padding:4px 8px;font-size:11.5px">Auto</button>
+            <button data-threads="2" type="button" style="padding:4px 8px;font-size:11.5px">2</button>
+            <button data-threads="4" type="button" style="padding:4px 8px;font-size:11.5px">4</button>
+            <button data-threads="6" type="button" style="padding:4px 8px;font-size:11.5px">6</button>
+            <button data-threads="8" type="button" style="padding:4px 8px;font-size:11.5px">8</button>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:8px;border-top:1px solid var(--hair)">
+          <span class="fine" style="font-weight:600;margin:0">Speed Benchmark</span>
+          <button class="chip" id="btnRunTtsBenchmark" type="button">⚡ Run Diagnostic</button>
+        </div>
+        <div id="ttsBenchmarkCard" class="fine" style="margin-top:6px;line-height:1.45;color:var(--muted)">
+          <span>Click "Run Diagnostic" to test speech engine latency on this device.</span>
+        </div>
+      </div>
     </section>
 
     <section><h4 class="lbl">Help</h4>
@@ -8665,10 +8696,24 @@ const KITTEN_VOICES = [
 const KittenRunner = {
   worker: null, loadP: null, installed: false, installPct: -1,
   _reqId: 0, _pending: new Map(), _nativeTTS: null, _activeRunId: 0,
+  _nativeReady: false, _workerReady: false,
   isNative(){
     return !!(window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke);
   },
-  ready(){ return this.installed; },
+  getActiveBackend(){
+    const p = (typeof TTS !== 'undefined' && TTS.getProfile) ? TTS.getProfile() : null;
+    const mode = (p && p.mode) ? p.mode : 'auto';
+    if(mode === 'auto'){
+      return this.isNative() ? 'native-ort' : 'wasm-worker';
+    }
+    return mode;
+  },
+  ready(){
+    const active = this.getActiveBackend();
+    if(active === 'native-ort' && this.isNative()) return this._nativeReady;
+    if(active === 'wasm-worker') return this._workerReady;
+    return this._nativeReady || this._workerReady || this.installed;
+  },
   progress(){ return this.installPct; },
   _getWorker(){
     if(this.worker) return this.worker;
@@ -8677,8 +8722,9 @@ const KittenRunner = {
       const d = e.data;
       if(!d) return;
       if(d.type === 'INIT_DONE'){
+        this._workerReady = true;
         this.installed = true; this.installPct = 100;
-        TTS.syncVoiceUI();
+        if(typeof TTS !== 'undefined' && TTS.syncVoiceUI) TTS.syncVoiceUI();
       } else if(d.type === 'GEN_DONE'){
         const cb = this._pending.get(d.id);
         if(cb){ this._pending.delete(d.id); cb.resolve(new Uint8Array(d.buffer)); }
@@ -8695,52 +8741,62 @@ const KittenRunner = {
     return this.worker;
   },
   async install(onProgress){
-    if(this.installed) return true;
-    if(this.loadP) return this.loadP;
-    this.installPct = 0;
-    if(typeof onProgress === 'function') onProgress(0);
-
-    if(this.isNative()){
-      this.loadP = (async () => {
-        try {
-          const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
-          this._nativeTTS = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8');
-          this.installed = true;
-          this.installPct = 100;
-          if(typeof onProgress === 'function') onProgress(100);
-          TTS.syncVoiceUI();
-          return true;
-        } catch(err) {
-          console.warn('[KittenRunner] Fast native setup failed, using worker:', err);
-          this.loadP = null;
-          this._nativeTTS = null;
+    const active = this.getActiveBackend();
+    if(active === 'native-ort' && this.isNative()){
+      if(this._nativeReady && this._nativeTTS) return true;
+      this.installPct = 0;
+      if(typeof onProgress === 'function') onProgress(0);
+      try {
+        const p = (typeof TTS !== 'undefined' && TTS.getProfile) ? TTS.getProfile() : null;
+        if(p && p.configuredThreads > 0){
+          try {
+            await window.__TAURI_INTERNALS__.invoke('tts_configure_backend', { threads: p.configuredThreads });
+          } catch(e){}
         }
-      })();
-      const res = await this.loadP;
-      if(res) return true;
+        const { KittenTTS } = await import('./vendor/kitten/kitten.bundle.js');
+        this._nativeTTS = await KittenTTS.from_pretrained('KittenML/kitten-tts-mini-0.8');
+        this._nativeReady = true;
+        this.installed = true;
+        this.installPct = 100;
+        if(typeof onProgress === 'function') onProgress(100);
+        if(typeof TTS !== 'undefined' && TTS.syncVoiceUI) TTS.syncVoiceUI();
+        return true;
+      } catch(err) {
+        console.warn('[KittenRunner] Fast native setup failed, using worker:', err);
+        this._nativeReady = false;
+        this._nativeTTS = null;
+      }
     }
 
+    if(this._workerReady) return true;
+    this.installPct = 0;
+    if(typeof onProgress === 'function') onProgress(0);
     const worker = this._getWorker();
-    this.loadP = new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const handler = (e) => {
         if(e.data && e.data.type === 'INIT_DONE'){
           worker.removeEventListener('message', handler);
+          this._workerReady = true;
+          this.installed = true;
+          this.installPct = 100;
+          if(typeof onProgress === 'function') onProgress(100);
+          if(typeof TTS !== 'undefined' && TTS.syncVoiceUI) TTS.syncVoiceUI();
           resolve(true);
         } else if(e.data && e.data.type === 'INIT_FAIL'){
           worker.removeEventListener('message', handler);
-          this.loadP = null; this.installPct = -1;
+          this.installPct = -1;
           reject(new Error(e.data.error));
         }
       };
       worker.addEventListener('message', handler);
       worker.postMessage({ type: 'INIT' });
     });
-    return this.loadP;
   },
   async generate(text, voice, rate, runId, chunkId){
     if(runId && runId < this._activeRunId) return null;
-    if(this.isNative()){
-      if(!this._nativeTTS){
+    const active = this.getActiveBackend();
+    if(active === 'native-ort' && this.isNative()){
+      if(!this._nativeReady || !this._nativeTTS){
         await this.install();
       }
       if(runId && runId < this._activeRunId) return null;
@@ -8755,11 +8811,14 @@ const KittenRunner = {
       }
     }
 
-    this._getWorker();
+    if(!this._workerReady){
+      await this.install();
+    }
+    const worker = this._getWorker();
     const id = ++this._reqId;
     return new Promise((resolve, reject) => {
       this._pending.set(id, { resolve, reject });
-      this.worker.postMessage({
+      worker.postMessage({
         type: 'GENERATE',
         id,
         text,
@@ -8787,6 +8846,241 @@ const TTS = {
   engine: (function(){ try { return localStorage.getItem('fio_tts_engine') === 'kitten' ? 'kitten' : 'system'; } catch(e){ return 'system'; } })(),
   voice: (function(){ try { return localStorage.getItem('fio_tts_voice') || 'bella'; } catch(e){ return 'bella'; } })(),
   systemVoiceURI: (function(){ try { return localStorage.getItem('fio_tts_sysvoice') || ''; } catch(e){ return ''; } })(),
+  _profile: null,
+  rollingRtf: null,
+  consecutiveStarveCount: 0,
+  _starveWarned: false,
+  _calibrating: false,
+  _benchmarking: false,
+
+  getProfile(){
+    if(this._profile) return this._profile;
+    let p = null;
+    try {
+      const raw = localStorage.getItem('folio_tts_hw_profile');
+      if(raw) p = JSON.parse(raw);
+    } catch(e){}
+    if(!p || typeof p !== 'object'){
+      p = {
+        mode: 'auto',
+        configuredThreads: 0,
+        benchmarks: {
+          nativeRtf: null,
+          wasmRtf: null,
+          lastCalibrated: 0
+        }
+      };
+    }
+    if(!p.benchmarks) p.benchmarks = {};
+    if(p.configuredThreads == null) p.configuredThreads = 0;
+    if(!p.mode) p.mode = 'auto';
+    this._profile = p;
+    return p;
+  },
+  saveProfile(p){
+    this._profile = p || this._profile;
+    try {
+      localStorage.setItem('folio_tts_hw_profile', JSON.stringify(this._profile));
+    } catch(e){}
+  },
+  async setBackendMode(mode){
+    const p = this.getProfile();
+    p.mode = mode;
+    this.saveProfile(p);
+    if(mode === 'web-speech'){
+      this.setEngine('system');
+    } else {
+      if(this.engine !== 'kitten'){
+        this.setEngine('kitten');
+      }
+      if(mode === 'native-ort' && KittenRunner.isNative() && !KittenRunner._nativeTTS){
+        await KittenRunner.install();
+      } else if(mode === 'wasm-worker' && !KittenRunner._workerReady){
+        await KittenRunner.install();
+      }
+    }
+    this.syncVoiceUI();
+    toast('TTS backend: ' + (mode === 'auto' ? 'Auto' : mode === 'native-ort' ? 'Native Rust ONNX' : mode === 'wasm-worker' ? 'Worker WASM' : 'System Voice'));
+  },
+  async setThreads(t){
+    const p = this.getProfile();
+    p.configuredThreads = t;
+    this.saveProfile(p);
+    if(KittenRunner.isNative()){
+      try {
+        const info = await window.__TAURI_INTERNALS__.invoke('tts_configure_backend', { threads: t });
+        toast(`TTS threads set to: ${info.configured_threads} (Logical cores: ${info.logical_cores})`);
+      } catch(e){
+        console.warn('Failed to configure threads:', e);
+      }
+    }
+    this.syncVoiceUI();
+  },
+  getGroupText(g){
+    if(!g || !this.sents) return '';
+    let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
+    if(g.isHeading && text && !/[.!?:;…]$/.test(text)){
+      text += '.';
+    }
+    return text;
+  },
+  getChunkLimits(){
+    const p = this.getProfile();
+    const backend = KittenRunner.getActiveBackend();
+    const benchmarkKey = backend === 'native-ort' ? 'nativeRtf' : 'wasmRtf';
+    const fallbackRtf = backend === 'native-ort' ? 0.20 : 1.15;
+    const effectiveRtf = (this.rollingRtf != null)
+      ? this.rollingRtf
+      : ((p.benchmarks && p.benchmarks[benchmarkKey] != null) ? p.benchmarks[benchmarkKey] : fallbackRtf);
+
+    if(effectiveRtf < 0.30){
+      return { g0: 140, g1: 240, g2: 450, lookahead: 3, tier: 'Fast', rtf: effectiveRtf };
+    } else if(effectiveRtf <= 0.65){
+      return { g0: 100, g1: 180, g2: 320, lookahead: 3, tier: 'Balanced', rtf: effectiveRtf };
+    } else {
+      return { g0: 75, g1: 130, g2: 220, lookahead: 4, tier: 'Constrained', rtf: effectiveRtf };
+    }
+  },
+  recordGroupMetrics(genMs, audioBytes){
+    if(!audioBytes || !audioBytes.byteLength || audioBytes.byteLength <= 44 || genMs <= 0) return;
+    const dur = (audioBytes.byteLength - 44) / 48000;
+    if(dur <= 0) return;
+    const rtf = (genMs / 1000) / dur;
+    if(this.rollingRtf == null){
+      this.rollingRtf = rtf;
+    } else {
+      this.rollingRtf = 0.7 * this.rollingRtf + 0.3 * rtf;
+    }
+    // Live telemetry calibration from actual reading chunks (no artificial warmup contention)
+    const p = this.getProfile();
+    const activeBackend = KittenRunner.getActiveBackend();
+    const benchKey = activeBackend === 'native-ort' ? 'nativeRtf' : 'wasmRtf';
+    if(p.benchmarks[benchKey] == null || Math.abs(p.benchmarks[benchKey] - this.rollingRtf) > 0.15){
+      p.benchmarks[benchKey] = Math.round(this.rollingRtf * 1000) / 1000;
+      p.benchmarks.lastCalibrated = Date.now();
+      this.saveProfile(p);
+    }
+    if(this.rollingRtf > 0.95){
+      this.consecutiveStarveCount++;
+      if(this.consecutiveStarveCount >= 2 && !this._starveWarned){
+        this._starveWarned = true;
+        toast('Speech generation is running close to real-time. Consider using Native Rust ONNX or lowering speed.');
+      }
+    } else {
+      this.consecutiveStarveCount = 0;
+    }
+  },
+  async calibrate(){
+    if(this._calibrating) return;
+    const p = this.getProfile();
+    const backend = KittenRunner.getActiveBackend();
+    const key = backend === 'native-ort' ? 'nativeRtf' : 'wasmRtf';
+    if(p.benchmarks && p.benchmarks[key] != null) return;
+    this._calibrating = true;
+    try {
+      const warmupText = "Chapter One: The Beginning.";
+      const t0 = performance.now();
+      const audioBytes = await KittenRunner.generate(warmupText, this.voice, 1.0, 0, 0);
+      const genMs = performance.now() - t0;
+      if(audioBytes && audioBytes.byteLength > 44){
+        const dur = (audioBytes.byteLength - 44) / 48000;
+        const rtf = (genMs / 1000) / dur;
+        p.benchmarks[key] = Math.round(rtf * 1000) / 1000;
+        p.benchmarks.lastCalibrated = Date.now();
+        this.saveProfile(p);
+        this.recordGroupMetrics(genMs, audioBytes);
+        this.syncVoiceUI();
+      }
+    } catch(e){
+      console.warn('TTS calibration failed:', e);
+    } finally {
+      this._calibrating = false;
+    }
+  },
+  async runBenchmark(){
+    const card = el('ttsBenchmarkCard');
+    const btn = el('btnRunTtsBenchmark');
+    if(!card || this._benchmarking) return;
+    this._benchmarking = true;
+    if(btn) btn.disabled = true;
+
+    const samples = [
+      { name: "Title (27c)", text: "Chapter One: The Beginning." },
+      { name: "Sentence (104c)", text: "The morning sun broke over the jagged peaks, casting long violet shadows across the silent valley below." },
+      { name: "Paragraph (216c)", text: "The morning sun broke over the jagged peaks, casting long violet shadows across the silent valley below. Somewhere in the distance, a bell tolled three times, warning the villagers that the gates were about to close." }
+    ];
+
+    try {
+      card.innerHTML = `<span style="color:var(--accent)">Running benchmark… (0/${samples.length})</span>`;
+      if(this.engine !== 'kitten'){
+        await this.setEngine('kitten');
+      }
+      if(!KittenRunner.ready()){
+        card.innerHTML = `<span style="color:var(--accent)">Initializing speech model…</span>`;
+        await KittenRunner.install();
+      }
+
+      const activeBackend = KittenRunner.getActiveBackend();
+      let totalGenMs = 0;
+      let totalDurSec = 0;
+      const results = [];
+
+      for(let i = 0; i < samples.length; i++){
+        const s = samples[i];
+        card.innerHTML = `<span style="color:var(--accent)">Synthesizing sample ${i + 1}/${samples.length}: ${s.name}…</span>`;
+        const t0 = performance.now();
+        const audioBytes = await KittenRunner.generate(s.text, this.voice, 1.0, 0, 0);
+        const genMs = performance.now() - t0;
+        if(!audioBytes || audioBytes.byteLength <= 44){
+          throw new Error('Synthesis failed for ' + s.name);
+        }
+        const durSec = (audioBytes.byteLength - 44) / 48000;
+        const rtf = (genMs / 1000) / durSec;
+        totalGenMs += genMs;
+        totalDurSec += durSec;
+        results.push({ name: s.name, genMs, durSec, rtf });
+      }
+
+      const avgRtf = (totalGenMs / 1000) / totalDurSec;
+      const avgLatencyMs = Math.round(totalGenMs / samples.length);
+      const speedMult = (1 / avgRtf).toFixed(1);
+      const maxRecommendedSpeed = Math.min(2.0, Math.floor((1 / avgRtf) * 0.7 * 10) / 10).toFixed(1);
+
+      const p = this.getProfile();
+      const benchKey = activeBackend === 'native-ort' ? 'nativeRtf' : 'wasmRtf';
+      p.benchmarks[benchKey] = Math.round(avgRtf * 1000) / 1000;
+      p.benchmarks.lastCalibrated = Date.now();
+      this.saveProfile(p);
+      this.rollingRtf = avgRtf;
+
+      const limits = this.getChunkLimits();
+      const backendLabel = activeBackend === 'native-ort' ? 'Native Rust ONNX' : 'Worker WASM';
+      const rtfColor = avgRtf < 0.30 ? '#1a9955' : (avgRtf <= 0.65 ? '#b8860b' : '#c0392b');
+
+      card.innerHTML = `
+        <div style="background:var(--hair);border-radius:6px;padding:8px;margin-top:4px">
+          <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:4px">
+            <span>${backendLabel}</span>
+            <span style="color:${rtfColor}">RTF ${avgRtf.toFixed(2)} (${speedMult}× real-time)</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
+            <div>Avg Latency: <b>${avgLatencyMs}ms</b></div>
+            <div>Max Rec. Speed: <b>${maxRecommendedSpeed}×</b></div>
+            <div>Dynamic Tier: <b>${limits.tier}</b></div>
+            <div>Lookahead: <b>${limits.lookahead} chunks</b></div>
+          </div>
+        </div>
+      `;
+      toast(`TTS Benchmark: ${speedMult}× real-time (${limits.tier} Tier)`);
+    } catch(err) {
+      console.warn('TTS benchmark error:', err);
+      card.innerHTML = `<span style="color:#c0392b">Benchmark failed: ${((err && err.message) ? err.message : 'Unknown error')}</span>`;
+      toast('Benchmark error: ' + ((err && err.message) ? err.message.slice(0, 80) : 'failed'));
+    } finally {
+      this._benchmarking = false;
+      if(btn) btn.disabled = false;
+    }
+  },
 
   /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
   toggle(){
@@ -8879,6 +9173,7 @@ const TTS = {
     this.stopGroupHighlight();
     this.clearHighlight();
     body.classList.remove('tts-on');
+    this._starveWarned = false;
     this.syncUI();
     if(!silent) toast('Read aloud stopped');
   },
@@ -8907,16 +9202,31 @@ const TTS = {
   },
   setEngine(e){
     const eng = (e === 'kitten') ? 'kitten' : 'system';
-    if(eng === this.engine) return;
+    if(eng === this.engine){
+      this.syncVoiceUI();
+      return;
+    }
     this.engine = eng;
     try { localStorage.setItem('fio_tts_engine', eng); } catch(err){}
+    const p = this.getProfile();
+    if(eng === 'system'){
+      if(p.mode !== 'web-speech'){
+        p.mode = 'web-speech';
+        this.saveProfile(p);
+      }
+    } else {
+      if(p.mode === 'web-speech'){
+        p.mode = 'auto';
+        this.saveProfile(p);
+      }
+    }
     if(eng === 'kitten' && !KITTEN_VOICES.some(v => v[0] === this.voice)){
       this.voice = 'bella';
       try { localStorage.setItem('fio_tts_voice', 'bella'); } catch(err){}
     }
     this.syncVoiceUI();
     this.syncUI();
-    if(eng === 'kitten' && !KittenRunner.installed){
+    if(eng === 'kitten' && !KittenRunner.ready()){
       // install immediately on selection — no need to start read aloud first
       this.kittenInstall();
     }
@@ -8971,6 +9281,45 @@ const TTS = {
     document.querySelectorAll('#engineSeg button').forEach(b => {
       b.classList.toggle('sel', b.dataset.engine === this.engine);
     });
+    const p = this.getProfile();
+    document.querySelectorAll('#ttsBackendSeg button').forEach(b => {
+      b.classList.toggle('sel', b.dataset.backend === p.mode);
+    });
+    const threadsRow = el('ttsThreadsRow');
+    const isNativeOrt = (p.mode === 'native-ort') || (p.mode === 'auto' && KittenRunner.isNative());
+    if(threadsRow){
+      threadsRow.style.display = isNativeOrt ? 'flex' : 'none';
+      document.querySelectorAll('#ttsThreadsSeg button').forEach(b => {
+        const val = parseInt(b.dataset.threads, 10) || 0;
+        b.classList.toggle('sel', val === p.configuredThreads);
+      });
+    }
+    const card = el('ttsBenchmarkCard');
+    if(card && !this._benchmarking){
+      const activeBackend = KittenRunner.getActiveBackend();
+      const benchKey = activeBackend === 'native-ort' ? 'nativeRtf' : 'wasmRtf';
+      const storedRtf = p.benchmarks && p.benchmarks[benchKey];
+      if(storedRtf != null){
+        const speedMult = (1 / storedRtf).toFixed(1);
+        const limits = this.getChunkLimits();
+        const rtfColor = storedRtf < 0.30 ? '#1a9955' : (storedRtf <= 0.65 ? '#b8860b' : '#c0392b');
+        const backendLabel = activeBackend === 'native-ort' ? 'Native Rust ONNX' : 'Worker WASM';
+        card.innerHTML = `
+          <div style="background:var(--hair);border-radius:6px;padding:8px;margin-top:4px">
+            <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:4px">
+              <span>${backendLabel}</span>
+              <span style="color:${rtfColor}">RTF ${storedRtf.toFixed(2)} (${speedMult}× real-time)</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
+              <div>Dynamic Tier: <b>${limits.tier}</b></div>
+              <div>Lookahead: <b>${limits.lookahead} chunks</b></div>
+            </div>
+          </div>
+        `;
+      } else {
+        card.innerHTML = `<span>Click "Run Diagnostic" to test speech engine latency on this device.</span>`;
+      }
+    }
     const seg = el('voiceSeg');
     if(seg){
       seg.innerHTML = '';
@@ -9114,47 +9463,67 @@ const TTS = {
      buffered in advance. */
   pcmCache: new Map(),
   _genP: new Map(),
+  _startedGroups: new Set(),
   _pumpRunning: false,
   clearPcm(){
     this.pcmCache.clear();
     this._genP.clear();
+    this._startedGroups.clear();
     this._pumpRunning = false;
   },
-  /* Rolling lookahead buffer: keeps up to 3 groups ahead cached in FIFO order */
+  /* Strict one-time synthesis per group per generation */
+  synthesizeGroup(gi, gu){
+    if(this._genP.has(gi)) return this._genP.get(gi);
+    if(this.pcmCache.has(gi)) return Promise.resolve(this.pcmCache.get(gi));
+    if(this._startedGroups.has(gi)) return Promise.resolve(null);
+
+    this._startedGroups.add(gi);
+    const g = this.groups && this.groups[gi];
+    if(!g) return Promise.resolve(null);
+
+    const text = this.getGroupText(g);
+    const t0 = performance.now();
+    const p = (async () => {
+      try {
+        const audioBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
+        const genMs = performance.now() - t0;
+        if(audioBytes && this.gen === gu && !this.stopped){
+          this.recordGroupMetrics(genMs, audioBytes);
+          this.pcmCache.set(gi, audioBytes);
+        }
+        return audioBytes;
+      } catch(e) {
+        console.warn(`[TTS] Generation error for group ${gi}:`, e);
+        return null;
+      } finally {
+        this._genP.delete(gi);
+      }
+    })();
+
+    this._genP.set(gi, p);
+    return p;
+  },
+  /* Rolling lookahead buffer: keeps up to 3-4 groups ahead cached in FIFO order */
   pumpPrefetch(gu){
     if(this.engine !== 'kitten' || this.stopped || this.gen !== gu || !this.groups || !this.groups.length) return;
     if(this._pumpRunning) return;
     this._pumpRunning = true;
+    const limits = this.getChunkLimits();
     const runPump = async () => {
       try {
         while(this.gen === gu && !this.stopped && this.active && !this.paused){
           let targetGi = -1;
-          const maxGi = Math.min(this.groups.length - 1, this.gi + 3);
+          const maxGi = Math.min(this.groups.length - 1, this.gi + limits.lookahead);
           for(let idx = this.gi; idx <= maxGi; idx++){
-            if(!this.pcmCache.has(idx) && !this._genP.has(idx)){
+            if(!this._startedGroups.has(idx) && !this.pcmCache.has(idx) && !this._genP.has(idx)){
               targetGi = idx;
               break;
             }
           }
           if(targetGi < 0) break;
-          const g = this.groups[targetGi];
-          if(!g) break;
-
-          let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
-          if(g.isHeading && text && !/[.!?:]$/.test(text)) text += '.';
-
-          const p = KittenRunner.generate(text, this.voice, this.rate, gu, targetGi);
-          this._genP.set(targetGi, p);
-          let bytes = null;
-          try {
-            bytes = await p;
-          } catch(e) {
-            bytes = null;
-          } finally {
-            this._genP.delete(targetGi);
-          }
+          const p = this.synthesizeGroup(targetGi, gu);
+          await p;
           if(this.gen !== gu || this.stopped) break;
-          if(bytes) this.pcmCache.set(targetGi, bytes);
         }
       } finally {
         this._pumpRunning = false;
@@ -9403,16 +9772,17 @@ const TTS = {
     this.si = 0;
     this._loading = false;
     if(!this.sents.length){ this.gapT = setTimeout(() => { if(this.gen === g) this.autoAdvance(); }, 500); return; }
-    /* Paragraph groups: progressive chunking (first non-heading group <= 120 chars for fast TTFA,
-       group 1 <= 200 chars, later groups <= 380 chars) while strictly isolating headings. */
+    /* Paragraph groups: progressive chunking (first non-heading group <= limits.g0 chars for fast TTFA,
+       group 1 <= limits.g1 chars, later groups <= limits.g2 chars) while strictly isolating headings. */
     this.groups = [];
+    const limits = this.getChunkLimits();
     let start = 0, cur = this.sents[0].block, chars = 0, nonHeadingCount = 0;
     for(let i = 0; i < this.sents.length; i++){
       const len = this.sents[i].text.length;
       const prevHeading = i > 0 ? !!this.sents[i - 1].isHeading : false;
       const curHeading = !!this.sents[i].isHeading;
       const headingBoundary = i > start && (curHeading !== prevHeading);
-      const limit = curHeading ? 300 : (nonHeadingCount === 0 ? 120 : (nonHeadingCount === 1 ? 200 : 380));
+      const limit = curHeading ? 300 : (nonHeadingCount === 0 ? limits.g0 : (nonHeadingCount === 1 ? limits.g1 : limits.g2));
       const blockChanged = this.sents[i].block !== cur;
       const breakGroup = headingBoundary || (chars + len > limit) || (blockChanged && (curHeading || chars > 150));
       if(i > start && breakGroup){
@@ -9449,16 +9819,12 @@ const TTS = {
       const g = this.groups[gi];
       try{
         let wavBytes = this.pcmCache.get(gi);
-        if(wavBytes) this.pcmCache.delete(gi);
-        else{
-          // Reuse an in-flight prefetch of this group instead of double-generating
-          const pending = this._genP.get(gi);
-          if(pending){ wavBytes = await pending; }
-          else{
-            let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
-            if(g.isHeading && text && !/[.!?:]$/.test(text)) text += '.';
-            wavBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
-          }
+        if(wavBytes){
+          this.pcmCache.delete(gi);
+        } else {
+          // If in-flight via prefetch, or needs synthesis now
+          wavBytes = await this.synthesizeGroup(gi, gu);
+          this.pcmCache.delete(gi);
           if(this.gen !== gu || this.stopped || !this.active) return;
         }
         const buf = (wavBytes instanceof Uint8Array)
@@ -11435,6 +11801,26 @@ el('voiceSeg').addEventListener('click', (e) => {
 document.querySelectorAll('#engineSeg button').forEach(b => b.addEventListener('click', () => {
   TTS.setEngine(b.dataset.engine);
 }));
+const ttsBackendSeg = el('ttsBackendSeg');
+if(ttsBackendSeg){
+  ttsBackendSeg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-backend]');
+    if(b) TTS.setBackendMode(b.dataset.backend);
+  });
+}
+const ttsThreadsSeg = el('ttsThreadsSeg');
+if(ttsThreadsSeg){
+  ttsThreadsSeg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-threads]');
+    if(b) TTS.setThreads(parseInt(b.dataset.threads, 10) || 0);
+  });
+}
+const btnRunTtsBenchmark = el('btnRunTtsBenchmark');
+if(btnRunTtsBenchmark){
+  btnRunTtsBenchmark.addEventListener('click', () => {
+    TTS.runBenchmark();
+  });
+}
 const btnKittenInstall = el('btnKittenInstall');
 if(btnKittenInstall) btnKittenInstall.addEventListener('click', () => {
   TTS.kittenInstall().catch((err) => toast('Kitten install failed: ' + ((err && err.message) ? err.message.slice(0, 120) : 'unknown error')));

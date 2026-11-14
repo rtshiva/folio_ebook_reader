@@ -142,4 +142,103 @@ test.describe('TTS Pipeline & Controls', () => {
     // Heading synthesis text gets natural terminal punctuation
     expect(timingAndProsody.synthText).toBe('Chapter IV The Great Forest.');
   });
+
+  test('TTS4 adaptive profile, hardware tier limits, and heading punctuation isolation', async ({ page }) => {
+    const adaptiveResults = await page.evaluate(async () => {
+      // Mock install to prevent 90MB model download during test
+      KittenRunner.install = async () => true;
+      KittenRunner._workerReady = true;
+
+      // 1. Initial Profile
+      const initialProfile = TTS.getProfile();
+
+      // 2. Adaptive Tier Limits calculation
+      TTS.rollingRtf = 0.18; // Fast (e.g. Native Rust)
+      const fastLimits = TTS.getChunkLimits();
+
+      TTS.rollingRtf = 0.45; // Balanced
+      const balancedLimits = TTS.getChunkLimits();
+
+      TTS.rollingRtf = 1.20; // Constrained (e.g. WASM on low power)
+      const constrainedLimits = TTS.getChunkLimits();
+
+      // 3. Heading Punctuation Isolation (prevent Chapter 1.... quirk)
+      const headingWithPeriod = { start: 0, end: 0, isHeading: true };
+      const headingWithoutPeriod = { start: 1, end: 1, isHeading: true };
+      const headingWithEllipsis = { start: 2, end: 2, isHeading: true };
+      const normalBody = { start: 3, end: 3, isHeading: false };
+
+      TTS.sents = [
+        { text: 'Chapter 1.' },
+        { text: 'Chapter 2' },
+        { text: 'Chapter 3…' },
+        { text: 'Body paragraph without trailing dot' }
+      ];
+
+      const text1 = TTS.getGroupText(headingWithPeriod);
+      const text2 = TTS.getGroupText(headingWithoutPeriod);
+      const text3 = TTS.getGroupText(headingWithEllipsis);
+      const text4 = TTS.getGroupText(normalBody);
+
+      // Verify underlying sentences were not mutated
+      const sent0Unmutated = TTS.sents[0].text;
+      const sent1Unmutated = TTS.sents[1].text;
+
+      // 4. Test Backend & Thread Setters
+      await TTS.setBackendMode('wasm-worker');
+      const wasmModeProfile = TTS.getProfile().mode;
+
+      await TTS.setThreads(4);
+      const threadsProfile = TTS.getProfile().configuredThreads;
+
+      // Reset to auto
+      await TTS.setBackendMode('auto');
+
+      return {
+        initialProfile,
+        fastLimits,
+        balancedLimits,
+        constrainedLimits,
+        text1,
+        text2,
+        text3,
+        text4,
+        sent0Unmutated,
+        sent1Unmutated,
+        wasmModeProfile,
+        threadsProfile
+      };
+    });
+
+    // Profile verification
+    expect(adaptiveResults.initialProfile).toBeDefined();
+    expect(adaptiveResults.initialProfile.benchmarks).toBeDefined();
+
+    // Tier limits verification
+    expect(adaptiveResults.fastLimits.tier).toBe('Fast');
+    expect(adaptiveResults.fastLimits.g0).toBe(140);
+    expect(adaptiveResults.fastLimits.lookahead).toBe(3);
+
+    expect(adaptiveResults.balancedLimits.tier).toBe('Balanced');
+    expect(adaptiveResults.balancedLimits.g0).toBe(100);
+    expect(adaptiveResults.balancedLimits.lookahead).toBe(3);
+
+    expect(adaptiveResults.constrainedLimits.tier).toBe('Constrained');
+    expect(adaptiveResults.constrainedLimits.g0).toBe(75);
+    expect(adaptiveResults.constrainedLimits.lookahead).toBe(4);
+
+    // Punctuation isolation verification
+    expect(adaptiveResults.text1).toBe('Chapter 1.'); // NOT 'Chapter 1..' or 'Chapter 1....'
+    expect(adaptiveResults.text2).toBe('Chapter 2.'); // single period appended
+    expect(adaptiveResults.text3).toBe('Chapter 3…'); // ellipsis recognized, no period appended
+    expect(adaptiveResults.text4).toBe('Body paragraph without trailing dot'); // non-heading not modified
+
+    // Immutability verification
+    expect(adaptiveResults.sent0Unmutated).toBe('Chapter 1.');
+    expect(adaptiveResults.sent1Unmutated).toBe('Chapter 2');
+
+    // Backend & Thread control verification
+    expect(adaptiveResults.wasmModeProfile).toBe('wasm-worker');
+    expect(adaptiveResults.threadsProfile).toBe(4);
+  });
 });

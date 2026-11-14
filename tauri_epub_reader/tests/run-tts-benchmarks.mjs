@@ -157,7 +157,7 @@ await page.evaluate(() => {
     const start = performance.now();
     const idleTimeSinceLastGen = Math.round(start - lastGenEnd);
     console.log(
-      `[TTS Gen Start] Idle gap since last synth: ${idleTimeSinceLastGen}ms | Len: ${text.length} chars | "${text.slice(0, 35)}..."`
+      `[TTS Gen Start] Idle gap since last synth: ${idleTimeSinceLastGen}ms | Len: ${text.length} chars | "${text.length > 35 ? text.slice(0, 35) + '…' : text}"`
     );
     const res = await origGen(text, voice, speed, runId, chunkId);
     lastGenEnd = performance.now();

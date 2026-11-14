@@ -344,13 +344,68 @@ pub fn resolve_tts_model_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
-static TTS_SESSION: std::sync::OnceLock<Mutex<ort::session::Session>> = std::sync::OnceLock::new();
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct TtsBackendInfo {
+    pub backend: String,
+    pub logical_cores: usize,
+    pub configured_threads: usize,
+}
+
+struct TtsSessionState {
+    session: ort::session::Session,
+    configured_threads: usize,
+}
+
+static TTS_SESSION: std::sync::Mutex<Option<TtsSessionState>> = std::sync::Mutex::new(None);
+static TTS_DESIRED_THREADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static ORT_ENV: std::sync::OnceLock<ort::environment::Environment> = std::sync::OnceLock::new();
 
-fn get_or_init_tts_session(app: &tauri::AppHandle) -> Result<&'static Mutex<ort::session::Session>, String> {
-    if let Some(s) = TTS_SESSION.get() {
-        return Ok(s);
+fn default_tts_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| (n.get() / 2).clamp(2, 8))
+        .unwrap_or(4)
+}
+
+fn get_logical_cores() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+}
+
+fn get_target_threads(desired: Option<usize>) -> usize {
+    match desired {
+        Some(t) if t > 0 => t.clamp(1, 16),
+        _ => {
+            let stored = TTS_DESIRED_THREADS.load(std::sync::atomic::Ordering::Relaxed);
+            if stored > 0 {
+                stored
+            } else {
+                default_tts_threads()
+            }
+        }
     }
+}
+
+fn init_or_reconfigure_session(
+    app: &tauri::AppHandle,
+    desired_threads: Option<usize>,
+) -> Result<TtsBackendInfo, String> {
+    let logical_cores = get_logical_cores();
+    let target_threads = get_target_threads(desired_threads);
+    TTS_DESIRED_THREADS.store(target_threads, std::sync::atomic::Ordering::SeqCst);
+
+    let mut lock = TTS_SESSION.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+
+    if let Some(ref current) = *lock {
+        if current.configured_threads == target_threads {
+            return Ok(TtsBackendInfo {
+                backend: "native-rust-ort".to_string(),
+                logical_cores,
+                configured_threads: target_threads,
+            });
+        }
+    }
+
     let model_path = resolve_tts_model_path(app)
         .ok_or_else(|| "KittenTTS model file kitten_tts_mini_v0_8.onnx not found".to_string())?;
 
@@ -361,19 +416,85 @@ fn get_or_init_tts_session(app: &tauri::AppHandle) -> Result<&'static Mutex<ort:
             .expect("Failed to initialize ORT environment")
     });
 
-    let threads = std::thread::available_parallelism()
-        .map(|n| (n.get() / 2).clamp(2, 8))
-        .unwrap_or(4);
-
     let session = ort::session::Session::builder(env)
         .map_err(|e| format!("Failed to create ORT SessionBuilder: {e}"))?
-        .with_intra_threads(threads)
+        .with_intra_threads(target_threads)
         .map_err(|e| format!("Failed to set intra threads: {e}"))?
         .commit_from_file(model_path)
         .map_err(|e| format!("Failed to load ONNX model: {e}"))?;
 
-    let _ = TTS_SESSION.set(Mutex::new(session));
-    Ok(TTS_SESSION.get().unwrap())
+    *lock = Some(TtsSessionState {
+        session,
+        configured_threads: target_threads,
+    });
+
+    Ok(TtsBackendInfo {
+        backend: "native-rust-ort".to_string(),
+        logical_cores,
+        configured_threads: target_threads,
+    })
+}
+
+#[tauri::command]
+fn tts_get_backend_info() -> TtsBackendInfo {
+    let logical_cores = get_logical_cores();
+    let desired = TTS_DESIRED_THREADS.load(std::sync::atomic::Ordering::Relaxed);
+    let configured_threads = if desired > 0 {
+        desired
+    } else if let Ok(lock) = TTS_SESSION.try_lock() {
+        if let Some(ref state) = *lock {
+            state.configured_threads
+        } else {
+            default_tts_threads()
+        }
+    } else {
+        default_tts_threads()
+    };
+    TtsBackendInfo {
+        backend: "native-rust-ort".to_string(),
+        logical_cores,
+        configured_threads,
+    }
+}
+
+#[tauri::command]
+async fn tts_configure_backend(
+    app: tauri::AppHandle,
+    threads: Option<usize>,
+) -> Result<TtsBackendInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let logical_cores = get_logical_cores();
+        let target_threads = match threads {
+            Some(t) if t > 0 => t.clamp(1, 16),
+            _ => default_tts_threads(),
+        };
+        TTS_DESIRED_THREADS.store(target_threads, std::sync::atomic::Ordering::SeqCst);
+
+        // Non-blocking try: if lock is available, reconfigure immediately.
+        // If active inference is currently in-flight, return immediately without blocking;
+        // target_threads is recorded and will seamlessly apply on the next inference turn.
+        if let Ok(lock) = TTS_SESSION.try_lock() {
+            if let Some(ref current) = *lock {
+                if current.configured_threads == target_threads {
+                    return Ok(TtsBackendInfo {
+                        backend: "native-rust-ort".to_string(),
+                        logical_cores,
+                        configured_threads: target_threads,
+                    });
+                }
+            }
+            drop(lock);
+            init_or_reconfigure_session(&app, Some(target_threads))
+        } else {
+            Ok(TtsBackendInfo {
+                backend: "native-rust-ort".to_string(),
+                logical_cores,
+                configured_threads: target_threads,
+            })
+        }
+    })
+    .await
+    .map_err(|e| format!("Configure backend task failed: {e}"))?
 }
 
 #[tauri::command]
@@ -385,8 +506,18 @@ async fn tts_run_inference(
     speed: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let session_mutex = get_or_init_tts_session(&app)?;
-        let mut session = session_mutex.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+        let target_threads = get_target_threads(None);
+        let mut lock = TTS_SESSION.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+        let needs_reconfig = match *lock {
+            Some(ref state) => state.configured_threads != target_threads,
+            None => true,
+        };
+        if needs_reconfig {
+            drop(lock);
+            init_or_reconfigure_session(&app, Some(target_threads))?;
+            lock = TTS_SESSION.lock().map_err(|e| format!("Mutex poisoned: {e}"))?;
+        }
+        let state = lock.as_mut().ok_or_else(|| "TTS session failed to initialize".to_string())?;
 
         let seq_len = input_ids.len();
         if seq_len == 0 {
@@ -409,7 +540,7 @@ async fn tts_run_inference(
         let speed_tensor = Tensor::from_array(([1usize], vec![speed_val].into_boxed_slice()))
             .map_err(|e| format!("Failed to create speed tensor: {e}"))?;
 
-        let outputs = session.run(ort::inputs![
+        let outputs = state.session.run(ort::inputs![
             "input_ids" => input_ids_tensor,
             "style" => style_tensor,
             "speed" => speed_tensor,
@@ -1507,6 +1638,8 @@ pub fn run() {
             book_open,
             pick_file,
             tts_run_inference,
+            tts_get_backend_info,
+            tts_configure_backend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2680,5 +2813,13 @@ mod tests {
         assert_eq!(&wav[12..16], b"fmt ");
         assert_eq!(&wav[36..40], b"data");
         assert_eq!(wav.len(), 44 + 5 * 2);
+    }
+
+    #[test]
+    fn test_tts_backend_info() {
+        let info = tts_get_backend_info();
+        assert_eq!(info.backend, "native-rust-ort");
+        assert!(info.logical_cores >= 1);
+        assert!(info.configured_threads >= 1);
     }
 }
