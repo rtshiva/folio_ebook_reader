@@ -2062,6 +2062,128 @@ mod mobi_fix_tests {
         let runon: String = "<iframe src=x".repeat(1600) + "<p>tail</p>";
         assert_eq!(clean_chapter_body(&runon), "tail</p>");
     }
+
+    #[test]
+    fn test_fix10_sanitize_meta_string_strips_nul_and_controls() {
+        // NUL padding from record-0/EXTH metadata must not survive: str::trim
+        // does not strip U+0000 (it is not whitespace), so the padding used to
+        // leak into content.opf / toc.ncx as a fatal XML error.
+        assert_eq!(sanitize_meta_string("Title\u{0}\u{0}"), "Title");
+        // NULs anywhere are dropped, not just trailing ones.
+        assert_eq!(sanitize_meta_string("\u{0}Foo\u{0}Bar\u{0}"), "FooBar");
+        // CJK content itself is preserved; only the padding disappears.
+        assert_eq!(sanitize_meta_string("你好\u{0}"), "你好");
+        // Every control character goes (char::is_control), not just NUL:
+        // U+0001, U+0002 and DEL (U+007F) included.
+        assert_eq!(sanitize_meta_string("\u{1}\u{2}\u{7f}"), "");
+        // Whitespace trim still applies, applied AFTER the control filter.
+        assert_eq!(sanitize_meta_string("  Padded  "), "Padded");
+        assert_eq!(sanitize_meta_string(" \u{0}Title\u{0} "), "Title");
+        // Padding-only metadata sanitizes to empty (callers keep their fallback).
+        assert_eq!(sanitize_meta_string("\u{0}\u{0}"), "");
+    }
+
+    #[test]
+    fn test_fix11_find_tag_end_quote_aware() {
+        // A '>' inside a quoted attribute must not end the tag:
+        // alt="foo>bar" used to truncate mid-value and the rewrite passes
+        // never saw the real tag end.
+        let tag = r#"<img alt="foo>bar" onerror="x">"#;
+        // Index math pinned: the quoted '>' is at 13, the real tag end at 30.
+        assert_eq!(tag.as_bytes()[13], b'>');
+        assert_eq!(tag.as_bytes()[30], b'>');
+        assert_eq!(tag.len(), 31);
+        assert_eq!(find_tag_end(tag), Some(30));
+
+        // A double quote inside a single-quoted value must not toggle quoting.
+        let sq = r#"<a title='it"s' href=x>"#;
+        assert_eq!(sq.as_bytes()[12], b'"');
+        assert_eq!(find_tag_end(sq), Some(sq.len() - 1));
+
+        // Plain markup ends at its own '>'; an unterminated tag returns None.
+        assert_eq!(find_tag_end("<p>"), Some(2));
+        assert_eq!(find_tag_end("<p unclosed"), None);
+    }
+
+    #[test]
+    fn test_fix12_find_tag_end_bounded_window() {
+        // Well-formed tag inside the window: unchanged result.
+        assert_eq!(find_tag_end_bounded("<a>", 65536), Some(2));
+
+        // A '>' beyond the byte limit stays hidden: scanning an unterminated
+        // tag to the end of a huge text was a quadratic-CPU DoS.
+        let far = format!("<{}>", "x".repeat(10));
+        assert_eq!(far.len(), 12);
+        assert_eq!(find_tag_end(&far), Some(11), "unbounded scan must still find it");
+        assert_eq!(find_tag_end_bounded(&far, 4), None);
+        assert_eq!(find_tag_end_bounded(&far, 11), None);
+        assert_eq!(find_tag_end_bounded(&far, 12), Some(11));
+
+        // A limit that lands inside a multi-byte char is clipped by
+        // next_boundary instead of slicing mid-char (which would panic).
+        // "<p你>": '<'=0, 'p'=1, 你=2..5 (3 bytes), '>'=5.
+        let mb = "<p你>";
+        assert_eq!(mb.len(), 6);
+        assert_eq!(find_tag_end_bounded(mb, 2), None);
+        // next_boundary clips forward (at or after i): a limit inside 你
+        // widens the window to the whole char, still excluding the '>' at 5.
+        assert_eq!(find_tag_end_bounded(mb, 3), None);
+        assert_eq!(find_tag_end_bounded(mb, 6), Some(5));
+    }
+
+    #[test]
+    fn test_fix13_in_tag_at_prose_guard() {
+        // Inside markup: the nearest '<' is closer than the nearest '>'.
+        assert!(in_tag_at(r#"<a filepos="123">"#, 3));
+        // The original trigger: prose mentioning filepos= inside <pre> is
+        // NOT inside a tag and must not be rewritten.
+        assert!(!in_tag_at("<pre>see filepos=12345 for details</pre>", 12));
+        // No tag context at all.
+        assert!(!in_tag_at("plain filepos=1", 6));
+        // After a closed tag the '>' is nearer than the '<'.
+        assert!(!in_tag_at("<a>x</a>filepos=9", 12));
+        // True inside a <div ...> attribute area (pos points at 'filepos').
+        assert!(in_tag_at("<div class=\"c\" filepos=5>", 15));
+    }
+
+    #[test]
+    fn test_fix14_collect_filepos_targets_dedup_and_parse() {
+        // Both marker forms collected; leading zeros normalize on parse.
+        let both = collect_filepos_targets(
+            r##"<a filepos="0000000123">x</a><a href="#filepos_456">y</a>"##,
+        );
+        assert_eq!(both, [123usize, 456].into_iter().collect::<BTreeSet<usize>>());
+
+        // Single-quoted values are collected too.
+        let sq = collect_filepos_targets("<a filepos='78'>q</a>");
+        assert_eq!(sq, [78usize].into_iter().collect::<BTreeSet<usize>>());
+
+        // Duplicate references collapse into one target.
+        let dup = collect_filepos_targets(r##"<a filepos="5">x</a><a href="#filepos_5">y</a>"##);
+        assert_eq!(dup, [5usize].into_iter().collect::<BTreeSet<usize>>());
+
+        // The digit run stops at the first non-digit: "12x" parses as 12.
+        let mixed = collect_filepos_targets(r#"<a filepos="12x">x</a>"#);
+        assert_eq!(mixed, [12usize].into_iter().collect::<BTreeSet<usize>>());
+
+        // No markers: empty set.
+        assert!(collect_filepos_targets("<p>nothing here</p>").is_empty());
+    }
+
+    #[test]
+    fn test_fix15_ci_find_byte_offset_case_insensitive() {
+        // Returned offset indexes into the ORIGINAL haystack: the scan never
+        // lowercases it (to_lowercase() is not length-preserving and would
+        // shift every offset).
+        assert_eq!(ci_find("Hello </SCRIPT> world", "</script"), Some(6));
+        // Empty needle matches at 0.
+        assert_eq!(ci_find("abc", ""), Some(0));
+        // Needle longer than haystack: None.
+        assert_eq!(ci_find("short", "longer"), None);
+        // Multi-byte haystack: the offset is a byte offset and lands exactly
+        // on the char boundary where the match starts (你 = 3 bytes each).
+        assert_eq!(ci_find("你S你</SCRIPT", "</script"), Some(7));
+    }
 }
 
 

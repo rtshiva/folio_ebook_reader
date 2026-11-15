@@ -1424,6 +1424,16 @@ fn allowed_cors_origin(req_origin: &str, is_dev_origin: bool) -> String {
     }
 }
 
+/// Content-Security-Policy for chapter documents served from the folio-cache
+/// scheme. The chapter `<iframe>` runs on its own origin, so the top-window
+/// CSP does not apply inside it; this policy is the only thing that bounds
+/// what a chapter document can load or submit to. Extracted verbatim from
+/// the protocol handler for testability (same precedent as
+/// `allowed_cors_origin`) — pinned by test_u40_chapter_csp_hardening.
+fn chapter_response_csp() -> &'static str {
+    "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost; base-uri 'none'; form-action 'none';"
+}
+
 /// Vendored reading fonts (folio-dyn's `@font-face` src) requested through the
 /// folio-cache scheme: chapter documents resolve `vendor/fonts/…` against the
 /// BOOK base (e.g. `<hash>/OEBPS/vendor/fonts/…`), which no book contains —
@@ -1572,10 +1582,7 @@ pub fn run() {
                             // iframes (different origin). Restrict to what
                             // books legitimately use: local + inline styles,
                             // images.
-                            .header(
-                                "Content-Security-Policy",
-                                "default-src 'none'; img-src folio-cache: http://folio-cache.localhost data: blob:; style-src 'unsafe-inline' folio-cache: http://folio-cache.localhost data:; font-src folio-cache: http://folio-cache.localhost data:; media-src folio-cache: http://folio-cache.localhost data: blob:; script-src 'none'; frame-ancestors 'self' tauri://localhost https://tauri.localhost; base-uri 'none'; form-action 'none';",
-                            )
+                            .header("Content-Security-Policy", chapter_response_csp())
                             .body(body)
                             .unwrap_or_else(|_| {
                                 tauri::http::Response::builder()
@@ -2872,5 +2879,155 @@ mod tests {
 
         // Clean up
         TTS_DESIRED_THREADS.store(orig, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn test_u40_chapter_csp_hardening() {
+        let csp = chapter_response_csp();
+        // Directive segments: split on ';', keep the one with the prefix.
+        let seg = |prefix: &str| -> String {
+            csp.split(';')
+                .map(|s| s.trim())
+                .find(|s| s.starts_with(prefix))
+                .unwrap_or_else(|| panic!("CSP missing directive '{prefix}': {csp}"))
+                .to_string()
+        };
+
+        // Anything not explicitly allowed is blocked.
+        assert!(seg("default-src").contains("'none'"), "default-src must be 'none': {csp}");
+
+        // The exfil-beacon fix: img-src must NOT allow bare https: (a chapter
+        // could otherwise beacon loaded page contents to any origin). Only
+        // the cache scheme, its localhost host form, data: and blob:.
+        assert!(!csp.contains("img-src https:"), "img-src allows https exfil: {csp}");
+        let img_src = seg("img-src");
+        assert!(
+            !img_src.split_whitespace().any(|t| t == "https:"),
+            "img-src contains a bare https: source: {img_src}"
+        );
+        assert!(img_src.contains("folio-cache:"), "img-src lost the cache scheme: {img_src}");
+        assert!(
+            img_src.contains("http://folio-cache.localhost"),
+            "img-src lost the WebView2 cache host: {img_src}"
+        );
+
+        // Clickjacking / HTML-injection hardening.
+        assert!(
+            seg("frame-ancestors").starts_with("frame-ancestors 'self'"),
+            "frame-ancestors must be restricted to the app: {csp}"
+        );
+        assert!(seg("base-uri").contains("'none'"), "base-uri must be 'none': {csp}");
+        assert!(seg("form-action").contains("'none'"), "form-action must be 'none': {csp}");
+
+        // Books legitimately embed audio; media keeps an explicit allowance.
+        assert!(seg("media-src").contains("folio-cache:"), "media-src allowance lost: {csp}");
+        // Scripts stay fully blocked inside chapters.
+        assert!(seg("script-src").contains("'none'"), "script-src must be 'none': {csp}");
+    }
+
+    #[test]
+    fn test_u41_evict_run_guard_drop_resets_eviction_state() {
+        // Shared lock for tests that mutate module statics (TTS_TEST_LOCK).
+        let _lock = TTS_TEST_LOCK.lock().unwrap();
+        use std::sync::atomic::Ordering;
+
+        let h = format!("folio_u41_guard_{}", std::process::id());
+        unprotect_book_hash(&h); // clean slate for reruns
+
+        protect_book_hash(&h);
+        EVICT_IN_FLIGHT.store(true, Ordering::SeqCst);
+        assert!(is_book_hash_protected(&h));
+        assert!(EVICT_IN_FLIGHT.load(Ordering::SeqCst));
+
+        // Normal drop: clears the debounce flag and unprotects exactly the
+        // guard's own hash (the panic-mid-eviction wedge fix, fcbeebf).
+        {
+            let _guard = EvictRunGuard(h.clone());
+        }
+        assert!(!is_book_hash_protected(&h), "guard leaked its own hash protection");
+        assert!(!EVICT_IN_FLIGHT.load(Ordering::SeqCst), "guard left the eviction flag stuck");
+
+        // A dropped guard must not touch a foreign hash's protection.
+        let hx = format!("folio_u41_x_{}", std::process::id());
+        let hy = format!("folio_u41_y_{}", std::process::id());
+        unprotect_book_hash(&hx);
+        unprotect_book_hash(&hy);
+        protect_book_hash(&hx);
+        protect_book_hash(&hy);
+        {
+            let _guard = EvictRunGuard(hx.clone());
+        }
+        assert!(!is_book_hash_protected(&hx));
+        assert!(is_book_hash_protected(&hy), "guard dropped a foreign hash protection");
+        unprotect_book_hash(&hy);
+
+        // The actual wedge scenario: a panic mid-eviction must still run the
+        // guard — Drop fires during unwind, so the flag and the protection
+        // slot are released no matter how the eviction thread exits.
+        let hp = format!("folio_u41_panic_{}", std::process::id());
+        unprotect_book_hash(&hp);
+        protect_book_hash(&hp);
+        EVICT_IN_FLIGHT.store(true, Ordering::SeqCst);
+        let result = std::panic::catch_unwind(|| {
+            let _guard = EvictRunGuard(hp.clone());
+            panic!("simulated eviction panic");
+        });
+        assert!(result.is_err(), "expected the simulated panic to propagate");
+        assert!(!is_book_hash_protected(&hp), "panic leaked the protection slot");
+        assert!(!EVICT_IN_FLIGHT.load(Ordering::SeqCst), "panic wedged eviction off forever");
+    }
+
+    #[test]
+    fn test_u42_strip_meta_refresh_direct() {
+        // Refresh meta dropped: either attribute order, any case, any quoting.
+        let dropped = strip_meta_refresh(
+            r#"<html><meta HTTP-EQUIV='Refresh' content="0;url=https://evil.example"/><title>t</title></html>"#,
+        );
+        let s = std::str::from_utf8(&dropped).unwrap();
+        assert!(!s.to_ascii_lowercase().contains("refresh"), "refresh meta survived: {s}");
+        assert!(s.contains("<title>t</title>"), "chapter content lost: {s}");
+
+        // Benign meta is kept verbatim, original casing preserved.
+        let benign_in = r#"<meta name="author" content="x"/>"#;
+        assert_eq!(
+            std::str::from_utf8(&strip_meta_refresh(benign_in)).unwrap(),
+            benign_in
+        );
+
+        // No meta anywhere: byte-identical fast path.
+        assert_eq!(strip_meta_refresh("<p>keep</p>"), b"<p>keep</p>");
+
+        // Unterminated meta (no closing '>'): kept as-is and the scanner
+        // stops — there is no complete tag to drop, and the pass must not
+        // wedge or eat the remaining text.
+        let unterminated = "<p>a</p><meta http-equiv=refresh";
+        assert_eq!(strip_meta_refresh(unterminated), unterminated.as_bytes());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_u43_validate_book_path_rejects_symlink() {
+        // Windows symlink creation needs privileges, so this pin compiles
+        // only on unix, where std::os::unix::fs::symlink always works.
+        use std::os::unix::fs::symlink;
+
+        let tmp = std::env::temp_dir().join(format!("folio_u43_symlink_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let target = tmp.join("real_book.epub");
+        fs::write(&target, b"PK\x03\x04epub").unwrap();
+        let link = tmp.join("linked_book.epub");
+        symlink(&target, &link).unwrap();
+
+        // The link passes the extension and existence checks but must be
+        // rejected by the symlink_metadata probe.
+        let err = validate_book_path(&link.to_string_lossy()).unwrap_err();
+        assert!(err.contains("Symlink"), "symlinked book not rejected: {err}");
+
+        // The real target still opens fine.
+        assert!(validate_book_path(&target.to_string_lossy()).is_ok());
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

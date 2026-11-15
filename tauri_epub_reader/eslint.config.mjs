@@ -111,7 +111,16 @@ export default [
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: { ...globals.node, ...globals.browser },
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+        // App globals referenced inside page.evaluate() by the repo-level
+        // Playwright scripts (packaged-smoke, run-tts-benchmarks):
+        state: 'readonly',
+        ort: 'readonly',
+        KittenRunner: 'readonly',
+        TTS: 'readonly',
+      },
     },
     rules: {
       ...htmlScriptRules.rules,
@@ -217,6 +226,39 @@ export default [
         turn: 'readonly',
         turnGesture: 'readonly',
         turnQueue: 'readonly',
+        // bugfix-guards.spec.mjs app globals queried inside page.evaluate:
+        bookStat: 'readonly',
+        // bugfix-guards.spec.mjs BUG27-BUG34 additions:
+        isSafeStylesheetUrl: 'readonly',
+        isImageOnlyDoc: 'readonly',
+        moveGuide: 'readonly',
+        PageSound: 'readonly',
+        // Pre-existing gaps hit by regression-guards / ornaments-flip specs:
+        applyChapterBase: 'readonly',
+        bionifyDoc: 'readonly',
+        eachContent: 'readonly',
+        populateSnap: 'readonly',
+        refreshCSS: 'readonly',
+        chapterFor: 'readonly',
+        currentBookKey: 'readonly',
+        doSearch: 'readonly',
+        exportBookData: 'readonly',
+        flushPerBookType: 'readonly',
+        flushRelocCold: 'readonly',
+        KittenRunner: 'readonly',
+        loadBookStat: 'readonly',
+        loadStats: 'readonly',
+        saveStatsSoon: 'readonly',
+        sameBookFile: 'readonly',
+        sanitizeDomNode: 'readonly',
+        spreadBusy: 'readonly',
+        TYPO_KEYS: 'readonly',
+        validateSettings: 'readonly',
+        _cssHash: 'readonly',
+        _flushRecentBook: 'readonly',
+        _recentPending: 'readonly',
+        _relocColdArgs: 'readonly',
+        _relocColdTimer: 'readonly',
       },
     },
     rules: {

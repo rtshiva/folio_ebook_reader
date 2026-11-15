@@ -362,4 +362,22 @@ check('getGroupText isolates heading punctuation cleanly and immutably',
   !/sents\[[^\]]+\]\.text\s*\+=/.test(html),
   'getGroupText must check ![.!?:;…]$ and never mutate underlying sents array elements');
 
+// 41. Light-desk first paint (893e8e3 #39 FOUC fix): the FOUC guard sets
+// data-theme="light" before the main script boots, so the light desk tokens
+// must come from CSS — the :root defaults carry the global grain token
+// (--grain-opacity) and the [data-theme="light"] block mirrors THEMES.light's
+// desk/page/grain (its grain token is the block-local --grain-op).
+{
+  const rootBlock2 = (html.match(/:root\{([\s\S]*?)\n\}/) || [''])[0];
+  const lightBlock = (html.match(/\[data-theme="light"\]\{([\s\S]*?)\n\}/) || [''])[0];
+  const lightJs = (html.match(/^\s*light:\s*\{label[\s\S]*?\},$/m) || [''])[0];
+  check('light-desk tokens defined for first paint',
+    /--desk:#e8dfca/.test(rootBlock2) && /--page:#f7f1e3/.test(rootBlock2) &&
+    /--grain-opacity:/.test(rootBlock2) &&
+    /--desk:#dfd4c3/.test(lightBlock) && /--page:#fbf9f4/.test(lightBlock) &&
+    /--grain-op:/.test(lightBlock) &&
+    /desk:'#dfd4c3'/.test(lightJs) && /page:'#fbf9f4'/.test(lightJs) && /grainOp:\.3/.test(lightJs),
+    'saved-light users first-paint on paper tones (FOUC): :root needs --desk/--page/--grain-opacity and the [data-theme="light"] block must mirror THEMES.light desk/page/grain');
+}
+
 process.exit(failures ? 1 : 0);
