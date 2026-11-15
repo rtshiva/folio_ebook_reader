@@ -1596,6 +1596,8 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <span class="tx"><b>Keep screen awake</b><small>While read aloud is playing, the display will not time out.</small></span></label>
       <label class="sw"><input type="checkbox" id="swBatterySaver"><span class="tr"></span>
         <span class="tx"><b>Battery saver</b><small>On battery power: pause background jobs and skip page-turn animations.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swMonitorLayout"><span class="tr"></span>
+        <span class="tx"><b>Per-monitor layout</b><small>Remember text size, spread and margins for each monitor.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
       <label class="sw"><input type="checkbox" id="swIndent"><span class="tr"></span>
@@ -1971,7 +1973,7 @@ const DEFAULTS = {
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   pageOrnaments:true,
-  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true,
+  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true, monitorLayout:true,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
 let settings = {...DEFAULTS};
@@ -2034,7 +2036,7 @@ function validateSettings(){
   // or hand-edited stores ("auto":"0" is truthy) and via Object.assign in
   // loadPerBookType, so coerce non-booleans explicitly.
   if(!Number.isFinite(settings.measure) || settings.measure < 10 || settings.measure > 90) settings.measure = DEFAULTS.measure;
-  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','batterySaver','turnFxByUser','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
+  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','batterySaver','turnFxByUser','monitorLayout','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
     const v = settings[k];
     if(v === undefined || typeof v === 'boolean') return;
     settings[k] = (v === true || v === 1 || v === '1' || v === 'true');
@@ -2069,6 +2071,7 @@ function flushPerBookType(){
 }
 function save(){ clearTimeout(saveT); saveT=setTimeout(()=>{ try{
   localStorage.setItem('folio-settings',JSON.stringify(settings));
+  saveMonitorStore();   // keep the current monitor's geometry store in step (Card 4)
   flushPerBookType();
 }catch(e){} },150); }
 /* Swap in this book's saved typography (when the feature is on) and reflow. */
@@ -11280,6 +11283,77 @@ tauriListen('power-state', onPowerState);
   try{ onPowerState(await invoke('power_state')); }catch(e){}
 })();
 
+/* ---------------- per-monitor layout memory (Card 4) ----------------
+   Geometry keys (size, spread, margins) are remembered per monitor under
+   folio-settings@<monitorKey>; theme/fonts stay global. The monitor is
+   re-detected on window move/resize/scale-change (debounced settle);
+   landing on a different monitor applies its store + relayout. First
+   sighting seeds the store from the current global values (migration).
+   The Per-monitor-layout toggle is the manual override: OFF keeps one
+   global geometry and never writes stores. Declared BEFORE the a11y
+   seeds so save()→saveMonitorStore() sees initialized state. */
+const GEOMETRY_KEYS = ['size','spread','pageMarginTop','pageMarginBottom','pageMarginSidesAuto','pageMarginSides','marginVertical'];
+let _monitorKey = null;
+let _monDetectT = 0;
+function monitorStoreKey(key){ return 'folio-settings@' + key; }
+function sanitizeMonitorStore(store){
+  // Out-of-range values are DROPPED (inherit current), matching
+  // validateSettings' reject-to-default philosophy for corrupted stores.
+  const s = {};
+  if(Number.isFinite(store.size) && store.size >= 15 && store.size <= 28) s.size = store.size;
+  if(store.spread === 'auto' || store.spread === 'on' || store.spread === 'off') s.spread = store.spread;
+  if(typeof store.pageMarginSidesAuto === 'boolean') s.pageMarginSidesAuto = store.pageMarginSidesAuto;
+  if(Number.isFinite(store.pageMarginTop) && store.pageMarginTop >= 0 && store.pageMarginTop <= 120) s.pageMarginTop = store.pageMarginTop;
+  if(Number.isFinite(store.pageMarginBottom) && store.pageMarginBottom >= 0 && store.pageMarginBottom <= 120) s.pageMarginBottom = store.pageMarginBottom;
+  if(Number.isFinite(store.pageMarginSides) && store.pageMarginSides >= 0 && store.pageMarginSides <= 120) s.pageMarginSides = store.pageMarginSides;
+  if(Number.isFinite(store.marginVertical) && store.marginVertical >= 0 && store.marginVertical <= 120) s.marginVertical = store.marginVertical;
+  return s;
+}
+function saveMonitorStore(){
+  if(!_monitorKey || settings.monitorLayout === false) return;
+  const store = {};
+  for(const k of GEOMETRY_KEYS) store[k] = settings[k];
+  try{ localStorage.setItem(monitorStoreKey(_monitorKey), JSON.stringify(store)); }catch(e){}
+}
+function applyMonitorStore(key){
+  if(settings.monitorLayout === false) return false;
+  let raw = null;
+  try{ raw = parseSafeJson(localStorage.getItem(monitorStoreKey(key)) || 'null', null); }catch(e){}
+  if(!raw || typeof raw !== 'object'){
+    // Migration: the existing global geometry becomes this monitor's
+    // starting point — the values are already live, nothing to apply.
+    try{ localStorage.setItem(monitorStoreKey(key), JSON.stringify(sanitizeMonitorStore(settings))); }catch(e){}
+    return false;
+  }
+  const store = sanitizeMonitorStore(raw);
+  let changed = false;
+  for(const k of GEOMETRY_KEYS){
+    if(store[k] !== undefined && settings[k] !== store[k]){ settings[k] = store[k]; changed = true; }
+  }
+  if(changed){ save(); syncControls(); relayout(); }
+  return changed;
+}
+async function detectMonitor(force){
+  const invoke = tauriInvoke();
+  if(!invoke) return null;
+  try{
+    const m = await invoke('plugin:window|current_monitor');
+    if(!m) return _monitorKey;
+    const key = (typeof m.name === 'string' && m.name.trim()) ||
+      (m.size ? (m.size.width + 'x' + m.size.height + '@' + m.scaleFactor) : 'unknown');
+    if(force || key !== _monitorKey){
+      _monitorKey = key;
+      applyMonitorStore(key);
+    }
+    return key;
+  }catch(e){ return _monitorKey; }
+}
+function scheduleMonitorDetect(){ clearTimeout(_monDetectT); _monDetectT = setTimeout(() => { detectMonitor(false); }, 400); }
+tauriListen('tauri://move', scheduleMonitorDetect);
+tauriListen('tauri://resize', scheduleMonitorDetect);
+tauriListen('tauri://scale-change', () => { scheduleMonitorDetect(); relayout(); });
+detectMonitor(true);
+
 /* ---------------- accessibility seeds (Card 3) ----------------
    Text scale: first run only — no saved folio-settings blob means no
    user-set slider value to protect. The scale also feeds the effSize
@@ -11353,6 +11427,7 @@ function syncControls(){
   el('swGrain').checked=settings.grain !== false;
   el('swKeepAwake').checked=settings.keepAwake !== false;
   el('swBatterySaver').checked=settings.batterySaver !== false;
+  el('swMonitorLayout').checked=settings.monitorLayout !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm(); syncPageMargins();
   el('swPerBook').checked=!!settings.perBookType;
   syncEnvCards();
@@ -11644,6 +11719,10 @@ el('swBatterySaver').addEventListener('change',e=>{
   settings.batterySaver=e.target.checked; save();
   if(!settings.batterySaver) exitBatterySaver();                    // undo an active degrade now
   else if(_lastPower && _lastPower.onBattery) enterBatterySaver();  // re-apply on a live battery
+});
+el('swMonitorLayout').addEventListener('change',e=>{
+  settings.monitorLayout=e.target.checked; save();
+  if(settings.monitorLayout) detectMonitor(true);   // adopt the current monitor's store now
 });
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
