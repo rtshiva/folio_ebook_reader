@@ -134,7 +134,7 @@ export function buildTestEpub() {
 
 // Assembles a stored-entry zip from [name, content(string|bytes)] pairs —
 // the writer behind the test-epub builders.
-function zipStore(files) {
+export function zipStore(files) {
   const chunks = [];
   const central = [];
   let offset = 0;
