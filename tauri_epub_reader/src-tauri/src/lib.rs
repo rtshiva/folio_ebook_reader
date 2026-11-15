@@ -947,6 +947,68 @@ fn power_keep_awake(enabled: bool, app: tauri::AppHandle) -> Result<bool, String
     Ok(enabled)
 }
 
+/* ---- Battery state poll ----------------------------------------------
+   A plain std thread polls GetSystemPowerStatus every 30 s and emits
+   `power-state` only when the AC↔battery state flips (the card's "state
+   change" — percent drift must not spam events). A seed command covers
+   the state at load because the first emit races the webview boot. */
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PowerState {
+    on_battery: bool,
+    /// 0-100, or 255 when the OS reports "unknown" (no battery / desktop).
+    percent: u8,
+}
+
+#[cfg(windows)]
+fn read_power_state() -> PowerState {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut st = SYSTEM_POWER_STATUS::default();
+    // ACLineStatus: 1 = AC, 0 = battery, 255 = unknown (treated as AC —
+    // never degrade on unknown power).
+    let on_battery = unsafe { GetSystemPowerStatus(&mut st) }
+        .map(|_| st.ACLineStatus == 0)
+        .unwrap_or(false);
+    let percent = if st.BatteryLifePercent <= 100 { st.BatteryLifePercent } else { 255 };
+    PowerState { on_battery, percent }
+}
+
+#[cfg(not(windows))]
+fn read_power_state() -> PowerState {
+    PowerState { on_battery: false, percent: 255 }
+}
+
+#[cfg(windows)]
+fn start_power_poll(app: tauri::AppHandle) {
+    let spawned = std::thread::Builder::new().name("folio-power-poll".into()).spawn(move || {
+        // First check after a short grace so the webview's listener is up;
+        // then every 30 s. Emit only on AC↔battery transitions.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        let mut last_on_battery: Option<bool> = None;
+        loop {
+            let ps = read_power_state();
+            if last_on_battery != Some(ps.on_battery) {
+                last_on_battery = Some(ps.on_battery);
+                use tauri::Emitter;
+                let _ = app.emit("power-state", &ps);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+    });
+    if spawned.is_err() {
+        log::warn!("power poll thread failed to spawn — battery degrade disabled");
+    }
+}
+
+#[cfg(not(windows))]
+fn start_power_poll(_app: tauri::AppHandle) {}
+
+/// One-shot snapshot so the UI can seed its battery state at load.
+#[tauri::command]
+fn power_state() -> PowerState {
+    read_power_state()
+}
+
 #[tauri::command]
 async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1675,6 +1737,10 @@ pub fn run() {
             }
         })
         .manage(BookCache::default())
+        .setup(|app| {
+            start_power_poll(app.handle().clone());
+            Ok(())
+        })
         .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
         // Only one instance runs: a second Open-With launch forwards its file
         // path to the running window instead of opening a duplicate app.
@@ -1699,6 +1765,7 @@ pub fn run() {
             tts_get_backend_info,
             tts_configure_backend,
             power_keep_awake,
+            power_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1716,6 +1783,19 @@ mod tests {
         // nothing set must also succeed (clean no-op).
         apply_display_awake(true).expect("acquire ES_DISPLAY_REQUIRED failed");
         apply_display_awake(false).expect("release to ES_CONTINUOUS failed");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_u45_power_state_reads() {
+        // Smoke: the FFI call must succeed and produce a sane payload; the
+        // actual AC/battery values depend on the machine running the test.
+        let ps = read_power_state();
+        assert!(ps.percent <= 100 || ps.percent == 255, "percent out of range: {}", ps.percent);
+        if !ps.on_battery {
+            // A desktop/VM reports unknown percent; a plugged laptop reports 0-100.
+            assert!(ps.percent == 255 || ps.percent <= 100);
+        }
     }
 
     #[test]

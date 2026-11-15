@@ -1577,6 +1577,8 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <span class="tx"><b>Paper texture</b><small>A faint grain over pages and page turns.</small></span></label>
       <label class="sw"><input type="checkbox" id="swKeepAwake"><span class="tr"></span>
         <span class="tx"><b>Keep screen awake</b><small>While read aloud is playing, the display will not time out.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swBatterySaver"><span class="tr"></span>
+        <span class="tx"><b>Battery saver</b><small>On battery power: pause background jobs and skip page-turn animations.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
       <label class="sw"><input type="checkbox" id="swIndent"><span class="tr"></span>
@@ -1947,12 +1949,12 @@ const DEFAULTS = {
   lsAuto:true, letter:0,
   wsAuto:true, word:0,
   measure:34, justify:false,
-  bionic:false, guide:false, turnFx:'paper', spread:'auto', themeAuto:true,
+  bionic:false, guide:false, turnFx:'paper', turnFxByUser:false, spread:'auto', themeAuto:true,
   widthAuto:true, widthSingle:670, widthSpread:1160,
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   pageOrnaments:true,
-  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true,
+  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
 let settings = {...DEFAULTS};
@@ -2015,11 +2017,14 @@ function validateSettings(){
   // or hand-edited stores ("auto":"0" is truthy) and via Object.assign in
   // loadPerBookType, so coerce non-booleans explicitly.
   if(!Number.isFinite(settings.measure) || settings.measure < 10 || settings.measure > 90) settings.measure = DEFAULTS.measure;
-  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
+  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','batterySaver','turnFxByUser','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
     const v = settings[k];
     if(v === undefined || typeof v === 'boolean') return;
     settings[k] = (v === true || v === 1 || v === '1' || v === 'true');
   });
+  // Legacy migration: a non-default turnFx in storage predates turnFxByUser —
+  // treat it as user-set so battery saver never overrides a deliberate choice.
+  settings.turnFxByUser = !!settings.turnFxByUser || (settings.turnFx || 'paper') !== DEFAULTS.turnFx;
   if(typeof settings.perBookType !== 'boolean') settings.perBookType = DEFAULTS.perBookType;
   if(typeof settings.justify !== 'boolean') settings.justify = DEFAULTS.justify;
 }
@@ -4450,13 +4455,15 @@ function bionifyDoc(doc){
       const end = Math.min(idx + 120, nodes.length);
       for(let i = idx; i < end; i++) processNode(nodes[i]);
       idx = end;
-      if(idx < nodes.length){
-        if('requestIdleCallback' in window) requestIdleCallback(step);
-        else requestAnimationFrame(step);
-      } else done();
+      if(idx < nodes.length) kickStep();
+      else done();
     };
-    if('requestIdleCallback' in window) requestIdleCallback(step);
-    else requestAnimationFrame(step);
+    const kickStep = () => {
+      if(BgJobs.paused){ setTimeout(kickStep, 300); return; }  // battery saver: hold the batch
+      if('requestIdleCallback' in window) requestIdleCallback(step);
+      else requestAnimationFrame(step);
+    };
+    kickStep();
   });
 }
 function debionify(doc){
@@ -4477,13 +4484,24 @@ function setBionic(on){
    idle callbacks — never in bursts that drop frames. BgJobs serializes jobs
    so indexing and locations never compete; locations are enqueued after the
    index prepare settles for the current book. */
-const idleYield = () => new Promise(r => {
-  if('requestIdleCallback' in window){ try{ requestIdleCallback(() => r(), { timeout: 300 }); return; }catch(e){} }
-  setTimeout(r, 0);
-});
+// Battery saver gate: background work polls this instead of burning idle
+// slices while paused; a running job stalls at its next await point and
+// resumes cleanly when AC power returns. BgJobs is declared below — this
+// only runs at job time, long after init.
+async function bgGate(){
+  while(BgJobs.paused) await new Promise(r => setTimeout(r, 300));
+}
+const idleYield = async () => {
+  await bgGate();
+  return new Promise(r => {
+    if('requestIdleCallback' in window){ try{ requestIdleCallback(() => r(), { timeout: 300 }); return; }catch(e){} }
+    setTimeout(r, 0);
+  });
+};
 // Milliseconds of idle budget available right now (generous fallback when
 // requestIdleCallback is missing — e.g. background tabs).
-function idleBudgetMs(){
+async function idleBudgetMs(){
+  await bgGate();
   return new Promise((res) => {
     if('requestIdleCallback' in window){
       try{
@@ -4500,7 +4518,8 @@ function idleBudgetMs(){
 }
 // Resolve once an idle window with room opens. While the document is hidden
 // the retry loop polls until visible again (work pauses while hidden).
-function idleSlot(minMs){
+async function idleSlot(minMs){
+  await bgGate();
   return new Promise((res) => {
     const tick = (deadline) => {
       if(document.hidden){ setTimeout(() => {
@@ -4519,6 +4538,15 @@ function idleSlot(minMs){
 const BgJobs = {
   current: null,   // {tag, cancelled} — at most one job runs
   queued: [],      // pending exec fns (each carries .tag)
+  paused: false,   // battery saver: no job starts or progresses until AC
+  deferred: [],    // execs held while paused, drained in order on resume
+  setPaused(p){
+    this.paused = !!p;
+    if(!this.paused){
+      const held = this.deferred.splice(0);
+      for(const exec of held){ if(this.current) this.queued.push(exec); else exec(); }
+    }
+  },
   run(tag, fn){
     this.cancel(tag);
     const job = { tag, cancelled: false };
@@ -4534,12 +4562,14 @@ const BgJobs = {
         });
     };
     exec.tag = tag;
+    if(this.paused){ this.deferred.push(exec); return; }
     if(this.current) this.queued.push(exec);
     else exec();
   },
   cancel(tag){
     if(this.current && this.current.tag === tag) this.current.cancelled = true;
     this.queued = this.queued.filter((e) => e.tag !== tag);
+    this.deferred = this.deferred.filter((e) => e.tag !== tag);
   }
 };
 
@@ -11169,6 +11199,65 @@ function autoThemeTick(){
   }
 }
 setInterval(autoThemeTick, 600000);
+
+/* ---------------- battery saver (power-state events) ----------------
+   The Rust poll thread emits power-state {onBattery, percent} only when
+   AC↔battery flips; the power_state seed command covers the state at load
+   (the first emit races the webview boot). On battery: freeze BgJobs and
+   drop the page-turn animation to 'none' unless the user picked one
+   explicitly. The Battery-saver toggle is the manual override — OFF
+   ignores events entirely and undoes an active degrade. */
+let _lastPower = null;        // last power-state payload seen
+let _batteryFxSaved = null;   // turnFx held aside during the battery override
+function onPowerState(p){
+  try{
+    if(typeof p === 'string'){ try{ p = JSON.parse(p); }catch(e){ return; } }
+    if(!p || typeof p.onBattery !== 'boolean') return;
+    _lastPower = p;
+    if(p.onBattery) enterBatterySaver();
+    else exitBatterySaver();
+  }catch(e){}
+}
+function enterBatterySaver(){
+  if(settings.batterySaver === false) return;
+  let degraded = false;
+  if(!settings.turnFxByUser && settings.turnFx !== 'none'){
+    _batteryFxSaved = settings.turnFx;
+    settings.turnFx = 'none';          // session-only: never persisted
+    syncTurnSeg();
+    degraded = true;
+  }
+  if(!BgJobs.paused){ BgJobs.setPaused(true); degraded = true; }
+  if(degraded) toast('Battery saver: background jobs paused' + (_batteryFxSaved !== null ? ' · page-turn animations off' : ''));
+}
+function exitBatterySaver(){
+  let restored = false;
+  if(_batteryFxSaved !== null){
+    settings.turnFx = _batteryFxSaved;
+    _batteryFxSaved = null;
+    syncTurnSeg();
+    restored = true;
+  }
+  if(BgJobs.paused){ BgJobs.setPaused(false); restored = true; }
+  if(restored) toast('On AC power — background jobs resumed');
+}
+/* Minimal raw listen through __TAURI_INTERNALS__ (same channel the official
+   event API uses) so the page needs no bundled @tauri-apps/api import. */
+function tauriListen(event, cb){
+  const I = window.__TAURI_INTERNALS__;
+  if(!I || !I.invoke || !I.transformCallback) return null;
+  try{
+    const handler = I.transformCallback((ev) => cb(ev && ev.payload));
+    I.invoke('plugin:event|listen', { event, target: { kind: 'Any' }, handler });
+    return handler;
+  }catch(e){ return null; }
+}
+tauriListen('power-state', onPowerState);
+(async function seedPowerState(){
+  const invoke = tauriInvoke();
+  if(!invoke) return;
+  try{ onPowerState(await invoke('power_state')); }catch(e){}
+})();
 function syncControls(){
   syncFontSel(); applyTheme();
   el('swBionic').checked=settings.bionic;
@@ -11181,6 +11270,7 @@ function syncControls(){
   el('swSound').checked=!!settings.pageSound;
   el('swGrain').checked=settings.grain !== false;
   el('swKeepAwake').checked=settings.keepAwake !== false;
+  el('swBatterySaver').checked=settings.batterySaver !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm(); syncPageMargins();
   el('swPerBook').checked=!!settings.perBookType;
   syncEnvCards();
@@ -11467,6 +11557,11 @@ el('swKeepAwake').addEventListener('change',e=>{
   // Apply immediately to a session already playing — the helper gates on
   // the setting, so this releases when turned off mid-playback too.
   setTtsKeepAwake(TTS.active && !TTS.paused);
+});
+el('swBatterySaver').addEventListener('change',e=>{
+  settings.batterySaver=e.target.checked; save();
+  if(!settings.batterySaver) exitBatterySaver();                    // undo an active degrade now
+  else if(_lastPower && _lastPower.onBattery) enterBatterySaver();  // re-apply on a live battery
 });
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
@@ -11809,7 +11904,7 @@ el('searchInput').addEventListener('keydown', e => {
 });
 
 document.querySelectorAll('#turnSeg button').forEach(b=>b.addEventListener('click',()=>{
-  settings.turnFx=b.dataset.fx; save(); syncTurnSeg();
+  settings.turnFx=b.dataset.fx; settings.turnFxByUser=true; save(); syncTurnSeg();
   toast('Page turn: '+FX_NAME[settings.turnFx]);
 }));
 /* voiceSeg buttons are re-rendered per engine — delegate the clicks */
