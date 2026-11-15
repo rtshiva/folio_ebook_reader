@@ -9799,7 +9799,13 @@ const TTS = {
           audioBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
         }
         const genMs = performance.now() - t0;
-        this.tt(audioBytes && audioBytes.byteLength > 44 ? 'SYNTH_READY' : 'ERROR', { latencyMs: genMs, reason: audioBytes ? 'ok' : 'null-audio' });
+        if(audioBytes && audioBytes.byteLength > 44){
+          this.tt('SYNTH_READY', { latencyMs: genMs, reason: 'ok' });
+        } else if(audioBytes && audioBytes.byteLength === 44){
+          this.tt('SYNTH_READY', { latencyMs: genMs, reason: 'silent-chunk (empty model output)' });
+        } else {
+          this.tt('ERROR', { latencyMs: genMs, reason: audioBytes ? 'short-audio' : 'null-audio' });
+        }
         if(audioBytes && this.gen === gu && !this.stopped){
           this.recordGroupMetrics(genMs, audioBytes);
           this.pcmCache.set(gi, audioBytes);
@@ -9807,6 +9813,19 @@ const TTS = {
         return audioBytes;
       } catch(e) {
         console.warn(`[TTS] Generation error for group ${gi}:`, e);
+        const msg = String((e && e.message) || e);
+        // The Rust engine returns a header-only 44-byte WAV when the model
+        // outputs nothing usable (quote-only fragments, degenerate tokenizer
+        // output) and the bundle rejects it as "invalid buffer length: 44".
+        // That is a SUCCESSFUL synthesis of an unpronounceable chunk — treat
+        // it as silence and skip playback; it must never count as a strike.
+        if(/invalid buffer length: 44/.test(msg)){
+          this.tt('SYNTH_READY', { latencyMs: performance.now() - t0, reason: 'silent-chunk (empty model output)' });
+          const silent = new Uint8Array(44);
+          if(this.gen === gu && !this.stopped) this.pcmCache.set(gi, silent);
+          return silent;
+        }
+        this.tt('ERROR', { reason: 'synth failed: ' + msg.slice(0, 80) });
         return null;
       } finally {
         this._genP.delete(gi);
@@ -10163,7 +10182,9 @@ const TTS = {
           wavBytes = await this.synthesizeGroup(gi, gu);
           this.pcmCache.delete(gi);
           if(this.gen !== gu || this.stopped || !this.active) return;
-          let nulls = (!wavBytes || wavBytes.byteLength <= 44) ? 1 : 0;
+          // Only a true null (engine error) is a strike. A 44-byte buffer is
+          // a silent chunk — handled by the skip-advance below, never a strike.
+          let nulls = !wavBytes ? 1 : 0;
           while(nulls > 0 && nulls < 3 && this.ttsPolicy() === 'kitten-first' && this._pageEngine === 'kitten'){
             this._pageErrors.set(gi, nulls);
             this.tt('ERROR', { reason: 'synth-null strike ' + nulls + '/3 on chunk ' + gi });
@@ -10172,7 +10193,7 @@ const TTS = {
             wavBytes = await this.synthesizeGroup(gi, gu);
             this.pcmCache.delete(gi);
             if(this.gen !== gu || this.stopped || !this.active) return;
-            nulls = (!wavBytes || wavBytes.byteLength <= 44) ? nulls + 1 : 0;
+            nulls = !wavBytes ? nulls + 1 : 0;
           }
           this._pageErrors.set(gi, nulls);
           if(nulls >= 3){
@@ -10180,6 +10201,16 @@ const TTS = {
             this.tt('ENGINE_FALLBACK', { reason: 'hard-failure: 3 consecutive synth errors on chunk ' + gi });
             toast('Kitten voice unavailable — system voice for the rest of this page');
           }
+        }
+        if(wavBytes && wavBytes.byteLength <= 44){
+          // Silent chunk (empty model output for an unpronounceable fragment,
+          // e.g. an orphan quote from the sentence splitter): skip playback,
+          // advance past the group, keep the kitten lock.
+          this.tt('PLAY_START', { latencyMs: 0, reason: 'silent chunk skipped (group ' + gi + ')' });
+          this.si = g.end + 1;
+          this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(false));
+          this.pumpPrefetch(gu);
+          return;
         }
         if(this._pageEngine === 'kitten'){
           const buf = (wavBytes instanceof Uint8Array)
