@@ -2515,6 +2515,13 @@ p{margin:0 !important;text-indent:1.35em !important;}` : '';
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
 @media (forced-colors: active){html,body{background:Canvas !important;}body{color:CanvasText !important;}}
+/* Broken book images (missing/renamed resources) render as a quiet tile
+   instead of the raw broken-image glyph. currentColor inherits the body ink
+   set above, so the tile follows the active theme without token vars. */
+.fio-broken-img{display:inline-flex;align-items:center;justify-content:center;
+  border:1px dashed currentColor;border-radius:6px;max-width:100%;vertical-align:middle;opacity:.85}
+.fio-broken-img-t{font:500 10px var(--sans,serif);letter-spacing:.06em;text-transform:uppercase;
+  color:currentColor;opacity:.55;padding:4px 8px;text-align:center;pointer-events:none}
   body{
     color:${t.ink} !important;
     font-family:${stack} !important;
@@ -4171,6 +4178,58 @@ function normalizeImageOnlyDoc(d){
   return true;
 }
 
+/* Broken book images: books with missing/renamed resources (authored
+   <img src="image_rsrcXXXX.jpg"> pointing outside the package, etc.) leave a
+   raw broken-image glyph per view. Swap failed imgs for a styled tile sized
+   from the laid-out rect. CRITICAL TIMING: rendering docs are about:srcdoc
+   (the <base> tag is CSP-blocked), so relative srcs FAIL against the app
+   origin before epub.js's async resource substitution rewrites them to
+   working folio-cache URLs — an immediate swap would permanently tile
+   images that are about to load. So: on error, wait, then swap ONLY if the
+   src is unchanged and the image is still failing. Parent-realm listener —
+   chapter frames are script-blocked sandboxes, but same-origin DOM
+   registration from the parent works. */
+function installBrokenImageTiles(d){
+  const maybeSwap = (img) => {
+    try{
+      if(!img || img.__folioTileDone || !img.isConnected) return;
+      const failedSrc = img.currentSrc || img.getAttribute('src') || '';
+      setTimeout(() => {
+        try{
+          if(!img.isConnected || img.__folioTileDone) return;
+          const nowSrc = img.currentSrc || img.getAttribute('src') || '';
+          if(nowSrc !== failedSrc) return;                 // substitution rewrote it — give it a chance
+          if(!(img.complete && img.naturalWidth === 0)) return; // loading or loaded
+          img.__folioTileDone = true;
+          const tile = d.createElement('span');
+          tile.setAttribute('role','img');
+          const label = (img.getAttribute('alt') || failedSrc || 'image').trim();
+          tile.setAttribute('aria-label', 'Image unavailable: ' + label.slice(0, 120));
+          tile.className = 'fio-broken-img';
+          // epub.js strips width/height attributes (adjustImages) — use the
+          // laid-out rect when it is meaningful, else the compact default.
+          let w = 0, h = 0;
+          try{ const r = img.getBoundingClientRect(); w = Math.round(r.width); h = Math.round(r.height); }catch(e){}
+          if(!(w >= 40 && h >= 20)){ w = 96; h = 64; }
+          w = Math.min(w, 480); h = Math.min(h, 480);
+          tile.style.width = w + 'px';
+          tile.style.height = h + 'px';
+          const txt = d.createElement('span');
+          txt.className = 'fio-broken-img-t';
+          txt.textContent = 'Image unavailable';
+          tile.appendChild(txt);
+          img.parentNode.replaceChild(tile, img);
+        }catch(e){}
+      }, 600);
+    }catch(e){}
+  };
+  try{
+    d.addEventListener('error', (e) => {
+      const t = e.target;
+      if(t && t.tagName === 'IMG') maybeSwap(t);
+    }, true);
+  }catch(e){}
+}
 function onContent(contents){
   const d=contents.document;
   // Security parity on live content document: strip any unsafe remote stylesheets
@@ -4183,6 +4242,7 @@ function onContent(contents){
       }
     });
   }catch(e){}
+  installBrokenImageTiles(d);
   let s=d.getElementById('folio-dyn');
   if(!s){ s=d.createElement('style'); s.id='folio-dyn'; (d.head||d.documentElement).appendChild(s); }
   s.textContent=buildCSS();
@@ -4274,6 +4334,21 @@ function onContent(contents){
           });
         }
       }catch(eInline){}
+      // Snapshot replays are about:srcdoc docs whose <base> tag is blocked
+      // by the CSP base-uri directive, so RELATIVE resource URLs would
+      // resolve against the app origin and 404 (silent image loss on every
+      // page-turn replay). Absolutize them against the live doc's baseURI
+      // (the folio-cache document URL) before serialization.
+      try{
+        const snapBase = d.baseURI || d.URL;
+        if(snapBase && !snapBase.startsWith('about:')){
+          d.querySelectorAll('img[src]').forEach(im => {
+            const src = im.getAttribute('src') || '';
+            if(!src || /^(data:|blob:|https?:)/i.test(src)) return;
+            try{ im.setAttribute('src', new URL(src, snapBase).href); }catch(e){}
+          });
+        }
+      }catch(eAbs){}
       const cleanHtml = '<!DOCTYPE html>' + sanitizeChapterHtml(d.documentElement.outerHTML);
       // Key by the rendered section, not currentSpine: relocated() runs after
       // this hook, so the unkeyed write would file the new chapter under the
