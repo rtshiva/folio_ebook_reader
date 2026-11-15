@@ -1656,6 +1656,24 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <div id="ttsBenchmarkCard" class="fine" style="margin-top:6px;line-height:1.45;color:var(--muted)">
           <span>Click "Run Diagnostic" to test speech engine latency on this device.</span>
         </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+          <span class="fine" style="font-weight:600;margin:0">Engine trace (last 200 events)</span>
+          <button class="chip" id="btnCopyTtsDiag" type="button">Copy TTS diagnostics</button>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+          <span class="fine" style="font-weight:600;margin:0">Engine policy</span>
+          <div class="seg" id="ttsPolicySeg">
+            <button data-policy="kitten-first" type="button">Kitten-first</button>
+            <button data-policy="fastest" type="button">Fastest (legacy)</button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
+          <span class="fine" style="font-weight:600;margin:0">Kitten patience</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="ttsPatienceRange" min="0" max="10000" step="250" style="width:130px" aria-label="Kitten patience in milliseconds">
+            <output id="ttsPatienceOut" class="fine" style="min-width:52px;text-align:right"></output>
+          </span>
+        </div>
       </div>
     </section>
 
@@ -8996,6 +9014,71 @@ const TTS = {
   _starveWarned: false,
   _calibrating: false,
   _benchmarking: false,
+  /* TTS trace: always-on ring buffer of engine/synthesis/playback events
+     (Card 6 A2). Cheap — plain array pushes, capped at 200. Copy via the
+     "Copy TTS diagnostics" button in Settings → Read aloud. */
+  _trace: [],
+  tt(event, o){
+    try{
+      o = o || {};
+      this._trace.push({
+        tMs: Math.round(performance.now()),
+        pageId: this.gen,
+        chunkIndex: (typeof this.gi === 'number') ? this.gi : -1,
+        event,
+        engine: this.engine,
+        latencyMs: (typeof o.latencyMs === 'number') ? Math.round(o.latencyMs) : null,
+        reason: o.reason || ''
+      });
+      if(this._trace.length > 200) this._trace.shift();
+      try{ console.debug('[tts-trace]', event, this.engine, o.reason || '', o.latencyMs != null ? Math.round(o.latencyMs) + 'ms' : ''); }catch(e){}
+    }catch(e){}
+  },
+  traceJsonLines(){
+    return this._trace.map(e => JSON.stringify(e)).join('\n');
+  },
+  /* Card 6 B4: engine policy + kitten patience (TTS settings, localStorage —
+     same pattern as fio_tts_engine). kitten-first = engine locked once per
+     page (speakNext branches on _pageEngine); fastest = legacy per-sentence
+     racing fallback. Patience bounds the "warming" status before the
+     liveness probe starts polling; latency NEVER demotes the engine. */
+  ttsPolicy(){
+    try { const v = localStorage.getItem('fio_tts_policy'); return (v === 'fastest') ? 'fastest' : 'kitten-first'; } catch(e){ return 'kitten-first'; }
+  },
+  ttsPatienceMs(){
+    try {
+      const v = parseInt(localStorage.getItem('fio_tts_patience_ms'), 10);
+      if(Number.isFinite(v)) return Math.min(10000, Math.max(0, v));
+    } catch(e){}
+    return 2500;
+  },
+  _pageEngine: null,          // per-page lock: 'kitten' | 'system' | null (fastest)
+  _pageErrors: new Map(),     // chunk -> consecutive synth errors this page
+  _prerender: false,          // throughput guard engaged for this page
+  _waitForChunk(gi, gu){
+    const patience = this.ttsPatienceMs();
+    const setStat = (s, color) => { const b = el('voiceStatusBadge'); if(b && this.engine === 'kitten'){ b.textContent = s; if(color) b.style.color = color; } };
+    setStat('● voice is warming…');
+    const t0 = Date.now();
+    const poll = () => {
+      if(this.gen !== gu || this.stopped || !this.active) return;
+      if(Date.now() - t0 >= patience){
+        // Cheap liveness probe: initialized engine + live backend.
+        const alive = KittenRunner.ready() && (KittenRunner.getActiveBackend() !== 'native-ort' || !!KittenRunner._nativeTTS || KittenRunner._workerReady);
+        if(alive){
+          setStat('● still synthesising…');   // latency never demotes — keep waiting
+          setTimeout(poll, 2000);
+          return;
+        }
+        setStat('✕ kitten engine dead', '#c0392b');
+        this._pageEngine = 'system';
+        this.tt('ENGINE_FALLBACK', { reason: 'liveness-probe-dead after ' + patience + 'ms' });
+        return;
+      }
+      setTimeout(poll, 400);
+    };
+    if(patience > 0) setTimeout(poll, Math.min(patience, 400));
+  },
 
   getProfile(){
     if(this._profile) return this._profile;
@@ -9113,6 +9196,35 @@ const TTS = {
     } else {
       this.consecutiveStarveCount = 0;
     }
+    /* Card 6 C10 throughput guard: sustained synth slower than ~real-time on
+       this page → batch-synthesise the rest of the page and play gapless
+       (the whole-page guarantee). */
+    if(this.rollingRtf > 0.9 && this._pageEngine === 'kitten' && !this._prerender){
+      this._prerender = true;
+      this.tt('PRERENDER', { reason: 'throughput guard rtf=' + this.rollingRtf.toFixed(2) });
+      this.prerenderPage(this.gen);
+    }
+  },
+  /* Card 6 C10: batch-synthesise every remaining group of the current page
+     with progress in the voice status badge; playback then runs gapless. */
+  async prerenderPage(gu){
+    try{
+      const total = this.groups ? this.groups.length : 0;
+      for(let idx = this.gi; idx < total; idx++){
+        if(this.gen !== gu || this.stopped || !this.active) return;
+        if(!this.pcmCache.has(idx) && !this._genP.has(idx)){
+          this._startedGroups.delete(idx);   // pre-render retries failed groups too
+          await this.synthesizeGroup(idx, gu);
+        }
+        const done = idx - this.gi + 1, span = Math.max(1, total - this.gi);
+        const b = el('voiceStatusBadge');
+        if(b && this.gen === gu && this.engine === 'kitten') b.textContent = 'Synthesising page… ' + Math.round(done / span * 100) + '%';
+        this.tt('PRERENDER', { reason: 'chunk ' + idx + ' cached' });
+      }
+      const b = el('voiceStatusBadge');
+      if(b && this.gen === gu && this.engine === 'kitten') b.textContent = '● page pre-rendered — playing';
+      this._prerenderDone = true;
+    }catch(e){ this.tt('ERROR', { reason: 'prerender failed: ' + ((e && e.message) || '').slice(0, 60) }); }
   },
   async calibrate(){
     if(this._calibrating) return;
@@ -9226,6 +9338,40 @@ const TTS = {
     }
   },
 
+  /* Card 6 D12: benchmark harness (debug command, no new deps) — N fixed
+     chunks, cold + warm latency percentiles + throughput ratio. Call from
+     devtools: await TTS.benchN()  (or TTS.benchN(40)). */
+  async benchN(n){
+    n = Math.max(2, n || 20);
+    if(!KittenRunner.ready()){ await KittenRunner.install(); }
+    const texts = [];
+    for(let i = 1; i <= n; i++){
+      texts.push('Benchmark chunk ' + i + ' carries exactly twenty-two words of steady prose for the latency measurement pass today.');
+    }
+    let cold = null, warm = [], genTotal = 0, durTotal = 0;
+    for(let i = 0; i < n; i++){
+      const t0 = performance.now();
+      const audio = await KittenRunner.generate(texts[i], this.voice, 1.0, 0, 0);
+      const ms = performance.now() - t0;
+      const dur = (audio && audio.byteLength > 44) ? (audio.byteLength - 44) / 48000 : 0;
+      if(i === 0) cold = ms; else warm.push(ms);
+      if(dur > 0){ genTotal += ms; durTotal += dur; }
+      this.tt('SYNTH_READY', { latencyMs: ms, reason: 'bench ' + (i + 1) + '/' + n });
+    }
+    const s2 = [...warm].sort((a, b) => a - b);
+    const q = (p) => s2[Math.min(s2.length - 1, Math.floor(p * s2.length))];
+    const table = {
+      n,
+      coldMs: Math.round(cold),
+      p50: Math.round(q(0.5)),
+      p95: Math.round(q(0.95)),
+      p99: Math.round(q(0.99)),
+      throughputRtf: durTotal > 0 ? Math.round((genTotal / 1000) / durTotal * 1000) / 1000 : null,
+    };
+    console.table(table);
+    return table;
+  },
+
   /* R cycles: stopped → playing → paused → playing. Shift+R stops. */
   toggle(){
     if(!this.supported()){ toast('Read aloud is not supported here'); return; }
@@ -9254,6 +9400,16 @@ const TTS = {
       try{ await this.kittenInstall(); }catch(e){ this.stop(true); toast('Kitten install failed: ' + ((e && e.message) ? e.message.slice(0, 120) : 'unknown error')); return; }
     } else {
       toast('Read aloud on: ' + this.engineLabel() + ' · V switches voice · - / = speed');
+    }
+    /* Card 6 C8: prewarm — one tiny synth so the ONNX session is warm before
+       chunk 1 (cold first-chunk latency otherwise includes session init). */
+    if(this.engine === 'kitten' && KittenRunner.ready()){
+      try{
+        const t0 = performance.now();
+        const wav = await KittenRunner.generate('Hello.', this.voice, 1.0, 0, 0);
+        this.tt('SYNTH_READY', { latencyMs: performance.now() - t0, reason: 'prewarm' });
+        if(!wav || wav.byteLength <= 44) this.tt('ERROR', { reason: 'prewarm produced no audio' });
+      }catch(e){ this.tt('ERROR', { reason: 'prewarm failed: ' + ((e && e.message) || '').slice(0, 60) }); }
     }
     this.loadPageAndSpeak();
   },
@@ -9632,10 +9788,18 @@ const TTS = {
 
     const text = this.getGroupText(g);
     const t0 = performance.now();
+    this.tt('SYNTH_START', { reason: 'group ' + gi });
     const p = (async () => {
       try {
-        const audioBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
+        let audioBytes;
+        if(this.__injectKittenFailures > 0){
+          this.__injectKittenFailures--;      // Card 6 T3 test hook: simulated hard synth failure
+          audioBytes = null;
+        } else {
+          audioBytes = await KittenRunner.generate(text, this.voice, this.rate, gu, gi);
+        }
         const genMs = performance.now() - t0;
+        this.tt(audioBytes && audioBytes.byteLength > 44 ? 'SYNTH_READY' : 'ERROR', { latencyMs: genMs, reason: audioBytes ? 'ok' : 'null-audio' });
         if(audioBytes && this.gen === gu && !this.stopped){
           this.recordGroupMetrics(genMs, audioBytes);
           this.pcmCache.set(gi, audioBytes);
@@ -9662,7 +9826,9 @@ const TTS = {
       try {
         while(this.gen === gu && !this.stopped && this.active && !this.paused){
           let targetGi = -1;
-          const maxGi = Math.min(this.groups.length - 1, this.gi + limits.lookahead);
+          // Card 6 C10: with the throughput guard engaged, prefetch runs to
+          // the END of the page (pre-render), not just the lookahead window.
+          const maxGi = Math.min(this.groups.length - 1, this._prerender ? this.groups.length - 1 : this.gi + limits.lookahead);
           for(let idx = this.gi; idx <= maxGi; idx++){
             if(!this._startedGroups.has(idx) && !this.pcmCache.has(idx) && !this._genP.has(idx)){
               targetGi = idx;
@@ -9737,13 +9903,16 @@ const TTS = {
           this.srcNode = src; this.srcDone = false;
           src.onended = () => {
             this.srcDone = true;
+            this.tt('PLAY_END', { latencyMs: (this._gDur || 0) * 1000, reason: 'group ended' });
             try { src.disconnect(); } catch(e){}
             this.stopGroupHighlight();
             if(this.gen !== gu || this.stopped || !this.active) return;
             const lastSi = (endSi != null) ? endSi - 1 : this.si;
             const afterHeading = !!(this.sents[lastSi] && this.sents[lastSi].isHeading) || !!(group && group.isHeading);
             this.si = (endSi != null) ? endSi : this.si + 1;
-            this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, this.sentGapMs(afterHeading));
+            // Card 6 C10: pre-rendered pages play gapless (no narration breath).
+            const gap = this._prerender ? 0 : this.sentGapMs(afterHeading);
+            this.gapT = setTimeout(() => { if(this.gen === gu) this.speakNext(); }, gap);
           };
           Promise.resolve(kick).then(() => {
             if(this.gen !== gu || this.stopped || !this.active){ resolve(false); return; }
@@ -9754,7 +9923,7 @@ const TTS = {
               this.srcDone = true; this.srcNode = null;
               resolve(false); return;
             }
-            try{ src.start(); resolve(true); }catch(e){ console.warn('BufferSource start failed:', e); this.srcDone = true; resolve(false); }
+            try{ src.start(); this.tt('PLAY_START', { latencyMs: decoded.duration * 1000, reason: 'group ' + (group ? group.start : -1) }); resolve(true); }catch(e){ console.warn('BufferSource start failed:', e); this.srcDone = true; resolve(false); }
           });
         }).catch((e) => { console.warn('WAV decode failed:', e); resolve(false); });
       }catch(e){ console.warn('WebAudio unavailable:', e); resolve(false); }
@@ -9915,6 +10084,18 @@ const TTS = {
     if(this.stopped || !this.active) return;
     const g = this.gen;
     this._loading = true;
+    /* Card 6 B5: the engine is decided ONCE per page here and locked in
+       _pageEngine for the whole page. kitten-first unless the availability
+       probe (initialized engine) hard-fails; 'fastest' policy keeps the
+       legacy per-sentence racing behavior (_pageEngine stays null). Next
+       page starts fresh — self-healing across pages, no flapping within. */
+    this._pageEngine = null;
+    this._pageErrors.clear();
+    this._prerender = false;
+    if(this.engine === 'kitten' && this.ttsPolicy() === 'kitten-first'){
+      this._pageEngine = KittenRunner.ready() ? 'kitten' : 'system';
+    }
+    this.tt('ENGINE_SELECT', { reason: 'page-start engine=' + this.engine + ' policy=' + this.ttsPolicy() + ' lock=' + (this._pageEngine || 'legacy') });
     this.sents = await this.collectSentences();
     this.clearPcm(); // new page, new sentence texts — cached clips are stale
     if(this.gen !== g || this.stopped || !this.active) return;
@@ -9957,11 +10138,15 @@ const TTS = {
     this.applyHighlight(sent);
 
     const gu = this.gen;
-    if(this.engine === 'kitten'){
+    const eng = this._pageEngine || this.engine;
+    if(eng === 'kitten'){
       /* Paragraph-level synthesis: one clip per paragraph group, seamless
          audio within the paragraph, and upcoming groups generate in background
          via rolling pumpPrefetch. Sentence highlight follows the clip by
-         proportional timing (startGroupHighlight). */
+         proportional timing (startGroupHighlight). Card 6: the engine was
+         locked at page start (_pageEngine) — a null synth is an ERROR to
+         retry (3 strikes → hard failure → demote for this page only);
+         latency NEVER demotes. */
       const gi = this.groups.findIndex(g2 => this.si >= g2.start && this.si <= g2.end);
       if(gi < 0){ this.autoAdvance(); return; }
       this.gi = gi;
@@ -9971,20 +10156,50 @@ const TTS = {
         if(wavBytes){
           this.pcmCache.delete(gi);
         } else {
-          // If in-flight via prefetch, or needs synthesis now
+          // If in-flight via prefetch, or needs synthesis now. Wait with the
+          // warming status up to patienceMs, then liveness-poll — alive
+          // means keep waiting; dead means hard-fail.
+          this._waitForChunk(gi, gu);
           wavBytes = await this.synthesizeGroup(gi, gu);
           this.pcmCache.delete(gi);
           if(this.gen !== gu || this.stopped || !this.active) return;
+          let nulls = (!wavBytes || wavBytes.byteLength <= 44) ? 1 : 0;
+          while(nulls > 0 && nulls < 3 && this.ttsPolicy() === 'kitten-first' && this._pageEngine === 'kitten'){
+            this._pageErrors.set(gi, nulls);
+            this.tt('ERROR', { reason: 'synth-null strike ' + nulls + '/3 on chunk ' + gi });
+            this._startedGroups.delete(gi);   // un-pin the one-shot guard for the retry
+            this._waitForChunk(gi, gu);
+            wavBytes = await this.synthesizeGroup(gi, gu);
+            this.pcmCache.delete(gi);
+            if(this.gen !== gu || this.stopped || !this.active) return;
+            nulls = (!wavBytes || wavBytes.byteLength <= 44) ? nulls + 1 : 0;
+          }
+          this._pageErrors.set(gi, nulls);
+          if(nulls >= 3){
+            this._pageEngine = 'system';
+            this.tt('ENGINE_FALLBACK', { reason: 'hard-failure: 3 consecutive synth errors on chunk ' + gi });
+            toast('Kitten voice unavailable — system voice for the rest of this page');
+          }
         }
-        const buf = (wavBytes instanceof Uint8Array)
-          ? wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength) : wavBytes;
-        if(buf && buf.byteLength > 0){
-          const started = await this.playWav(buf, gu, g.end + 1, g);
-          if(started){ this.pumpPrefetch(gu); return; }
+        if(this._pageEngine === 'kitten'){
+          const buf = (wavBytes instanceof Uint8Array)
+            ? wavBytes.buffer.slice(wavBytes.byteOffset, wavBytes.byteOffset + wavBytes.byteLength) : wavBytes;
+          if(buf && buf.byteLength > 0){
+            const started = await this.playWav(buf, gu, g.end + 1, g);
+            if(started){ this.pumpPrefetch(gu); return; }
+            this._pageEngine = 'system';
+            this.tt('ENGINE_FALLBACK', { reason: 'hard-failure: wav decode failed on chunk ' + gi });
+            toast('Audio decode failed — system voice for the rest of this page');
+          }
         }
       }catch(e){
-        console.warn('Kitten generation failed, falling back to system voice:', e);
-        toast('Kitten voice failed here — using the system voice for this sentence');
+        console.warn('Kitten generation failed:', e);
+        this.tt('ERROR', { reason: 'kitten synth threw: ' + ((e && e.message) || '').slice(0, 80) });
+        if(this.ttsPolicy() === 'kitten-first' && this._pageEngine === 'kitten'){
+          this._pageEngine = 'system';
+          this.tt('ENGINE_FALLBACK', { reason: 'hard-failure: synth exception' });
+          toast('Kitten voice error — system voice for the rest of this page');
+        }
       }
       if(this.gen !== gu || this.stopped || !this.active) return;
     }
@@ -9995,6 +10210,11 @@ const TTS = {
 
   speakWebSpeech(sent, gu){
     if(this.stopped || !this.active || this.paused) return;
+    /* Legacy 'fastest' policy logs a fallback per sentence (the racing
+       pattern). On a kitten-first page that was DEMOTED (hard failure), the
+       demotion was already traced once — per-sentence entries would
+       over-report, so only log when the page lock is not system. */
+    if(this.engine === 'kitten' && this._pageEngine !== 'system') this.tt('ENGINE_FALLBACK', { reason: 'synth-null-or-empty after kitten' });
     /* WebView2 exposes speechSynthesis but with zero voices (it cannot see
        Windows SAPI voices), so "fallback" there means silence. Give it a short
        grace period to populate, then fail loudly instead of stalling mute. */
@@ -12202,6 +12422,44 @@ if(btnRunTtsBenchmark){
     TTS.runBenchmark();
   });
 }
+const btnCopyTtsDiag = el('btnCopyTtsDiag');
+if(btnCopyTtsDiag){
+  btnCopyTtsDiag.addEventListener('click', () => {
+    const lines = TTS.traceJsonLines();
+    const done = () => toast('TTS diagnostics copied (' + TTS._trace.length + ' events)');
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(lines).then(done, () => { fallbackCopy(lines); done(); });
+      } else { fallbackCopy(lines); done(); }
+    }catch(e){ fallbackCopy(lines); done(); }
+    function fallbackCopy(text){
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(e){}
+      ta.remove();
+    }
+  });
+}
+document.querySelectorAll('#ttsPolicySeg button').forEach(b => b.addEventListener('click', () => {
+  try{ localStorage.setItem('fio_tts_policy', b.dataset.policy); }catch(e){}
+  syncTtsPolicyUI();
+  toast('TTS engine policy: ' + (b.dataset.policy === 'fastest' ? 'Fastest (legacy per-sentence fallback)' : 'Kitten-first (locked per page)'));
+}));
+const ttsPatienceRange = el('ttsPatienceRange');
+if(ttsPatienceRange){
+  ttsPatienceRange.addEventListener('input', () => {
+    try{ localStorage.setItem('fio_tts_patience_ms', String(parseInt(ttsPatienceRange.value, 10) || 0)); }catch(e){}
+    syncTtsPolicyUI();
+  });
+}
+function syncTtsPolicyUI(){
+  document.querySelectorAll('#ttsPolicySeg button').forEach(b => b.classList.toggle('sel', b.dataset.policy === TTS.ttsPolicy()));
+  const r = el('ttsPatienceRange'); const o = el('ttsPatienceOut');
+  if(r) r.value = TTS.ttsPatienceMs();
+  if(o) o.textContent = TTS.ttsPatienceMs() + ' ms';
+}
+syncTtsPolicyUI();
 const btnKittenInstall = el('btnKittenInstall');
 if(btnKittenInstall) btnKittenInstall.addEventListener('click', () => {
   TTS.kittenInstall().catch((err) => toast('Kitten install failed: ' + ((err && err.message) ? err.message.slice(0, 120) : 'unknown error')));
