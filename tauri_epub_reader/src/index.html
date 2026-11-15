@@ -9143,11 +9143,37 @@ const TTS = {
     }
     this.syncVoiceUI();
   },
+  /* Card 6 follow-up: strip what the kitten pipeline cannot voice BEFORE the
+     engine round-trip. Ground truth from the vendored pipeline: the vocab is
+     `;:,.!?¡¿—…"'«»" ` + A-Z a-z + IPA (kitten.bundle.js SYMBOLS @722267),
+     textToIds silently drops every other char, and text whose phonemization
+     yields nothing speakable produces a header-only 44-byte WAV (silent
+     output) — quote-only fragments, emoji, ornaments, zero-width chars.
+     Curly quotes/apostrophes normalize to their voiced equivalents; anything
+     with no letters/digits left returns '' and the chunk is skipped. */
+  sanitizeForKitten(text){
+    let t = String(text || '');
+    t = t.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');   // control chars
+    t = t.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');                      // zero-width
+    t = t.replace(/[\u201C\u201D\u201E\u00AB\u00BB\u2033\u2036]/g, '"');    // double-quote variants → "
+    t = t.replace(/[\u2018\u2019\u201A\u2039\u203A\u02BC]/g, "'");          // apostrophe variants → '
+    t = t.replace(/(^|\s)["']+(\s|$)/g, '$1$2');                            // orphan quote runs → drop
+    t = t.replace(/[\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u{1F000}-\u{1FAFF}]/gu, ''); // emoji / dingbats / ornaments (astral range needs the u flag — a bare \u1F000-… collapses to a range that eats ASCII)
+    t = t.replace(/\*+/g, ' ');                                             // emphasis asterisks
+    t = t.replace(/\s+/g, ' ').trim();
+    if(!/[\p{L}\p{N}]/u.test(t)) return '';
+    return t;
+  },
   getGroupText(g){
     if(!g || !this.sents) return '';
     let text = this.sents.slice(g.start, g.end + 1).map(s2 => s2.text).join(' ').trim();
     if(g.isHeading && text && !/[.!?:;…]$/.test(text)){
       text += '.';
+    }
+    text = this.sanitizeForKitten(text);
+    if(!text && g){
+      // nothing speakable survived — keep the heading terminator logic moot
+      text = '';
     }
     return text;
   },
@@ -9787,6 +9813,14 @@ const TTS = {
     if(!g) return Promise.resolve(null);
 
     const text = this.getGroupText(g);
+    if(!text){
+      // Sanitizer found nothing the engine can voice (quote-only fragments,
+      // emoji, ornaments) — skip the round-trip, cache silence, never a strike.
+      this.tt('SYNTH_READY', { latencyMs: 0, reason: 'silent-chunk (no speakable text)' });
+      const silent = new Uint8Array(44);
+      this.pcmCache.set(gi, silent);
+      return Promise.resolve(silent);
+    }
     const t0 = performance.now();
     this.tt('SYNTH_START', { reason: 'group ' + gi });
     const p = (async () => {
