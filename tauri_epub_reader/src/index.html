@@ -11414,6 +11414,29 @@ function offerReadAloud(){
   document.body.appendChild(d);
   setTimeout(() => { if(d.parentNode) d.remove(); }, 30000);
 }
+
+/* ---------------- PPI-derived first-run default size (Card 5) ----------------
+   One-time: derive the default text size from the monitor's real pixel
+   density so the default lands at the same PHYSICAL size on any panel
+   (27" 1440p and 27" 4K@150% both land ~22px; a 1080p laptop ~28px).
+   First run only — an existing folio-settings blob is never touched, and
+   the slider remains the override. Invalid native reads (TV EDIDs, RDP,
+   headless) fall back to the plain 19.5 default via the null return.
+   Clamp is 15..28 — the slider/validateSettings range (34 would be reset
+   on the next load). Note: with Auto size on (the default), the auto-fit
+   value governs until the user switches it off. */
+(async function seedPpi(){
+  const invoke = tauriInvoke();
+  if(!invoke) return;
+  try{
+    if(localStorage.getItem('folio-settings')) return;   // existing user — never change
+    const m = await invoke('display_metrics');
+    if(!m || !Number.isFinite(m.cssPpi) || m.cssPpi <= 0) return;
+    settings.size = Math.min(28, Math.max(15, Math.round(DEFAULTS.size * m.cssPpi / 96)));
+    save(); syncSize();
+    _cssCache = ''; _cssHash = ''; refreshCSS();
+  }catch(e){}
+})();
 function syncControls(){
   syncFontSel(); applyTheme();
   el('swBionic').checked=settings.bionic;

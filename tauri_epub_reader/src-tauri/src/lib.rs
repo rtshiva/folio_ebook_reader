@@ -1068,6 +1068,124 @@ fn a11y_text_scale() -> f32 { read_text_scale() }
 #[tauri::command]
 fn a11y_screen_reader() -> bool { read_screen_reader() }
 
+/* ---- Display metrics (PPI-derived default size) -----------------------
+   One-shot: measure the window's monitor (current mode resolution +
+   reported physical size) and derive CSS pixels per physical inch, so
+   the JS side can land the first-run default text size at a constant
+   PHYSICAL size on any panel. Garbage EDID data (zero mm, cap-value
+   TVs) and wild GetDpiForWindow/GetDpiForMonitor disagreements return
+   None — the frontend then keeps the plain 19.5 default. */
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DisplayMetrics {
+    css_ppi: f64,
+    physical_ppi: f64,
+    diagonal_inches: f64,
+    scale: f64,
+    monitor_name: Option<String>,
+}
+
+/// Pure math behind display_metrics — unit-tested against the card's
+/// acceptance panels (27" 1440p ≈ 27" 4K@150% ≈ same css PPI).
+fn compute_display_metrics(
+    horzres: i32,
+    vertres: i32,
+    horzsize: i32,
+    vertsize: i32,
+    monitor_dpi: u32,
+    window_dpi: u32,
+) -> Option<DisplayMetrics> {
+    if horzres <= 0 || vertres <= 0 || horzsize <= 0 || vertsize <= 0 {
+        return None;
+    }
+    let diag_px = ((horzres as f64).powi(2) + (vertres as f64).powi(2)).sqrt();
+    let diag_mm = ((horzsize as f64).powi(2) + (vertsize as f64).powi(2)).sqrt();
+    let diag_in = diag_mm / 25.4;
+    if diag_in <= 0.0 {
+        return None;
+    }
+    let physical_ppi = diag_px / diag_in;
+    // Garbage EDIDs (cap-value TVs, phones-as-monitors) fall outside this band.
+    if !(30.0..=350.0).contains(&physical_ppi) {
+        return None;
+    }
+    let mon_scale = monitor_dpi as f64 / 96.0;
+    let win_scale = window_dpi as f64 / 96.0;
+    if mon_scale <= 0.0 || ((win_scale - mon_scale) / mon_scale).abs() > 0.25 {
+        return None;
+    }
+    let css_ppi = physical_ppi / mon_scale;
+    Some(DisplayMetrics {
+        css_ppi,
+        physical_ppi,
+        diagonal_inches: diag_in,
+        scale: mon_scale,
+        monitor_name: None,
+    })
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn display_metrics(window: tauri::WebviewWindow) -> Option<DisplayMetrics> {
+    use windows::Win32::Graphics::Gdi::{
+        CreateDCW, DeleteDC, GetDeviceCaps, GetMonitorInfoW, MonitorFromWindow, HORZRES,
+        HORZSIZE, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MONITORINFO, VERTRES, VERTSIZE,
+    };
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
+    let hwnd = window.hwnd().ok()?;
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    if monitor.0.is_null() {
+        return None;
+    }
+    let mut mi = MONITORINFOEXW::default();
+    mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    if !unsafe { GetMonitorInfoW(monitor, &mut mi as *mut MONITORINFOEXW as *mut MONITORINFO) }.as_bool()
+    {
+        return None;
+    }
+    let name = String::from_utf16_lossy(&mi.szDevice)
+        .trim_end_matches('\0')
+        .trim()
+        .to_string();
+    let monitor_name = if name.is_empty() { None } else { Some(name) };
+    let hdc = unsafe {
+        CreateDCW(
+            windows::core::PCWSTR::null(),
+            windows::core::PCWSTR::from_raw(mi.szDevice.as_ptr()),
+            windows::core::PCWSTR::null(),
+            None,
+        )
+    };
+    if hdc.0.is_null() {
+        return None;
+    }
+    let (horzres, vertres, horzsize, vertsize) = unsafe {
+        let caps = (
+            GetDeviceCaps(Some(hdc), HORZRES),
+            GetDeviceCaps(Some(hdc), VERTRES),
+            GetDeviceCaps(Some(hdc), HORZSIZE),
+            GetDeviceCaps(Some(hdc), VERTSIZE),
+        );
+        let _ = DeleteDC(hdc);
+        caps
+    };
+    let mut dx: u32 = 0;
+    let mut dy: u32 = 0;
+    if unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) }.is_err() {
+        return None;
+    }
+    let win_dpi = unsafe { GetDpiForWindow(hwnd) };
+    let mut m = compute_display_metrics(horzres, vertres, horzsize, vertsize, dx, win_dpi)?;
+    m.monitor_name = monitor_name;
+    Some(m)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn display_metrics(_window: tauri::WebviewWindow) -> Option<DisplayMetrics> {
+    None
+}
+
 #[tauri::command]
 async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1827,6 +1945,7 @@ pub fn run() {
             power_state,
             a11y_text_scale,
             a11y_screen_reader,
+            display_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1868,6 +1987,31 @@ mod tests {
         let scale = read_text_scale();
         assert!((100.0..=225.0).contains(&scale), "text scale out of range: {scale}");
         let _ = read_screen_reader();
+    }
+
+    #[test]
+    fn test_u47_display_metrics_math() {
+        // The card's acceptance panels: 27" 1440p and 27" 4K@150% must land
+        // the SAME css PPI (same physical size); a 1080p laptop ~141 css PPI;
+        // zero/garbage mm and wild DPI cross-checks must be rejected.
+        let m = compute_display_metrics(2560, 1440, 597, 336, 96, 96).expect("27\" 1440p rejected");
+        assert!((m.css_ppi - 108.8).abs() < 1.0, "1440p css_ppi {}", m.css_ppi);
+        let m4k = compute_display_metrics(3840, 2160, 597, 336, 144, 144)
+            .expect("27\" 4K@150% rejected");
+        assert!(
+            (m4k.css_ppi - m.css_ppi).abs() < 1.0,
+            "4K@150% css_ppi {} vs 1440p {}",
+            m4k.css_ppi,
+            m.css_ppi
+        );
+        let lap = compute_display_metrics(1920, 1080, 344, 194, 96, 96).expect("15.6\" 1080p rejected");
+        assert!((130.0..=155.0).contains(&lap.css_ppi), "laptop css_ppi {}", lap.css_ppi);
+        assert!(compute_display_metrics(1920, 1080, 0, 0, 96, 96).is_none(), "zero mm accepted");
+        // Known TV-EDID edge (160x90 cm cap): 1080p lands ~30.5 PPI, just
+        // inside the band per the card's 30-350 rule — JS clamps to 15.
+        assert!(compute_display_metrics(1920, 1080, 1600, 900, 96, 96).is_some());
+        assert!(compute_display_metrics(3200, 1440, 150, 68, 96, 96).is_none(), "phone panel accepted");
+        assert!(compute_display_metrics(2560, 1440, 597, 336, 96, 192).is_none(), "wild DPI mismatch accepted");
     }
 
     #[test]
