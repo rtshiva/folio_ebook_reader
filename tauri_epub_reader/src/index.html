@@ -861,6 +861,23 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   border:2px solid var(--ink);border-radius:50%;z-index:130;pointer-events:none;opacity:.7}
 
 @media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}
+/* ---------- Windows High Contrast (forced-colors) ----------
+   The OS owns color now: map the theme tokens onto the system palette so
+   the desk follows the user's HC scheme, and kill the blend/mask layers
+   (warmth multiply, spine gutter gradients) that read as mud under HC. */
+@media (forced-colors: active){
+  html{--desk:Canvas;--page:Canvas;--ink:CanvasText;--muted:GrayText;
+       --accent:Highlight;--hair:CanvasText;--hairS:CanvasText;--dim:Canvas;
+       --sel:Highlight;--ghost:Canvas;--on-desk:CanvasText;--desk-meta:GrayText;}
+  #warm,#gutter{display:none!important}
+  #wrap,#stand{box-shadow:none!important}
+}
+/* ---------- prefers-contrast: more ----------
+   Not full HC — just push muted text and hairlines toward the ink color. */
+@media (prefers-contrast: more){
+  html{--muted:color-mix(in srgb,var(--ink) 80%,var(--page));}
+  html{--hairS:color-mix(in srgb,var(--ink) 55%,var(--page));}
+}
 
 /* ============ app themes: Aizome & Ember ============
    First-paint values mirroring the JS THEMES map (applyTheme() owns the
@@ -2305,9 +2322,12 @@ function spreadMetrics(){
   const pageW = Math.max(50, Math.round(Math.min(pageMax, fs*settings.measure)));
   return { feasible, fs, pageW, gutter, mw: pageW*2 + gutter };
 }
+let _osTextScale = 100;   // OS "Make text bigger" (a11y_text_scale) — fetched once at boot
 function effSize(){
-  if(settings.auto) return state.spreadOn ? spreadMetrics().fs : fitInfo().fs;
-  return clamp(settings.size, 15, 28);
+  const base = settings.auto
+    ? (state.spreadOn ? spreadMetrics().fs : fitInfo().fs)
+    : settings.size;
+  return clamp(base * _osTextScale / 100, 9, 45);
 }
 function effWidth(){
   const padX = clamp(innerWidth*0.05, 24, 48);
@@ -2491,6 +2511,7 @@ p{margin:0 !important;text-indent:1.35em !important;}` : '';
   _cssCache = FONT_FACES + `
 html{font-size:${fs}px !important;-webkit-text-size-adjust:100%;}
 html,body{background:${t.page} !important;}
+@media (forced-colors: active){html,body{background:Canvas !important;}body{color:CanvasText !important;}}
   body{
     color:${t.ink} !important;
     font-family:${stack} !important;
@@ -11258,6 +11279,67 @@ tauriListen('power-state', onPowerState);
   if(!invoke) return;
   try{ onPowerState(await invoke('power_state')); }catch(e){}
 })();
+
+/* ---------------- accessibility seeds (Card 3) ----------------
+   Text scale: first run only — no saved folio-settings blob means no
+   user-set slider value to protect. The scale also feeds the effSize
+   multiplier so auto-fit sizes honor "Make text bigger" too; both paths
+   invalidate the injected-CSS cache so chapter docs re-derive.
+   Screen reader: poll SPI_GETSCREENREADER at 3s; on the first true show
+   ONE offer per install (folio-sr-offered), never auto-start. */
+(async function seedA11y(){
+  const invoke = tauriInvoke();
+  if(!invoke) return;
+  try{
+    if(!localStorage.getItem('folio-settings')){
+      const scale = await invoke('a11y_text_scale');
+      if(Number.isFinite(scale) && scale > 100){
+        settings.size = Math.min(28, Math.max(15, Math.round((DEFAULTS.size * scale / 100) * 10) / 10));
+        _osTextScale = scale;
+        save(); syncSize();
+        _cssCache = ''; _cssHash = ''; refreshCSS();
+      }
+    } else {
+      const scale = await invoke('a11y_text_scale');
+      if(Number.isFinite(scale) && scale > 100 && scale !== _osTextScale){
+        _osTextScale = scale;
+        _cssCache = ''; _cssHash = ''; refreshCSS();
+      }
+    }
+    let srOffered = false;
+    try{ srOffered = localStorage.getItem('folio-sr-offered') === '1'; }catch(e){ srOffered = true; }
+    if(!srOffered){
+      const srPoll = setInterval(async () => {
+        let sr = false;
+        try{ sr = await invoke('a11y_screen_reader'); }catch(e){ clearInterval(srPoll); return; }
+        if(!sr) return;
+        clearInterval(srPoll);
+        try{ localStorage.setItem('folio-sr-offered','1'); }catch(e){}
+        offerReadAloud();
+      }, 3000);
+    }
+  }catch(e){}
+})();
+function offerReadAloud(){
+  if(document.getElementById('srOffer')) return;
+  const d = document.createElement('div');
+  d.id = 'srOffer';
+  d.setAttribute('role','dialog');
+  d.setAttribute('aria-label','Screen reader detected');
+  d.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:400;display:flex;gap:10px;align-items:center;max-width:min(92vw,480px);padding:12px 14px;border:1px solid var(--hairS);border-radius:10px;background:var(--page);color:var(--ink);box-shadow:0 8px 30px rgba(0,0,0,.28)';
+  const msg = document.createElement('span');
+  msg.style.cssText = 'font:500 13px var(--sans)';
+  msg.textContent = 'Screen reader detected — start read aloud?';
+  const yes = document.createElement('button');
+  yes.className = 'btn'; yes.type = 'button'; yes.textContent = 'Read aloud';
+  yes.addEventListener('click', () => { d.remove(); TTS.toggle(); });
+  const no = document.createElement('button');
+  no.className = 'btn btn-ghost'; no.type = 'button'; no.textContent = 'Not now';
+  no.addEventListener('click', () => d.remove());
+  d.append(msg, yes, no);
+  document.body.appendChild(d);
+  setTimeout(() => { if(d.parentNode) d.remove(); }, 30000);
+}
 function syncControls(){
   syncFontSel(); applyTheme();
   el('swBionic').checked=settings.bionic;

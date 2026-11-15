@@ -1009,6 +1009,65 @@ fn power_state() -> PowerState {
     read_power_state()
 }
 
+/* ---- Accessibility queries -------------------------------------------
+   a11y_text_scale: the OS "Make text bigger" value (HKCU\Software\
+   Microsoft\Accessibility\TextScale, DWORD 100-225; missing or invalid
+   reads as 100). Drives the first-run default size and the sizing
+   multiplier only — never a user-set slider value.
+   a11y_screen_reader: SPI_GETSCREENREADER — NVDA/JAWS set the flag while
+   running. Platform-neutral command names; non-Windows returns neutral
+   values until wired to their APIs (at-spi / NSWorkspace). */
+#[cfg(windows)]
+fn read_text_scale() -> f32 {
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut data: u32 = 0;
+    let mut cb: u32 = std::mem::size_of::<u32>() as u32;
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            windows::core::w!("Software\\Microsoft\\Accessibility"),
+            windows::core::w!("TextScale"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut data as *mut u32).cast()),
+            Some(&mut cb),
+        )
+    };
+    if err == ERROR_SUCCESS && (100..=225).contains(&data) { data as f32 } else { 100.0 }
+}
+
+#[cfg(not(windows))]
+fn read_text_scale() -> f32 { 100.0 }
+
+#[cfg(windows)]
+fn read_screen_reader() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETSCREENREADER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+    let mut on = windows::core::BOOL::default();
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETSCREENREADER,
+            0,
+            Some((&mut on as *mut windows::core::BOOL).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    ok.is_ok() && on.as_bool()
+}
+
+#[cfg(not(windows))]
+fn read_screen_reader() -> bool { false }
+
+/// OS "Make text bigger" scale (100.0 = 100%) — first-run default size only.
+#[tauri::command]
+fn a11y_text_scale() -> f32 { read_text_scale() }
+
+/// True while a screen reader is active (SPI_GETSCREENREADER).
+#[tauri::command]
+fn a11y_screen_reader() -> bool { read_screen_reader() }
+
 #[tauri::command]
 async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1766,6 +1825,8 @@ pub fn run() {
             tts_configure_backend,
             power_keep_awake,
             power_state,
+            a11y_text_scale,
+            a11y_screen_reader,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1796,6 +1857,17 @@ mod tests {
             // A desktop/VM reports unknown percent; a plugged laptop reports 0-100.
             assert!(ps.percent == 255 || ps.percent <= 100);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_u46_a11y_queries() {
+        // The registry read must yield a sane scale on any machine (missing
+        // key normalizes to 100); the screen-reader flag is machine-state —
+        // CI desktops report false — and must simply not fault.
+        let scale = read_text_scale();
+        assert!((100.0..=225.0).contains(&scale), "text scale out of range: {scale}");
+        let _ = read_screen_reader();
     }
 
     #[test]
