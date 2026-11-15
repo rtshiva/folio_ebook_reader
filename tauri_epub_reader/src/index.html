@@ -85,8 +85,8 @@ body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:non
 @keyframes rise{from{opacity:0;transform:translateY(16px)}}
 .wordmark{font:600 clamp(70px,13vw,140px)/.95 var(--serif);letter-spacing:-.035em;margin:.12em 0 .18em}
 .rule-double{width:76px;height:7px;border-top:1px solid var(--hairS);border-bottom:1px solid var(--hairS);margin:0 auto 30px}
-#lede{font-family:var(--fit-font,var(--serif));font-size:var(--fit-fs);line-height:var(--fit-lh);
-  max-width:min(var(--fit-mw),100%);margin:0 auto;text-align:center}
+#lede{font:500 17px/1.45 var(--sans);color:color-mix(in srgb,currentColor 74%,transparent);
+  max-width:44ch;margin:2px auto 0;text-align:center}
 .colophon{font:500 11px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:16px 0 0}
 .landing-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:30px 0 14px}
 .btn{display:inline-flex;align-items:center;gap:10px;font:500 15px var(--sans);padding:13px 22px;
@@ -97,10 +97,7 @@ body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:non
 .btn-primary:hover{background:var(--accent);border-color:var(--accent);color:#fff;transform:translateY(-1px)}
 .btn-ghost:hover{border-color:var(--ink);transform:translateY(-1px)}
 .drop-hint{font:italic 400 13.5px var(--serif);color:var(--muted);margin:4px 0 0}
-.landing-foot{position:absolute;bottom:calc(20px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;
-  font:600 10.5px var(--sans);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-.landing-foot i{font-style:normal;opacity:.45;padding:0 8px}
-@media(max-width:640px){#ghost{display:none}.landing-foot span{display:block;margin-top:6px}}
+@media(max-width:640px){#ghost{display:none}}
 
 /* ---------- reading chrome ---------- */
 #topbar,#bottombar{position:fixed;left:0;right:0;z-index:30;transition:transform .35s ease,opacity .35s ease;
@@ -1313,15 +1310,9 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <div id="landing">
   <div id="ghost">F</div>
   <div class="landing-card">
-    <p class="kicker">A reading experience for your books</p>
     <h1 class="wordmark">Folio<span class="dot">.</span></h1>
     <div class="rule-double"></div>
-    <p id="lede">Folio is an ebook reader that helps you read comfortably — open any
-      DRM-free .epub, .mobi, or .azw3 and it sets the text the way a good paperback would: type sized to your
-      screen, a measure your eye can hold, leading with room to breathe. Wide windows open into a
-      two-page spread on its stand, with bionic reading, dyslexia-tuned typefaces, and a
-      guided line to help you keep reading.</p>
-    <p class="colophon" id="landingColophon"></p>
+    <p id="lede">Every book, set beautifully.</p>
     <p class="colophon" id="readingStats" style="display:none;margin-top:8px"></p>
     <div class="landing-actions">
       <button class="btn btn-primary" id="btnResume" style="display:none" title="Return to currently open book">
@@ -1344,7 +1335,6 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     </div>
     <p class="drop-hint" id="dropHint">— or drop an ebook (.epub, .mobi) anywhere on this page</p>
   </div>
-  <footer class="landing-foot">Auto-fit typography <i>·</i> Two-page spread <i>·</i> Page-flip &amp; slide <i>·</i> Four typefaces <i>·</i> Bionic reading <i>·</i> Bookmarks &amp; search</footer>
 </div>
 
 <!-- ============ reading chrome ============ -->
@@ -2422,7 +2412,6 @@ function applyFit(){
   rs.setProperty('--pad-y', my+'px');
   const so = el('sizeOut');
   if(so) so.textContent = es.toFixed(1) + 'px' + (settings.auto ? ' (Auto)' : '');
-  el('landingColophon').textContent = 'Set for this screen · '+coloText().replace(/^(Fitted|Manual) · /,'');
   el('colophon').textContent = coloText();
   const sr = el('sizeRange');
   if(sr){ sr.value = es; setFill(sr); }
