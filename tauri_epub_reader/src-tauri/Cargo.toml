@@ -28,3 +28,9 @@ rfd = "0.17.2"
 zip = "2"
 sha2 = "0.10"
 ort = "2.0.0-rc.9"
+
+# Windows-only native APIs. Kept as its own target section so a future
+# macOS/Linux build compiles unchanged: keep-awake during read-aloud today
+# (Win32::System::Power), monitor metrics / a11y queries as needed later.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_System_Power"] }

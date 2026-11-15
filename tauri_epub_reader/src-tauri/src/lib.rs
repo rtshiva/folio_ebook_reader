@@ -896,6 +896,57 @@ pub fn evict_disk_cache(
     }
 }
 
+/* ---- Display keep-awake (read-aloud) ---------------------------------
+   SetThreadExecutionState binds to the calling thread: a flag set on an
+   async worker thread is lost when that thread is reclaimed. Commands run
+   off-thread, so the desired state is tracked in an atomic and always
+   applied on the main event-loop thread, which lives for the whole
+   process. Repeat calls with the same value are idempotent no-ops. */
+#[cfg(windows)]
+static POWER_AWAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(windows)]
+fn apply_display_awake(enabled: bool) -> Result<(), String> {
+    use windows::Win32::System::Power::{SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED};
+    let flags = if enabled {
+        ES_CONTINUOUS | ES_DISPLAY_REQUIRED
+    } else {
+        ES_CONTINUOUS
+    };
+    // Returns the previous thread state; NULL (0) means failure — except a
+    // release with nothing ever set also reports 0, which is a clean no-op.
+    let prev = unsafe { SetThreadExecutionState(flags) };
+    if prev.0 == 0 && enabled {
+        return Err("SetThreadExecutionState(ES_DISPLAY_REQUIRED) failed".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn apply_display_awake(_enabled: bool) -> Result<(), String> {
+    Ok(())
+}
+
+/// Hold the display awake while read-aloud plays; release on pause/stop.
+/// Platform-neutral name: macOS/Linux get a no-op until wired to their
+/// power APIs (IOPMAssertion / DPMS).
+#[tauri::command]
+fn power_keep_awake(enabled: bool, app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        if POWER_AWAKE.swap(enabled, std::sync::atomic::Ordering::SeqCst) == enabled {
+            return Ok(enabled);
+        }
+    }
+    app.run_on_main_thread(move || {
+        if let Err(e) = apply_display_awake(enabled) {
+            log::warn!("power_keep_awake({enabled}): {e}");
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(enabled)
+}
+
 #[tauri::command]
 async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1647,6 +1698,7 @@ pub fn run() {
             tts_run_inference,
             tts_get_backend_info,
             tts_configure_backend,
+            power_keep_awake,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1655,6 +1707,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn test_u44_display_awake_cycle() {
+        // Exercises the kernel32 FFI binding and flag math: acquire, then
+        // release back to the default state on this thread. A release with
+        // nothing set must also succeed (clean no-op).
+        apply_display_awake(true).expect("acquire ES_DISPLAY_REQUIRED failed");
+        apply_display_awake(false).expect("release to ES_CONTINUOUS failed");
+    }
 
     #[test]
     fn test_u1_book_cache_key() {

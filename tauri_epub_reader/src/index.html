@@ -1575,6 +1575,8 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <span class="tx"><b>Page-turn sound</b><small>A soft paper swish as pages turn.</small></span></label>
       <label class="sw"><input type="checkbox" id="swGrain" checked><span class="tr"></span>
         <span class="tx"><b>Paper texture</b><small>A faint grain over pages and page turns.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swKeepAwake"><span class="tr"></span>
+        <span class="tx"><b>Keep screen awake</b><small>While read aloud is playing, the display will not time out.</small></span></label>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
       <label class="sw"><input type="checkbox" id="swIndent"><span class="tr"></span>
@@ -1950,7 +1952,7 @@ const DEFAULTS = {
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   pageOrnaments:true,
-  warmth:0, perBookType:false, pageSound:false, grain:true,
+  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
 };
 let settings = {...DEFAULTS};
@@ -2013,7 +2015,7 @@ function validateSettings(){
   // or hand-edited stores ("auto":"0" is truthy) and via Object.assign in
   // loadPerBookType, so coerce non-booleans explicitly.
   if(!Number.isFinite(settings.measure) || settings.measure < 10 || settings.measure > 90) settings.measure = DEFAULTS.measure;
-  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
+  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
     const v = settings[k];
     if(v === undefined || typeof v === 'boolean') return;
     settings[k] = (v === true || v === 1 || v === '1' || v === 'true');
@@ -8825,6 +8827,22 @@ const KittenRunner = {
     this._pending.clear();
   }
 };
+/* Display keep-awake for read-aloud: while TTS plays, the native side holds
+   the display-required execution state on the main thread (lib.rs
+   power_keep_awake — a per-thread system call). Best-effort only: browser
+   dev builds (no Tauri IPC) and IPC failures are silently ignored, and the
+   Keep-screen-awake setting is the manual override. A local mirror of the
+   Rust-side atomic keeps repeat calls from crossing the IPC bridge. */
+let _ttsAwakeOn = false;
+function setTtsKeepAwake(on){
+  on = !!on && settings.keepAwake !== false;
+  if(on === _ttsAwakeOn) return;
+  _ttsAwakeOn = on;
+  const invoke = tauriInvoke();
+  if(!invoke) return;
+  try{ invoke('power_keep_awake', { enabled: on }).catch(err => console.warn('power_keep_awake(' + on + ') rejected:', err)); }catch(e){}
+}
+
 const TTS = {
   active: false, paused: false, stopped: true,
   sents: [], si: 0,
@@ -9080,6 +9098,7 @@ const TTS = {
   async start(){
     if(!state.rendition){ toast('Open a book to start read aloud'); return; }
     this.active = true; this.paused = false; this.stopped = false;
+    setTtsKeepAwake(true);   // hold the display awake until pause/stop
     this.gen++; this.si = 0;
     // Sentence collection is async — -/=/V during it would speakNext into
     // stale/empty sents (spurious auto-advance). Restarts skip while set;
@@ -9104,6 +9123,7 @@ const TTS = {
   pause(){
     if(!this.active || this.paused) return;
     this.paused = true;
+    setTtsKeepAwake(false);  // pause hands the display timeout back
     // Kill any pending inter-sentence/lead-in gap timer: with gen unchanged
     // it would fire after resume alongside the resume watchdog's own
     // speakNext, speaking the next sentence twice and skipping one.
@@ -9117,6 +9137,7 @@ const TTS = {
   resume(){
     if(!this.active || !this.paused) return;
     this.paused = false;
+    setTtsKeepAwake(true);   // resumed — hold the display awake again
     if(this.ttsCtx && this.ttsCtx.state === 'suspended'){
       try{ this.ttsCtx.resume(); }catch(e){}
     }
@@ -9145,6 +9166,7 @@ const TTS = {
   },
   stop(silent){
     this.stopped = true; this.active = false; this.paused = false;
+    setTtsKeepAwake(false);  // stop (errors, natural end, book close) releases the display
     this.gen++;
     KittenRunner.cancel(this.gen);
     this._pumpRunning = false;
@@ -11158,6 +11180,7 @@ function syncControls(){
   el('swOldstyle').checked=!!settings.oldstyle;
   el('swSound').checked=!!settings.pageSound;
   el('swGrain').checked=settings.grain !== false;
+  el('swKeepAwake').checked=settings.keepAwake !== false;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm(); syncPageMargins();
   el('swPerBook').checked=!!settings.perBookType;
   syncEnvCards();
@@ -11439,6 +11462,12 @@ el('swDropCaps').addEventListener('change', e => {
 // Page-turn sound
 el('swSound').addEventListener('change',e=>{ settings.pageSound=e.target.checked; save(); });
 el('swGrain').addEventListener('change',e=>{ settings.grain=e.target.checked; save(); });
+el('swKeepAwake').addEventListener('change',e=>{
+  settings.keepAwake=e.target.checked; save();
+  // Apply immediately to a session already playing — the helper gates on
+  // the setting, so this releases when turned off mid-playback too.
+  setTtsKeepAwake(TTS.active && !TTS.paused);
+});
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
 el('swIndent').addEventListener('change',e=>{ settings.indent=e.target.checked; save(); relayout(); });
