@@ -3,6 +3,9 @@ name: build-installers
 # Builds the Folio standalone executable, NSIS installer, and MSI installer for Windows.
 # The KittenTTS neural voice model (~78MB) is cached and bundled into application resources
 # for native multi-threaded ORT inference, with fallback to Web Worker WASM when running in browser.
+# A gated macOS job (workflow_dispatch / v* tags only — macOS runners bill at 10x minutes)
+# produces an UNSIGNED arm64 .dmg: users must right-click → Open (or `xattr -cr`) on first
+# launch; proper Gatekeeper clearance needs an Apple Developer ID + notarization.
 
 on:
   workflow_dispatch:
@@ -134,10 +137,104 @@ jobs:
           retention-days: 30
           path: tauri_epub_reader/src-tauri/target/release/dist/*
 
+  build-macos:
+    name: Build macOS arm64 .dmg (unsigned)
+    runs-on: macos-latest
+    # macOS runners bill at 10x minutes: gate to explicit dispatches and tags.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: tauri_epub_reader/package-lock.json
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2025-11
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684 # v2.8.0
+        with:
+          workspaces: tauri_epub_reader/src-tauri
+          key: macos-aarch64
+
+      - name: Install npm dependencies
+        working-directory: tauri_epub_reader
+        run: npm ci
+
+      - name: Cache KittenTTS model
+        id: cache-tts-model-mac
+        uses: actions/cache@13aacd865c20de90d75de3b17ebb84f687ae8833 # v4.0.0
+        with:
+          path: tauri_epub_reader/src-tauri/models/kitten_tts_mini_v0_8.onnx
+          key: tts-kitten-mini-v0.8-onnx
+
+      - name: Fetch KittenTTS model for native inference
+        if: steps.cache-tts-model-mac.outputs.cache-hit != 'true'
+        working-directory: tauri_epub_reader
+        run: |
+          mkdir -p src-tauri/models
+          if [ ! -f "src-tauri/models/kitten_tts_mini_v0_8.onnx" ]; then
+            echo "Fetching KittenTTS neural ONNX model (~78 MB)..."
+            curl -L -f -s -S --retry 3 -o "src-tauri/models/kitten_tts_mini_v0_8.onnx" \
+              "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx" || echo "Warning: model download failed; placeholder will be used"
+          fi
+          ls -lh src-tauri/models/
+
+      - name: Build Tauri app (macOS arm64, unsigned)
+        working-directory: tauri_epub_reader
+        run: npx tauri build --target aarch64-apple-darwin
+
+      - name: Organize macOS artifacts
+        working-directory: tauri_epub_reader/src-tauri/target/aarch64-apple-darwin/release
+        run: |
+          mkdir -p dist
+          # macOS ships BSD grep (no -P) — portable sed extraction
+          VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' ../../../tauri.conf.json | head -1)
+          echo "version: ${VERSION}"
+          # Copy arm64 .dmg (unsigned — Gatekeeper note in job summary)
+          if compgen -G "bundle/dmg/*.dmg" > /dev/null; then
+            for f in bundle/dmg/*.dmg; do
+              cp "$f" "dist/Folio_${VERSION}_aarch64.dmg"
+            done
+          fi
+          # Copy the .app tarball (drag-install alternative)
+          if compgen -G "bundle/macos/*.app.tar.gz" > /dev/null; then
+            for f in bundle/macos/*.app.tar.gz; do
+              cp "$f" "dist/Folio_${VERSION}_aarch64.app.tar.gz"
+            done
+          fi
+          echo "macOS artifacts:"
+          ls -lh dist/
+
+      - name: Gatekeeper note (unsigned build)
+        if: always()
+        run: |
+          echo "### macOS build is UNSIGNED" >> "$GITHUB_STEP_SUMMARY"
+          echo "First launch: right-click the app → **Open** (twice), or clear the quarantine flag:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo 'xattr -cr "/Applications/Folio Reader.app"' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Permanent Gatekeeper clearance requires an Apple Developer ID + notarization." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: folio-macos-binaries
+          retention-days: 30
+          path: tauri_epub_reader/src-tauri/target/aarch64-apple-darwin/release/dist/*
+
   release:
     name: Attach artifacts to GitHub Release
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, build-macos]
     if: success() && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''))
     permissions:
       contents: write
@@ -146,6 +243,12 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: folio-windows-binaries
+          path: dist
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: folio-macos-binaries
           path: dist
 
       - name: List artifacts
