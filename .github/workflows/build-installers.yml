@@ -73,7 +73,7 @@ jobs:
 
       - name: Cache KittenTTS model
         id: cache-tts-model
-        uses: actions/cache@13aacd865c20de90d75de3b17ebb84f687ae8833 # v4.0.0
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
         with:
           path: tauri_epub_reader/src-tauri/models/kitten_tts_mini_v0_8.onnx
           key: tts-kitten-mini-v0.8-onnx
@@ -171,7 +171,7 @@ jobs:
 
       - name: Cache KittenTTS model
         id: cache-tts-model-mac
-        uses: actions/cache@13aacd865c20de90d75de3b17ebb84f687ae8833 # v4.0.0
+        uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
         with:
           path: tauri_epub_reader/src-tauri/models/kitten_tts_mini_v0_8.onnx
           key: tts-kitten-mini-v0.8-onnx
