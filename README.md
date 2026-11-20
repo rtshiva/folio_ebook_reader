@@ -1,36 +1,60 @@
-# Folio — A Beautiful Reading Experience for Windows
+<p align="center">
+  <img src="resources/app-icon/folio-icon-256x256.png" alt="Folio Logo" width="128" height="128" />
+</p>
 
-> **Folio** is a beautifully crafted, offline-first ebook reader for Windows (supporting **EPUB 2/3, MOBI, AZW, and AZW3**), built with Tauri, Rust, WebView2 and epub.js. Featuring realistic page-turn animations, refined typography, immersive reading environments, botanical page ornaments, annotations, bookmarks, full-book search and neural text-to-speech. Designed to recreate the pleasure of reading a beautifully printed physical book.
+<h1 align="center">Folio — A Beautiful Reading Experience</h1>
 
-Folio is a desktop ebook reader designed around a simple idea: reading a digital book should feel as comfortable, immersive and beautiful as reading a well-crafted physical book.
+<p align="center">
+  <strong>An offline-first, beautifully crafted desktop ebook reader for Windows and macOS.</strong>
+  <br>
+  Supporting <b>EPUB 2/3, MOBI, AZW, and AZW3</b> with realistic page turns, refined typography, botanical page ornaments, neural text-to-speech, and immersive reading environments.
+</p>
 
-Built with Tauri 2, Rust, WebView2 and epub.js, Folio combines a lightweight native desktop application with a carefully designed reading interface. Rather than treating an ebook as just another document displayed on a screen, Folio recreates the visual experience of a traditional book — from carefully tuned typography and realistic page turns to textured paper, elegant book stands, decorative chapter openings and botanical page ornaments.
+<p align="center">
+  <a href="https://github.com/rtshiva/folio_ebook_reader/actions/workflows/build-installers.yml"><img src="https://github.com/rtshiva/folio_ebook_reader/actions/workflows/build-installers.yml/badge.svg" alt="CI Build" /></a>
+  <a href="https://github.com/rtshiva/folio_ebook_reader/releases/latest"><img src="https://img.shields.io/github/v/release/rtshiva/folio_ebook_reader?color=blue&label=latest%20release" alt="Latest Release" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20(arm64)-orange" alt="Platform: Windows & macOS" />
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT" />
+</p>
 
-### What makes Folio different?
-- **Format versatility**: Native support for DRM-free **EPUB 2/3**, **MOBI** (Mobi 6/7), **AZW**, and **AZW3 / KF8** ebooks.
-- **A book-like reading experience**: Realistic page-fold animations, single-page and two-page layouts, and carefully tuned typography.
-- **Beautiful reading environments**: Choose from curated paper, ink and desk themes, with independent control over the surrounding Reading Room.
-- **Decorative book aesthetics**: Chapter-opening ornaments, botanical side vines, gold corner decorations and traditional book-inspired details.
-- **A comfortable reading interface**: Adjustable fonts, line spacing, page width, margins, reading ruler and focus-friendly controls.
-- **Tools for serious readers**: Bookmarks, highlights, annotations, full-book search, dictionary lookup and reading statistics.
-- **Read aloud**: System voices and offline **KittenTTS neural voices** via local WebAssembly / ONNX runtime.
-- **Local-first design**: Your books and reading experience are designed to work without depending on a cloud service.
+---
+
+Folio is designed around a simple conviction: **reading a digital book should feel as comfortable, immersive, and visually tactile as reading a finely printed volume.**
+
+Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Folio pairs a low-overhead native backend with a bespoke reading canvas. Rather than presenting ebooks as sterile documents, Folio recreates the physical intimacy of reading — from spring-physics page turns and textured paper stock to decorative chapter openings, botanical margin vines, and full-book neural text-to-speech.
+
+### What makes Folio unique?
+- **Universal reflowable format support**: DRM-free **EPUB 2/3**, **MOBI** (Mobi 6/7/PalmDOC), **AZW**, and **AZW3 / KF8**.
+- **Tactile page turns**: GPU-accelerated fold-sheet page flips with paper texture, crease sheen, warm fold light, and damped-spring drag physics.
+- **Dual-axis reading aesthetics**: Independent selection of your paper/ink environment and your surrounding **Reading Room** desk wallpaper.
+- **Botanical ornamentation**: Chapter-opening headpieces, gold corner cartouches, fleuron chapter continuation markers, and climbing margin vines.
+- **Refined typography harmony**: Auto-fitting layout targeting ~68 characters per line with bundled typefaces (Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic), drop caps, and bionic reading.
+- **Neural Read Aloud (KittenTTS)**: High-fidelity offline neural voice synthesis powered by native multi-threaded ORT inference with fallback to WebAssembly.
+- **Local-first privacy**: Zero telemetry, no cloud accounts, and fully offline operation.
 
 ![Folio's Reading Room — The Time Machine in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
 
 ## Downloads
 
-Download the latest release for Windows 10/11 (64-bit):
+Download the latest release from the **[GitHub Releases Page](https://github.com/rtshiva/folio_ebook_reader/releases/latest)**:
 
-- **[Download Windows Setup (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Recommended installer (~15 MB).
-- **[Download Windows MSI (.msi)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Enterprise / silent installation package.
-- **[Download Standalone Executable](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Portable binary without setup (~9 MB).
+### Windows (64-bit)
+- **[Windows NSIS Setup (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Recommended desktop installer with Start Menu integration and file associations.
+- **[Windows MSI Installer (.msi)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Standard Windows Installer package for managed/enterprise environments.
+- **[Standalone Portable Executable (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Single self-contained binary (`Folio.exe`) without installation.
 
-*Note: Folio is offline-first. All core fonts and readers are bundled locally. Optional Kitten neural TTS voices (~92 MB) install once on-demand from settings, then work completely offline via local WebAssembly / ONNX runtime.*
+### macOS (Apple Silicon arm64)
+- **[macOS Disk Image (.dmg)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Drag-and-drop installer for Apple Silicon (M1/M2/M3/M4) Macs.
+- **[macOS Application Tarball (.app.tar.gz)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Portable application bundle archive.
+
+> [!NOTE]
+> **macOS Gatekeeper notice**: macOS builds are currently unsigned. On first launch, right-click the application and select **Open** (twice), or run `xattr -cr "/Applications/Folio Reader.app"` in Terminal to clear the quarantine attribute.
+
+---
 
 ## Architecture Overview
 
-Folio marries a low-overhead Rust native host with an Edge WebView2 reading canvas:
+Folio marries a security-hardened native Rust host with an Edge WebView2 reading canvas:
 
 ```mermaid
 flowchart TD
@@ -38,177 +62,204 @@ flowchart TD
         UI["Reading Interface & Typography Engine"]
         Renderer["epub.js Core"]
         Turns["GPU Page-Turn Compositor"]
-        WindowCache["15-Page Sliding Window Cache"]
+        TTSWorker["KittenTTS WASM Fallback Worker"]
     end
 
     subgraph Backend ["Native Backend (Tauri 2 / Rust)"]
-        IPC["Tauri IPC Commands (read_file_bytes, book_open)"]
-        CustomProto["folio-cache:// Resource Protocol"]
-        MemCache["BookCache (Single-Mutex LRU)"]
-        DiskStore["Unzipped Disk Cache (600 MB / 30 Books)"]
+        IPC["Tauri IPC Commands (book_open, tts_synthesize)"]
+        CustomProto["folio-cache:// Protocol Handler"]
+        MobiEngine["PalmDOC / MOBI / AZW Unpack Engine"]
+        ORT["ONNX Runtime Native Neural Inference"]
+        DiskStore["Unzipped Disk Cache (600 MB / 30-Book LRU)"]
     end
 
     UI --> Renderer
     Renderer --> CustomProto
     CustomProto --> DiskStore
-    IPC --> MemCache
+    IPC --> MobiEngine
+    IPC --> ORT
 ```
 
-- **Native Rust Host (Tauri 2)**: Manages file associations, single-instance routing (forwarding secondary launches to the active window), zip-slip safe unpacking, memory-budgeted LRU cache, and disk cache maintenance.
-- **Custom `folio-cache://` Protocol Handler**: High-throughput content-addressed cache protocol that serves pre-extracted book assets directly to WebView2 with immutable HTTP caching and automatic XML entity repair.
-- **Composited Page-Turn Engine**: Smooth GPU-accelerated page flips animating only `transform` and `opacity` properties with forced GPU rasterization.
+- **Native Rust Host (Tauri 2)**: Handles window management, Windows & macOS file associations, single-instance routing (forwarding secondary file launches to the running window), and decompression bounds.
+- **Custom `folio-cache://` Protocol**: High-throughput content-addressed cache protocol that serves pre-extracted book assets directly to WebView2 with strict Content Security Policies (`script-src 'none'`) and XML entity repair.
+- **Native Neural TTS (ONNX Runtime)**: Multi-threaded native synthesis with sub-0.20 RTF (Real-Time Factor), volume-bounded PCM chunking, and fallback to WebAssembly in browser contexts.
+- **GPU Page-Turn Compositor**: Pure `transform` and `opacity` shader animations that eliminate layout thrashing during page flips.
+
+---
 
 ## Screenshots
 
-| Reading Room (Royal Maroon) | Two-page spread |
+| Reading Room (Royal Maroon) | Two-Page Spread |
 |---|---|
 | ![Reading Room with side vines and page corner art](docs/screenshots/reading-room.png) | ![Two-page spread](docs/screenshots/spread.png) |
 
-| Landing | Single page |
+| Library Landing | Single Page Reading |
 |---|---|
 | ![Landing page](docs/screenshots/landing.png) | ![Single page reading](docs/screenshots/reading.png) |
 
-| Contents drawer | Typography & settings |
+| Table of Contents | Typography & Reader Settings |
 |---|---|
 | ![Contents drawer](docs/screenshots/contents.png) | ![Typography settings](docs/screenshots/settings.png) |
 
-| Keyboard shortcuts | Velvet Night theme |
+| Keyboard Shortcuts Overlay | Velvet Night Theme |
 |---|---|
 | ![Shortcuts overlay](docs/screenshots/shortcuts.png) | ![Night theme](docs/screenshots/night.png) |
 
+---
+
 ## Reading Environments
 
-Seven curated environments, each with its own desk, cloth, and side-vine dressing — captured live with per-chapter page art:
+Seven curated environments, each with its own desk tone, cloth texture, and side-vine dressing:
 
 | Natural Paper | Modern Clean |
 |---|---|
-| ![Natural Paper — warm serif, book stock](docs/screenshots/theme-paper.png) | ![Modern Clean — sharp sans, high contrast](docs/screenshots/theme-light.png) |
+| ![Natural Paper](docs/screenshots/theme-paper.png) | ![Modern Clean](docs/screenshots/theme-light.png) |
 
 | Velvet Night | Aizome |
 |---|---|
-| ![Velvet Night — soft amber, no blue-light](docs/screenshots/theme-noir.png) | ![Aizome — indigo & vermilion](docs/screenshots/theme-aizome.png) |
+| ![Velvet Night](docs/screenshots/theme-noir.png) | ![Aizome](docs/screenshots/theme-aizome.png) |
 
 | Ember | Velvet |
 |---|---|
-| ![Ember — night & amber](docs/screenshots/theme-ember.png) | ![Velvet — claret & gilt](docs/screenshots/theme-velvet.png) |
+| ![Ember](docs/screenshots/theme-ember.png) | ![Velvet](docs/screenshots/theme-velvet.png) |
 
 | Emerald | |
 |---|---|
-| ![Emerald — green & gold](docs/screenshots/theme-emerald.png) | |
+| ![Emerald](docs/screenshots/theme-emerald.png) | |
 
-## Features
+---
 
-### Implemented Features
+## Core Features
 
-#### Getting Books In
-- **Open any DRM-free EPUB 2/3, MOBI, AZW, and AZW3** (reflowable) — native file picker (`Ctrl+O`), drag & drop onto the window, double-click via Windows file associations, or CLI argument. A second launch forwards its file to the running window instead of spawning a duplicate.
-- **Built-in sample book** — embedded abridgement of *The Time Machine* for an instant first-run experience.
-- **Recent shelf with cover thumbnails** and "Continue reading" resume button (restores exact position via CFI).
-- **Fast re-opens** — books are decompressed once into a zip-slip-safe Rust-side disk cache served over a custom `folio-cache://` protocol (600 MB / 30-book LRU eviction), with single-mutex raw binary IPC for first loads.
-- **Offline-first operation** — epub.js, JSZip, Space Grotesk UI font, and all reading fonts are bundled locally.
+### Format Support & Ingestion
+- **Formats**: Reflowable DRM-free **EPUB 2/3**, **MOBI** (Mobi 6/7/PalmDOC), **AZW**, and **AZW3 / KF8**.
+- **Launch Vectors**: Native file dialog (`Ctrl+O`), drag & drop, CLI file arguments, and OS file association double-clicks with single-instance forwarding.
+- **Decompression Safety**: Path traversal protection against Zip-Slip attacks, NTFS alternate data stream filters, and PalmDOC decompression byte quotas (256 MB bounds).
+- **Recent Books Shelf**: Persistent reading shelf with cover thumbnails, read percentage, and exact CFI location restore.
 
-#### Reading Experience
-- **Auto-fit typography** — page width (460–2000 px) and font size (15–28 px, 0.1 steps) with auto-fit; typographic harmony engine tunes line height, letter/word spacing, and margins to hold ~68 characters per line.
-- **Four bundled reading typefaces** — Literata, Lexend, Atkinson Hyperlegible, and OpenDyslexic (local WOFF2), plus justified text, drop caps, and bionic reading (bold word prefixes).
-- **Seven curated reading environments** — Natural Paper, Modern Clean, Velvet Night, Aizome, Ember, Velvet, and Emerald; manual theme pick or auto day/night following the OS, plus a warmth (blue-light) slider.
-- **Per-book typography memory** — each book remembers its own custom settings.
-- **Paper-grade page turns** — GPU-composited fold-sheet flip (paper texture, warm fold light, crease sheen, damped-spring physics, drag-to-turn with fling) plus slide and instant FX modes, and toggleable page-turn sound.
-- **Reading ruler** — guide line following pointer for focus reading.
+### Reading Engine & Typography
+- **Harmonic Typography**: Continuous slider control over font size (15–28 px), line height (1.2–2.2), page width (460–2000 px), and side/inside margins.
+- **Embedded Offline Fonts**: Literata, Lexend, Atkinson Hyperlegible, OpenDyslexic, and Space Grotesk UI.
+- **Page Presentation**: Single-page and dual-page spread (`D`), justified alignment, drop caps, bionic reading (bold word prefixes), and reading ruler/guide.
+- **Per-Book Preferences**: Remembers independent typography, layout, and zoom preferences per title.
 
-#### Reading Room & Page Ornamentation
-- **Two-axis theming** — pick your paper environment (fonts, ink, page tone) and your **Reading Room** (the desk the book rests on) independently. Royal Maroon leads the set: burgundy damask wallpaper, gilt book stand, and embossed cover lettering.
-- **Per-chapter page art** — chapter openings feature gold corner frames and headpieces; continuation pages carry small fleurons. Twelve gold corner designs are assigned deterministically per chapter.
-- **Side vines** — botanical columns (three designs with true left/right pairs) climbing the desk margins.
-- **Inside-page margins** — independent top/bottom/side sliders that reserve empty space around the text block without disturbing pagination.
+### Navigation, Bookmarks & Annotations
+- **Progress Tracking**: Scannable progress bar, chapter ribbons, live reading percentage, time remaining, and page scrub preview.
+- **Chapter Navigation**: Fixed or auto-hiding previous/next chapter hover panels with proximity protection.
+- **Bookmarks & Highlights**: Four highlight colors, inline annotations, persistent per-book bookmark shelf, and one-click Markdown export.
+- **Full-Text Search (`Ctrl+F`)**: Instant in-book full search with excerpt highlighting and jump-to-location.
+- **Offline Dictionary**: Word selection definition popover with offline local caching.
 
-#### Layout, Navigation & Progress
-- **Single page / two-page spread** (`D`) — auto (width-based), forced on, or off, with independent width memory per mode.
-- **Running header** with chapter / book title above the page.
-- **Table of contents** (`T`) with windowed rendering for large TOCs and current-chapter marking.
-- **Progress tracking** — draggable progress rail with page-granularity scrubbing, preview card (chapter, page, excerpt), safety anchor ("Return to Page X"), top chapter ribbon, book-wide page numbers, and time-left estimates.
-- **Chapter navigation panels** on screen edges with hover pills for previous/next chapter (`[` / `]`).
-- **Bookmarks** (`B`) per book with badge count, plus middle-click auto-scroll and mouse-wheel page turning.
+### Neural Read Aloud (TTS)
+- **Engine Options**: Native **KittenTTS neural voices** via local ONNX runtime (~78 MB bundled model) with thread-count clamping, or standard system voices (`speechSynthesis`).
+- **Playback Controls**: Play/pause (`R`), stop (`Shift+R`), variable speed (0.5x–2.0x), synchronized sentence highlighting, and seamless cross-chapter advance.
 
-#### Highlights, Notes & Lookup
-- **Highlights in four colors** with click-to-annotate notes, persisted per book; export notes as Markdown.
-- **Full-book search** (`Ctrl+F`) with excerpt highlighting and jump-to-match.
-- **Word definitions** on selection with offline cache for previously fetched words.
-
-#### Read Aloud & Reading Stats
-- **Text-to-speech, two engines** — *System voices* (OS-provided via `speechSynthesis`) and *KittenTTS neural voices* (offline neural voice engine via local WebAssembly / ONNX runtime). Play/pause (`R`), stop (`Shift+R`), speed (`-` / `=`), sentence highlighting, and auto page advance.
-- **Reading stats** — session/day minutes, pages turned, and streak tracker on the landing page.
-
-#### Chrome & Polish
-- **Auto-hiding chrome** (3.4 s) and fullscreen (`F`); footnote popups, image lightbox/zoom, and keyboard-shortcuts overlay (`?`).
-
-### Planned Features (Roadmap)
-- [ ] Modular frontend refactoring (separating single-file reader into ES modules for page turn engine, settings, and annotations).
-- [ ] IndexedDB storage engine for bookmarks, highlights, and reading stats with automated schema migrations.
-- [ ] Adaptive preloading window tuning based on device memory and reading speed.
-- [ ] Offline dictionary bundle (StarDict / Wiktionary integration) eliminating the online definition API dependency.
-- [ ] Touch gesture refinements for tablet and foldable Windows devices.
+---
 
 ## Keyboard Shortcuts
 
 | Keys | Action |
 |---|---|
-| `→` / `Space` / `PgDn` · `←` / `PgUp` | Next / previous page |
-| `T` · `S` | Contents · Typography and reader settings |
-| `B` / `Ctrl+B` | Bookmark this page |
-| `Ctrl+F` | Search this book |
-| `G` · `D` · `V` | Reading guide · one/two-page layout · page-turn effect |
-| `F` · `H` | Full screen · Home / continue reading |
-| `R` / `Shift+R` · `-` / `=` | Read aloud pause/stop · speed |
-| `Ctrl+O` | Open an ebook file (EPUB, MOBI, AZW, AZW3) |
-| Mouse wheel · `Ctrl+Wheel` · `Alt+Wheel` | Turn pages · type size · page width |
-| Middle-click | Auto-scroll |
+| `→` / `Space` / `PgDn` | Next page |
+| `←` / `PgUp` | Previous page |
 | `[` / `]` | Previous / next chapter |
-| `?` / `Esc` | Show / hide help / close panels |
+| `D` | Toggle single / two-page spread |
+| `T` | Table of contents drawer |
+| `S` | Typography & settings drawer |
+| `Ctrl + F` | Search inside book |
+| `B` / `Ctrl + B` | Add / remove bookmark |
+| `R` / `Shift + R` | Play-pause / stop read aloud |
+| `-` / `=` | Decrease / increase speech speed |
+| `F` | Toggle full screen |
+| `G` | Toggle reading ruler / guide |
+| `Ctrl + O` | Open ebook file |
+| `Mouse Wheel` | Turn pages (including inside page frames) |
+| `Ctrl + Wheel` / `Alt + Wheel` | Adjust font size / page width |
+| `Middle Click` | Toggle auto-scroll |
+| `?` / `Esc` | Help overlay / close active drawers |
 
-## Building & Running
+---
 
-### Requirements
-- [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://www.rust-lang.org/) (2021 edition)
-- Windows 10/11 with WebView2 runtime (pre-installed on Windows 10 2004+ and Windows 11)
+## Development & Building
 
-### Development
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v20+)
+- [Rust](https://www.rust-lang.org/) (1.77.2+)
+- Windows 10/11 with WebView2 runtime, or macOS 12+ (Apple Silicon)
 
-```powershell
+### Commands
+
+All development tasks run from the `tauri_epub_reader` directory:
+
+```bash
 cd tauri_epub_reader
 
-npm run dev          # launches Tauri development window with hot reload
-npm run build        # compiles release executable and installers
+# Install dependencies
+npm ci
+
+# Run development mode with hot reload
+npm run dev
+
+# Run full test suite (Rust unit tests, static scan, Playwright e2e)
+npm test
+
+# Run Rust unit and security tests (68 tests)
+npm run test:rust
+
+# Run static invariant & security scan (42 checks)
+npm run scan
+
+# Run Clippy lints with -D warnings
+npm run lint
+
+# Build standalone executable & installers
+npm run build
 ```
 
-### Running Tests & Security Posture
+Compiled desktop binaries are produced in `tauri_epub_reader/src-tauri/target/release/`:
+- `app.exe` (Windows standalone binary)
+- `bundle/nsis/Folio Reader_1.0.0_x64-setup.exe` (NSIS setup installer)
+- `bundle/msi/Folio Reader_1.0.0_x64_en-US.msi` (MSI installer)
+
+---
+
+## Test & Verification Standards
 
 Folio maintains an uncompromising test and security posture:
-- **42 Rust unit & security tests** (`cargo test` via `npm run test:rust`) covering LRU caching, Zip-Slip path traversal defense, MOBI / AZW / PalmDOC decompression, and active cache eviction protection.
-- **27 invariant regression tests** (`npm run scan`) verifying IPC boundaries, CSP rules, sanitization, and UI contracts.
-- **0 npm audit vulnerabilities** across all production and development dependencies.
-- **Clippy clean** with zero warnings across all targets and test configurations.
+- **68 Rust Unit & Security Tests**: Full coverage for PalmDOC compression/decompression, Zip-Slip prevention, XML entity repairs, CORS isolation, cache bounds, and eviction safety.
+- **42 Invariant Static Scan Checks**: Enforces IPC conversion safety, origin reflection, theme agreement, reading font embedding, and sanitized DOM insertion.
+- **Zero Clippy Warnings**: Strict `-D warnings` enforcement across all platforms and compilation targets.
+- **Clean Dependency Audit**: Zero high or critical vulnerabilities across npm and Cargo packages.
 
-```powershell
-npm test             # runs Rust unit tests, static scan tests, and Playwright e2e suites
-npm run test:rust    # runs 42 Rust unit and security tests
-npm run scan         # runs 27 static invariant and security regression tests
-npm run test:e2e     # runs Playwright browser test suite (serves src/ on port 8124)
-npm run lint         # runs ESLint checks
-```
+---
 
-## Project Structure
+## Repository Structure
 
 ```
+├── resources/
+│   └── app-icon/                  # Master icon set, ICO, multi-res PNGs, and source archive
+├── design-sources/
+│   └── raw-assets/                # Raw vector ornaments, EPS backgrounds, and design assets
 ├── docs/
-│   └── screenshots/               # Application screenshots
+│   ├── CODE_REVIEW_GUIDE.md       # Comprehensive code review standards
+│   └── screenshots/               # Application captures across themes and layouts
 └── tauri_epub_reader/
-    ├── README.md                  # App-level development documentation
-    ├── docs/
-    │   ├── DESIGN_AND_LLD.md      # Low-Level Design (LLD) and system specifications
-    │   ├── FEATURES.md            # Detailed feature tracking
-    │   └── DESIGN-IMPROVEMENTS.md # Visual benchmarks and performance design
-    ├── src/                       # Frontend source (offline-bundled epub.js, JSZip, fonts)
-    ├── src-tauri/                 # Tauri Rust backend (IPC, single-mutex cache, folio-cache:// protocol)
-    └── tests/                     # Playwright e2e test suite & manual visual validation
+    ├── src/                       # Frontend web application (offline-bundled JS, fonts, CSS)
+    │   ├── assets/                # App icon, tiles, and SVG ornaments
+    │   ├── vendor/                # epub.js, jszip, and Space Grotesk font files
+    │   └── index.html             # Unified reader shell
+    ├── src-tauri/                 # Rust backend (Tauri 2 host)
+    │   ├── icons/                 # Platform icons (.ico, .icns, tile PNGs)
+    │   ├── models/                # KittenTTS ONNX neural voice model
+    │   ├── src/
+    │   │   ├── lib.rs             # Tauri commands, cache manager & folio-cache:// protocol
+    │   │   └── mobi.rs            # MOBI / PalmDOC / AZW parsing & extraction
+    │   └── tauri.conf.json        # Window definitions, bundle targets, security CSP
+    └── tests/                     # Playwright end-to-end and static scan test suites
 ```
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
