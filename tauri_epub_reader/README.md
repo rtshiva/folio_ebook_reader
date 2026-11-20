@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../resources/app-icon/folio-icon-128x128.png" alt="Folio Logo" width="96" height="96" />
+  <img src="src/assets/app-icon.png" alt="Folio Logo" width="96" height="96" />
 </p>
 
 # Folio Reader — Desktop App (Tauri 2.0)

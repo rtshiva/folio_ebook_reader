@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/app-icon/folio-icon-256x256.png" alt="Folio Logo" width="128" height="128" />
+  <img src="docs/app-icon.png" alt="Folio Logo" width="128" height="128" />
 </p>
 
 <h1 align="center">Folio — A Beautiful Reading Experience</h1>
@@ -242,6 +242,7 @@ Folio maintains an uncompromising test and security posture:
 │   └── raw-assets/                # Raw vector ornaments, EPS backgrounds, and design assets
 ├── docs/
 │   ├── CODE_REVIEW_GUIDE.md       # Comprehensive code review standards
+│   ├── app-icon.png               # High-resolution application icon
 │   └── screenshots/               # Application captures across themes and layouts
 └── tauri_epub_reader/
     ├── src/                       # Frontend web application (offline-bundled JS, fonts, CSS)
