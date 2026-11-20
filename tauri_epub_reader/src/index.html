@@ -43,6 +43,7 @@
   --sans:'Space Grotesk',ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --serif:'Literata',Georgia,serif;
   --fit-fs:19.5px; --fit-lh:1.65; --fit-mw:660px; --gut:64px;
+  --cover-bg:#1e090b; --cover-border:rgba(218,171,85,.45); --cover-fg:#fcf4e4; --cover-accent:#d4ab55;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -82,7 +83,7 @@ body.state-landing #landing{opacity:1;visibility:visible}
 body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:none}
 #ghost{position:absolute;right:-6vw;top:50%;transform:translateY(-52%);font:600 56vh/1 var(--serif);
   color:var(--ghost);opacity:.05;pointer-events:none;user-select:none;letter-spacing:-.06em}
-.landing-card{position:relative;max-width:680px;animation:rise .8s cubic-bezier(.22,.7,.25,1) both}
+.landing-card{position:relative;max-width:860px;width:100%;animation:rise .8s cubic-bezier(.22,.7,.25,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(16px)}}
 .wordmark{font:600 clamp(70px,13vw,140px)/.95 var(--serif);letter-spacing:-.035em;margin:.12em 0 .18em}
 .rule-double{width:76px;height:7px;border-top:1px solid var(--hairS);border-bottom:1px solid var(--hairS);margin:0 auto 30px}
@@ -606,23 +607,38 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 .search-res-snip mark{background:var(--sel);color:inherit;border-radius:2px;padding:0 2px;}
 
 /* ---------- recent shelf on landing ---------- */
-.recent-shelf{margin-top:28px;width:100%;max-width:620px;}
-.recent-title{font:600 11.5px var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;}
-.recent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;justify-content:center;}
-.recent-card{display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--ink) 4%,transparent);
-  border:1px solid var(--hairS);border-radius:14px;padding:12px 16px;cursor:pointer;text-align:left;
-  transition:transform .15s,background .15s,border-color .15s;}
-.recent-card:hover{transform:translateY(-2px);background:color-mix(in srgb,var(--ink) 8%,transparent);border-color:var(--ink);}
-.recent-cover-art img{width:100%;height:100%;object-fit:cover;border-radius:4px;display:block}
-.recent-cover-art{width:36px;height:48px;background:var(--ink);border-radius:4px;display:grid;place-items:center;
-  color:var(--page);font:700 16px var(--serif);position:relative;box-shadow:2px 2px 8px rgba(0,0,0,.2);flex-shrink:0;}
-.recent-spine-edge{position:absolute;left:0;top:0;bottom:0;width:4px;background:rgba(255,255,255,.2);border-radius:4px 0 0 4px;}
-.recent-info{min-width:0;flex:1;}
-.recent-book-title{font:600 13.5px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.recent-book-author{font:400 12px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-.recent-progress-bar{height:4px;background:var(--hair);border-radius:2px;margin-top:6px;overflow:hidden;}
+.recent-shelf{margin-top:28px;width:100%;max-width:860px;}
+.recent-title{font:600 11.5px var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:0 0 16px;text-align:center;}
+.recent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,185px));gap:18px;justify-content:center;}
+.recent-card{display:flex;flex-direction:column;background:color-mix(in srgb,var(--ink) 4%,transparent);
+  border:1px solid var(--hairS);border-radius:12px;padding:8px 8px 12px;cursor:pointer;text-align:left;
+  transition:transform .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease;
+  position:relative;overflow:hidden;}
+.recent-card:hover{transform:translateY(-4px);background:color-mix(in srgb,var(--ink) 8%,transparent);border-color:var(--ink);box-shadow:0 12px 30px -8px rgba(0,0,0,.35);}
+.recent-cover-art{width:100%;aspect-ratio:2 / 3;border-radius:6px;position:relative;flex-shrink:0;
+  box-shadow:0 4px 14px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.2);overflow:hidden;display:flex;flex-direction:column;
+  background:var(--ink);transition:transform .2s ease,box-shadow .2s ease;}
+.recent-card:hover .recent-cover-art{box-shadow:0 8px 22px rgba(0,0,0,.45);}
+.recent-cover-art img{width:100%;height:100%;object-fit:cover;border-radius:6px;display:block;}
+.recent-spine-edge{position:absolute;left:0;top:0;bottom:0;width:6px;
+  background:linear-gradient(to right,rgba(255,255,255,.32) 0%,rgba(255,255,255,.08) 35%,rgba(0,0,0,.35) 100%);
+  border-radius:6px 0 0 6px;pointer-events:none;z-index:3;}
+.recent-cover-art.is-faux-cover{background:var(--cover-bg,#1e090b);box-sizing:border-box;padding:14px 10px 14px 14px;border:1px solid rgba(255,255,255,.12);}
+.recent-cover-inner{width:100%;height:100%;border:1.5px solid var(--cover-border,rgba(218,171,85,.45));border-radius:4px;
+  box-sizing:border-box;padding:12px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;overflow:hidden;position:relative;}
+.recent-cover-title{font:700 12.5px/1.25 var(--serif);color:var(--cover-fg,#fcf4e4);display:-webkit-box;-webkit-line-clamp:4;
+  -webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;word-break:break-word;letter-spacing:-.01em;text-shadow:0 1px 2px rgba(0,0,0,.6);}
+.recent-cover-rule{width:28px;height:1px;background:var(--cover-accent,#d4ab55);opacity:.75;margin:8px auto;flex-shrink:0;}
+.recent-cover-author{font:500 8.5px/1.15 var(--sans);color:var(--cover-accent,#d4ab55);text-transform:uppercase;letter-spacing:.08em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;opacity:.92;}
+.recent-info{min-width:0;width:100%;margin-top:10px;padding:0 2px;display:flex;flex-direction:column;}
+.recent-book-title{font:600 12.5px/1.3 var(--sans);color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;text-align:left;}
+.recent-book-author{font:400 11px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;text-align:left;}
+.recent-progress-bar{height:4px;background:var(--hair);border-radius:2px;margin-top:8px;overflow:hidden;}
 .recent-progress-fill{height:100%;background:var(--accent);border-radius:2px;}
-.recent-meta{font:500 10.5px var(--sans);color:var(--muted);margin-top:4px;}
+.recent-meta{font:500 10.5px var(--sans);color:var(--muted);margin-top:4px;text-align:left;}
 #scrim{position:fixed;inset:0;z-index:44;background:rgba(22,16,8,.34);opacity:0;pointer-events:none;transition:opacity .3s}
 #scrim.show{opacity:1;pointer-events:auto}
 #scrim.clear{background:transparent}
@@ -3397,13 +3413,38 @@ function ensureEpubUrlPatched(){
 
   // Patch Book and Spine unpack so all spine items (including cover, frontmatter,
   // illustrations, notes, and auxiliary pages with linear="no") are treated as
-  // linear and fully navigable sequentially.
+  // linear and fully navigable sequentially, and ensure coverPath is resolved.
   const origBookUnpack = ePub.Book.prototype.unpack;
   if(origBookUnpack && !ePub.Book.prototype.__linearPatched){
     ePub.Book.prototype.__linearPatched = true;
     ePub.Book.prototype.unpack = function(t){
       if(t && Array.isArray(t.spine)){
         t.spine.forEach(item => { if(item) item.linear = 'yes'; });
+      }
+      if(t && !t.coverPath && t.manifest){
+        for(const k in t.manifest){
+          const it = t.manifest[k];
+          if(!it) continue;
+          const props = String(it.properties || '');
+          const href = String(it.href || '');
+          const id = String(it.id || k);
+          if(props.includes('cover-image') || id.toLowerCase() === 'cover' || id.toLowerCase() === 'cover-image' || id.toLowerCase() === 'cover_image'){
+            t.coverPath = href;
+            break;
+          }
+        }
+        if(!t.coverPath){
+          for(const k in t.manifest){
+            const it = t.manifest[k];
+            if(!it) continue;
+            const href = String(it.href || '');
+            const media = String(it['media-type'] || it.mediaType || '');
+            if(media.startsWith('image/') && (/cover/i.test(href) || /cover/i.test(it.id || ''))){
+              t.coverPath = href;
+              break;
+            }
+          }
+        }
       }
       return origBookUnpack.call(this, t);
     };
@@ -3499,41 +3540,41 @@ async function sanitizeEpubEntities(buf){
 // record the shelf already renders (fire-and-forget; never blocks the open).
 async function cacheBookCover(book, title){
   try{
-    if(!book || !book.coverUrl || !title || title === 'Untitled') return;
-    const titleKey = title;
-    const thumbKey = 'thumb:' + titleKey;
+    if(!book || !title || title === 'Untitled') return;
+    const targetTitle = (state.currentTitle && state.currentTitle !== 'Untitled') ? state.currentTitle : title;
+    const thumbKey = 'thumb:' + targetTitle;
     if(typeof StoreKV !== 'undefined' && StoreKV.get(thumbKey)) return;
-    const url = await book.coverUrl();
+    let url = null;
+    if(typeof book.coverUrl === 'function'){
+      try{ url = await book.coverUrl(); }catch(e){}
+    }
+    if(!url && book.packaging && book.packaging.coverPath){
+      if(book.archived && book.archive && typeof book.archive.createUrl === 'function'){
+        try{ url = await book.archive.createUrl(book.packaging.coverPath); }catch(e){}
+      } else if(typeof book.resolve === 'function'){
+        url = book.resolve(book.packaging.coverPath);
+      }
+    }
     if(!url || !isSafeImageUrl(String(url))) return;
     const img = await new Promise((res, rej) => {
       const im = new Image();
+      im.crossOrigin = 'anonymous';
       im.onload = () => res(im);
       im.onerror = rej;
       im.src = url;
     });
     if(!img.naturalWidth) return;
-    const scale = Math.min(1, 200 / img.naturalWidth);
+    const scale = Math.min(1, 240 / img.naturalWidth);
     const cv = document.createElement('canvas');
     cv.width = Math.max(1, Math.round(img.naturalWidth * scale));
     cv.height = Math.max(1, Math.round((img.naturalHeight || 300) * scale));
     cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-    try{ URL.revokeObjectURL(url); }catch(e){}
-    const dataUrl = cv.toDataURL('image/jpeg', 0.8);
-    // Metadata may have landed while the cover was extracting: the real
-    // title now owns the thumb key, and writing the filename key would
-    // recreate the orphan this function's caller just deleted.
-    if(state.currentTitle !== title) return;
-    if(typeof StoreKV !== 'undefined' && StoreKV.set){
-      StoreKV.set(thumbKey, dataUrl);
+    if(typeof url === 'string' && url.startsWith('blob:')){
+      try{ URL.revokeObjectURL(url); }catch(e){}
     }
-    const list = getRecents();
-    const rec = list.find(x => x.title === title);
-    if(rec){
-      rec.thumbKey = thumbKey;
-      rec.thumb = null;
-      try{ localStorage.setItem('folio-recents', JSON.stringify(list)); }catch(e){}
-      renderRecentShelf();
-    }
+    const dataUrl = cv.toDataURL('image/jpeg', 0.82);
+    const finalTitle = (state.currentTitle && state.currentTitle !== 'Untitled') ? state.currentTitle : targetTitle;
+    updateRecentThumb(finalTitle, dataUrl);
   }catch(e){}
 }
 async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
@@ -5650,6 +5691,115 @@ function flyCoverToReader(fromEl){
     }catch(e){ resolve(); }
   });
 }
+function getBookCoverTheme(title){
+  let hash = 0;
+  const str = String(title || '');
+  for(let i = 0; i < str.length; i++){
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  const palettes = [
+    { bg: 'linear-gradient(135deg, #3d1217 0%, #1a0709 100%)', border: 'rgba(218,171,85,0.5)', fg: '#fcf4e4', accent: '#d4ab55' },
+    { bg: 'linear-gradient(135deg, #0f2338 0%, #06101c 100%)', border: 'rgba(168,198,226,0.5)', fg: '#eef5fc', accent: '#89b8e2' },
+    { bg: 'linear-gradient(135deg, #102a1e 0%, #07150e 100%)', border: 'rgba(196,170,106,0.5)', fg: '#eff7f1', accent: '#c4aa6a' },
+    { bg: 'linear-gradient(135deg, #2f1d10 0%, #170d06 100%)', border: 'rgba(224,178,92,0.5)',  fg: '#fcf6ec', accent: '#e0b25c' },
+    { bg: 'linear-gradient(135deg, #26162d 0%, #120916 100%)', border: 'rgba(215,160,205,0.48)', fg: '#fbf0f9', accent: '#d7a0cd' },
+    { bg: 'linear-gradient(135deg, #1c1c20 0%, #0d0d10 100%)', border: 'rgba(200,180,140,0.5)', fg: '#f4ede2', accent: '#c8b48c' }
+  ];
+  return palettes[Math.abs(hash) % palettes.length];
+}
+
+function getTimeMachineCoverDataUrl(){
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="100%" height="100%">
+  <defs>
+    <linearGradient id="tmBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2c090e"/>
+      <stop offset="45%" stop-color="#190407"/>
+      <stop offset="100%" stop-color="#0e0204"/>
+    </linearGradient>
+    <radialGradient id="tmGlow" cx="50%" cy="48%" r="48%">
+      <stop offset="0%" stop-color="#e2ba64" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#e2ba64" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="900" fill="url(#tmBg)"/>
+  <rect width="600" height="900" fill="url(#tmGlow)"/>
+  <rect x="34" y="34" width="532" height="832" fill="none" stroke="#d4ab55" stroke-width="2.5" opacity="0.85"/>
+  <rect x="44" y="44" width="512" height="812" fill="none" stroke="#d4ab55" stroke-width="1" stroke-dasharray="6,4" opacity="0.6"/>
+  <path d="M44 76 L76 44 M524 44 L556 76 M44 824 L76 856 M524 856 L556 824" stroke="#d4ab55" stroke-width="2" opacity="0.75"/>
+  <rect x="0" y="0" width="28" height="900" fill="black" opacity="0.32"/>
+  <rect x="28" y="0" width="4" height="900" fill="white" opacity="0.08"/>
+  <g transform="translate(300, 420)" stroke="#d4ab55" fill="none" stroke-width="2" opacity="0.82">
+    <circle r="74"/>
+    <circle r="62" stroke-width="1" stroke-dasharray="4,3"/>
+    <circle r="46"/>
+    <circle r="8" fill="#d4ab55"/>
+    <line x1="0" y1="0" x2="0" y2="-34" stroke-width="3"/>
+    <line x1="0" y1="0" x2="24" y2="14" stroke-width="2.5"/>
+    <path d="M0 -74 L0 -64 M0 74 L0 64 M-74 0 L-64 0 M74 0 L64 0"/>
+  </g>
+  <text x="300" y="210" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#d4ab55" letter-spacing="8" opacity="0.9">H. G. WELLS</text>
+  <line x1="190" y1="230" x2="410" y2="230" stroke="#d4ab55" stroke-width="1" opacity="0.5"/>
+  <text x="300" y="295" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="44" fill="#fcf4e4" letter-spacing="3">THE TIME</text>
+  <text x="300" y="345" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="44" fill="#fcf4e4" letter-spacing="3">MACHINE</text>
+  <text x="300" y="565" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="16" fill="#e8d5b5" letter-spacing="2">An Invention</text>
+  <line x1="210" y1="690" x2="390" y2="690" stroke="#d4ab55" stroke-width="1" opacity="0.5"/>
+  <text x="300" y="740" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#d4ab55" letter-spacing="5" opacity="0.85">LONDON · 1895</text>
+  <text x="300" y="770" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#c49a45" letter-spacing="3" opacity="0.7">FOLIO CLASSICS</text>
+</svg>`;
+  try{
+    return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+  }catch(e){
+    return null;
+  }
+}
+
+function tryHydrateRecentThumb(b){
+  if(!b || !b.title || !b.filePath || !window.__TAURI_INTERNALS__) return;
+  const titleKey = b.title;
+  const thumbKey = 'thumb:' + titleKey;
+  if(typeof StoreKV !== 'undefined' && StoreKV.get(thumbKey)) return;
+  if(!window.__hydratingThumbs) window.__hydratingThumbs = new Set();
+  if(window.__hydratingThumbs.has(titleKey)) return;
+  window.__hydratingThumbs.add(titleKey);
+
+  const run = async () => {
+    try{
+      const { invoke } = window.__TAURI_INTERNALS__;
+      const handle = await invoke('book_open', { path: b.filePath });
+      if(handle && handle.hash && handle.manifest && Array.isArray(handle.manifest.files)){
+        const files = handle.manifest.files;
+        const coverFile = files.find(f => /cover\.(jpe?g|png|webp|gif)$/i.test(f.zip_path)) ||
+                          files.find(f => /cover/i.test(f.zip_path) && /\.(jpe?g|png|webp|gif)$/i.test(f.zip_path)) ||
+                          files.find(f => /\.(jpe?g|png|webp)$/i.test(f.zip_path));
+        if(coverFile){
+          const coverUrl = folioCacheUrl(handle.hash) + coverFile.zip_path.replace(/^\/+/, '');
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = coverUrl;
+          });
+          if(img.naturalWidth > 0){
+            const scale = Math.min(1, 240 / img.naturalWidth);
+            const cv = document.createElement('canvas');
+            cv.width = Math.max(1, Math.round(img.naturalWidth * scale));
+            cv.height = Math.max(1, Math.round((img.naturalHeight || 300) * scale));
+            const ctx = cv.getContext('2d');
+            if(ctx){
+              ctx.drawImage(img, 0, 0, cv.width, cv.height);
+              const dataUrl = cv.toDataURL('image/jpeg', 0.82);
+              updateRecentThumb(titleKey, dataUrl);
+            }
+          }
+        }
+      }
+    }catch(err){}
+  };
+  if('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 600);
+}
+
 function renderRecentShelf(){
   const shelf = el('recentShelf');
   const listEl = el('recentList');
@@ -5667,7 +5817,19 @@ function renderRecentShelf(){
 
     const coverArt = document.createElement('div');
     coverArt.className = 'recent-cover-art';
-    const thumbData = (typeof StoreKV !== 'undefined' && (StoreKV.get('thumb:' + b.title) || (b.thumbKey && StoreKV.get(b.thumbKey)))) || b.thumb;
+    let thumbData = (typeof StoreKV !== 'undefined' && (StoreKV.get('thumb:' + b.title) || (b.thumbKey && StoreKV.get(b.thumbKey)))) || b.thumb;
+
+    if(!thumbData && b.title === 'The Time Machine'){
+      thumbData = getTimeMachineCoverDataUrl();
+      if(thumbData && typeof StoreKV !== 'undefined' && StoreKV.set){
+        StoreKV.set('thumb:' + b.title, thumbData);
+      }
+    }
+
+    const spine = document.createElement('div');
+    spine.className = 'recent-spine-edge';
+    coverArt.appendChild(spine);
+
     if(thumbData && isSafeImageUrl(thumbData)){
       const img = document.createElement('img');
       img.src = thumbData;
@@ -5675,12 +5837,37 @@ function renderRecentShelf(){
       img.loading = 'lazy';
       coverArt.appendChild(img);
     } else {
-      const spine = document.createElement('div');
-      spine.className = 'recent-spine-edge';
-      const span = document.createElement('span');
-      span.textContent = (b.title || 'F')[0].toUpperCase();
-      coverArt.appendChild(spine);
-      coverArt.appendChild(span);
+      const coverTone = getBookCoverTheme(b.title || '');
+      coverArt.classList.add('is-faux-cover');
+      coverArt.style.setProperty('--cover-bg', coverTone.bg);
+      coverArt.style.setProperty('--cover-border', coverTone.border);
+      coverArt.style.setProperty('--cover-fg', coverTone.fg);
+      coverArt.style.setProperty('--cover-accent', coverTone.accent);
+
+      const fauxInner = document.createElement('div');
+      fauxInner.className = 'recent-cover-inner';
+      
+      const fauxTitle = document.createElement('div');
+      fauxTitle.className = 'recent-cover-title';
+      fauxTitle.textContent = b.title || 'Untitled';
+      fauxInner.appendChild(fauxTitle);
+
+      const fauxDivider = document.createElement('div');
+      fauxDivider.className = 'recent-cover-rule';
+      fauxInner.appendChild(fauxDivider);
+
+      if(b.author){
+        const fauxAuthor = document.createElement('div');
+        fauxAuthor.className = 'recent-cover-author';
+        fauxAuthor.textContent = b.author;
+        fauxInner.appendChild(fauxAuthor);
+      }
+
+      coverArt.appendChild(fauxInner);
+
+      if(b.filePath && window.__TAURI_INTERNALS__){
+        tryHydrateRecentThumb(b);
+      }
     }
     card.appendChild(coverArt);
 
@@ -12935,8 +13122,10 @@ async function loadDemo(){
 <dc:creator>H. G. Wells</dc:creator>
 <dc:language>en</dc:language>
 <meta property="dcterms:modified">2024-01-01T00:00:00Z</meta>
+<meta name="cover" content="cover-image"/>
 </metadata>
 <manifest>
+<item id="cover-image" href="cover.svg" media-type="image/svg+xml" properties="cover-image"/>
 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
 <item id="css" href="style.css" media-type="text/css"/>
@@ -12947,6 +13136,45 @@ async function loadDemo(){
 </manifest>
 <spine toc="ncx"><itemref idref="c0"/><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/></spine>
 </package>`);
+
+    const tmCoverSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="100%" height="100%">
+  <defs>
+    <linearGradient id="tmBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2c090e"/>
+      <stop offset="45%" stop-color="#190407"/>
+      <stop offset="100%" stop-color="#0e0204"/>
+    </linearGradient>
+    <radialGradient id="tmGlow" cx="50%" cy="48%" r="48%">
+      <stop offset="0%" stop-color="#e2ba64" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#e2ba64" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="900" fill="url(#tmBg)"/>
+  <rect width="600" height="900" fill="url(#tmGlow)"/>
+  <rect x="34" y="34" width="532" height="832" fill="none" stroke="#d4ab55" stroke-width="2.5" opacity="0.85"/>
+  <rect x="44" y="44" width="512" height="812" fill="none" stroke="#d4ab55" stroke-width="1" stroke-dasharray="6,4" opacity="0.6"/>
+  <path d="M44 76 L76 44 M524 44 L556 76 M44 824 L76 856 M524 856 L556 824" stroke="#d4ab55" stroke-width="2" opacity="0.75"/>
+  <rect x="0" y="0" width="28" height="900" fill="black" opacity="0.32"/>
+  <rect x="28" y="0" width="4" height="900" fill="white" opacity="0.08"/>
+  <g transform="translate(300, 420)" stroke="#d4ab55" fill="none" stroke-width="2" opacity="0.82">
+    <circle r="74"/>
+    <circle r="62" stroke-width="1" stroke-dasharray="4,3"/>
+    <circle r="46"/>
+    <circle r="8" fill="#d4ab55"/>
+    <line x1="0" y1="0" x2="0" y2="-34" stroke-width="3"/>
+    <line x1="0" y1="0" x2="24" y2="14" stroke-width="2.5"/>
+    <path d="M0 -74 L0 -64 M0 74 L0 64 M-74 0 L-64 0 M74 0 L64 0"/>
+  </g>
+  <text x="300" y="210" text-anchor="middle" font-family="Georgia, serif" font-size="20" fill="#d4ab55" letter-spacing="8" opacity="0.9">H. G. WELLS</text>
+  <line x1="190" y1="230" x2="410" y2="230" stroke="#d4ab55" stroke-width="1" opacity="0.5"/>
+  <text x="300" y="295" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="44" fill="#fcf4e4" letter-spacing="3">THE TIME</text>
+  <text x="300" y="345" text-anchor="middle" font-family="Georgia, serif" font-weight="bold" font-size="44" fill="#fcf4e4" letter-spacing="3">MACHINE</text>
+  <text x="300" y="565" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="16" fill="#e8d5b5" letter-spacing="2">An Invention</text>
+  <line x1="210" y1="690" x2="390" y2="690" stroke="#d4ab55" stroke-width="1" opacity="0.5"/>
+  <text x="300" y="740" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#d4ab55" letter-spacing="5" opacity="0.85">LONDON · 1895</text>
+  <text x="300" y="770" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#c49a45" letter-spacing="3" opacity="0.7">FOLIO CLASSICS</text>
+</svg>`;
+    zip.file('OEBPS/cover.svg', tmCoverSvg);
 
     const buf=await zip.generateAsync({type:'arraybuffer',mimeType:'application/epub+zip'});
     await openBuffer(buf, 'The Time Machine');
