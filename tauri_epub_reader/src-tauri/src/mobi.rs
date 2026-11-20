@@ -657,8 +657,9 @@ pub fn unpack_mobi(
     let text_end = (text_start + active_doc_hdr.record_count).min(pdb.records.len());
     let mut uncompressed_text_bytes = Vec::new();
 
-    for r_idx in text_start..text_end {
-        let raw_rec = pdb.records[r_idx].data;
+    let text_records = pdb.records.get(text_start..text_end).unwrap_or(&[]);
+    for record in text_records {
+        let raw_rec = record.data;
         let stripped = strip_trailing_entries(raw_rec, active_mobi_hdr.extra_flags);
 
         match active_doc_hdr.compression {
@@ -712,16 +713,16 @@ pub fn unpack_mobi(
         };
 
         let mut total_image_bytes = 0usize;
-        for rec_idx in first_img..max_img {
-            let rec_data = pdb.records[rec_idx].data;
+        let img_records = pdb.records.get(first_img..max_img).unwrap_or(&[]);
+        for (rel_0, record) in img_records.iter().enumerate() {
+            let rec_data = record.data;
             if let Some((ext, mime)) = detect_image_format(rec_data) {
                 if total_image_bytes.saturating_add(rec_data.len()) > MAX_MOBI_IMAGE_TOTAL_BYTES {
                     log::warn!("MOBI image total size exceeded 256 MB; skipping remainder");
                     break;
                 }
                 total_image_bytes += rec_data.len();
-                let rel_1 = (rec_idx - first_img) + 1;
-                let rel_0 = rec_idx - first_img;
+                let rel_1 = rel_0 + 1;
                 let fname = format!("img_{:04}.{}", rel_1, ext);
                 let rel_path = format!("images/{}", fname);
 
