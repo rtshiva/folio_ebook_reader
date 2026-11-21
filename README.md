@@ -50,6 +50,27 @@ Download the latest release from the **[GitHub Releases Page](https://github.com
 > [!NOTE]
 > **macOS Gatekeeper notice**: macOS builds are currently unsigned. On first launch, right-click the application and select **Open** (twice), or run `xattr -cr "/Applications/Folio Reader.app"` in Terminal to clear the quarantine attribute.
 
+### Nightly CI builds (from `main`)
+
+Every successful push to `main` republishes a rolling **[nightly prerelease](https://github.com/rtshiva/folio_ebook_reader/releases/tags/nightly)** with fixed asset names, so these links always serve the newest CI build:
+
+- **[Folio-nightly.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly.exe)** — portable executable
+- **[Folio-nightly-setup.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly-setup.exe)** — NSIS installer
+- **[Folio-nightly.msi](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly.msi)** — MSI installer
+
+Or fetch them from the command line — nightly downloads need no auth (the repo is public):
+
+```bash
+node scripts/fetch-latest-ci.mjs            # nightly release, or latest artifact as fallback
+node scripts/fetch-latest-ci.mjs --dry-run  # list what it would download
+npm run fetch:ci                            # same, from tauri_epub_reader/
+```
+
+> [!NOTE]
+> The artifact fallback (when no nightly release exists) uses the Actions API, which GitHub requires authentication for even on public repos — set `GITHUB_TOKEN` (or `GH_TOKEN`) for that source.
+
+Per-run artifacts (including PR builds) remain downloadable for 30 days from each [Actions run page](https://github.com/rtshiva/folio_ebook_reader/actions/workflows/build-installers.yml).
+
 ---
 
 ## Architecture Overview
