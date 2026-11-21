@@ -43,3 +43,7 @@ venv*/
 hf/
 uvcache/
 .uv_cache/
+
+# Gutenberg capture cache for the README screenshot script
+# (re-fetched by tauri_epub_reader/tests/manual/capture_gutenberg_shots.mjs)
+tauri_epub_reader/tests/manual/gutenberg-books/

@@ -32,7 +32,7 @@ Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Folio pairs a l
 - **Neural Read Aloud (KittenTTS)**: High-fidelity offline neural voice synthesis powered by native multi-threaded ORT inference with fallback to WebAssembly.
 - **Local-first privacy**: Zero telemetry, no cloud accounts, and fully offline operation.
 
-![Folio's Reading Room — The Time Machine in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
+![Folio's Reading Room — *Alice's Adventures in Wonderland* in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
 
 ## Downloads
 
@@ -70,7 +70,7 @@ flowchart TD
         CustomProto["folio-cache:// Protocol Handler"]
         MobiEngine["PalmDOC / MOBI / AZW Unpack Engine"]
         ORT["ONNX Runtime Native Neural Inference"]
-        DiskStore["Unzipped Disk Cache (600 MB / 30-Book LRU)"]
+        DiskStore["Unzipped Disk Cache (600 MB / 4-Book LRU)"]
     end
 
     UI --> Renderer
@@ -89,27 +89,29 @@ flowchart TD
 
 ## Screenshots
 
+Every screenshot below shows a real book fetched from [Project Gutenberg](https://www.gutenberg.org/) — no mock-ups.
+
 | Reading Room (Royal Maroon) | Two-Page Spread |
 |---|---|
-| ![Reading Room with side vines and page corner art](docs/screenshots/reading-room.png) | ![Two-page spread](docs/screenshots/spread.png) |
+| ![Reading Room with side vines and page corner art](docs/screenshots/reading-room.png) | ![Two-page spread — Pride and Prejudice with Hugh Thomson's illustrations](docs/screenshots/spread.png) |
 
 | Library Landing | Single Page Reading |
 |---|---|
-| ![Landing page](docs/screenshots/landing.png) | ![Single page reading](docs/screenshots/reading.png) |
+| ![Landing page with the recent-books shelf holding four Gutenberg classics](docs/screenshots/landing.png) | ![Single page reading — Pride and Prejudice](docs/screenshots/reading.png) |
 
 | Table of Contents | Typography & Reader Settings |
 |---|---|
 | ![Contents drawer](docs/screenshots/contents.png) | ![Typography settings](docs/screenshots/settings.png) |
 
-| Keyboard Shortcuts Overlay | Velvet Night Theme |
+| Keyboard Shortcuts Overlay | After Dark (theme auto) |
 |---|---|
-| ![Shortcuts overlay](docs/screenshots/shortcuts.png) | ![Night theme](docs/screenshots/night.png) |
+| ![Shortcuts overlay](docs/screenshots/shortcuts.png) | ![Frankenstein in the dark environment](docs/screenshots/night.png) |
 
 ---
 
 ## Reading Environments
 
-Seven curated environments, each with its own desk tone, cloth texture, and side-vine dressing:
+Seven curated environments, each with its own desk tone, cloth texture, and side-vine dressing — shown here with four classics from Project Gutenberg:
 
 | Natural Paper | Modern Clean |
 |---|---|
@@ -163,15 +165,17 @@ Seven curated environments, each with its own desk tone, cloth texture, and side
 | `→` / `Space` / `PgDn` | Next page |
 | `←` / `PgUp` | Previous page |
 | `[` / `]` | Previous / next chapter |
-| `D` | Toggle single / two-page spread |
-| `T` | Table of contents drawer |
+| `D` | One / two page layout |
+| `T` | Contents & bookmarks drawer |
 | `S` | Typography & settings drawer |
-| `Ctrl + F` | Search inside book |
-| `B` / `Ctrl + B` | Add / remove bookmark |
-| `R` / `Shift + R` | Play-pause / stop read aloud |
-| `-` / `=` | Decrease / increase speech speed |
-| `F` | Toggle full screen |
-| `G` | Toggle reading ruler / guide |
+| `Ctrl + F` | Search this book |
+| `B` / `Ctrl + B` | Bookmark this page |
+| `R` / `Shift + R` | Read aloud: pause / stop |
+| `-` / `=` | Read aloud speed |
+| `V` | Page-turn effect (narrator voice during read aloud) |
+| `F` | Full screen |
+| `H` | Home / continue reading |
+| `G` | Reading guide |
 | `Ctrl + O` | Open ebook file |
 | `Mouse Wheel` | Turn pages (including inside page frames) |
 | `Ctrl + Wheel` / `Alt + Wheel` | Adjust font size / page width |
@@ -209,7 +213,7 @@ npm run test:rust
 # Run static invariant & security scan (42 checks)
 npm run scan
 
-# Run Clippy lints with -D warnings
+# Run ESLint over the frontend sources (CI also runs Clippy with -D warnings)
 npm run lint
 
 # Build standalone executable & installers
@@ -247,7 +251,7 @@ Folio maintains an uncompromising test and security posture:
 └── tauri_epub_reader/
     ├── src/                       # Frontend web application (offline-bundled JS, fonts, CSS)
     │   ├── assets/                # App icon, tiles, and SVG ornaments
-    │   ├── vendor/                # epub.js, jszip, and Space Grotesk font files
+    │   ├── vendor/                # epub.js, jszip, and bundled font files
     │   └── index.html             # Unified reader shell
     ├── src-tauri/                 # Rust backend (Tauri 2 host)
     │   ├── icons/                 # Platform icons (.ico, .icns, tile PNGs)
