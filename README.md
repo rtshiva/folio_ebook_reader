@@ -185,6 +185,7 @@ Seven curated environments, each with its own desk tone, cloth texture, and side
 |---|---|
 | `→` / `Space` / `PgDn` | Next page |
 | `←` / `PgUp` | Previous page |
+| `Alt + ←` / `Alt + →` | Back / forward after a jump (TOC, search, links) |
 | `[` / `]` | Previous / next chapter |
 | `D` | One / two page layout |
 | `T` | Contents & bookmarks drawer |

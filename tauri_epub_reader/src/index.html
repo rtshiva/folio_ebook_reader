@@ -81,15 +81,20 @@ svg{display:block}
   transition:opacity .55s ease,visibility .55s}
 body.state-landing #landing{opacity:1;visibility:visible}
 body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:none}
+/* landing dwells on the desk, not on the page — desk-token text keeps it
+   legible over dark rooms (royal-maroon) and dark cloth desks alike */
+#landing{color:var(--on-desk)}
+#landing .btn{color:var(--on-desk)}
+#landing .btn-ghost:hover{border-color:var(--on-desk)}
 #ghost{position:absolute;right:-6vw;top:50%;transform:translateY(-52%);font:600 56vh/1 var(--serif);
   color:var(--ghost);opacity:.05;pointer-events:none;user-select:none;letter-spacing:-.06em}
 .landing-card{position:relative;max-width:860px;width:100%;animation:rise .8s cubic-bezier(.22,.7,.25,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(16px)}}
 .wordmark{font:600 clamp(70px,13vw,140px)/.95 var(--serif);letter-spacing:-.035em;margin:.12em 0 .18em}
-.rule-double{width:76px;height:7px;border-top:1px solid var(--hairS);border-bottom:1px solid var(--hairS);margin:0 auto 30px}
+.rule-double{width:76px;height:7px;border-top:1px solid color-mix(in srgb,var(--on-desk) 34%,transparent);border-bottom:1px solid color-mix(in srgb,var(--on-desk) 34%,transparent);margin:0 auto 30px}
 #lede{font:500 17px/1.45 var(--sans);color:color-mix(in srgb,currentColor 74%,transparent);
   max-width:44ch;margin:2px auto 0;text-align:center}
-.colophon{font:500 11px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin:16px 0 0}
+.colophon{font:500 11px var(--sans);letter-spacing:.13em;text-transform:uppercase;color:var(--desk-meta);margin:16px 0 0}
 .landing-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:30px 0 14px}
 .btn{display:inline-flex;align-items:center;gap:10px;font:500 15px var(--sans);padding:13px 22px;
   border-radius:999px;border:1px solid var(--hairS);color:var(--ink);transition:transform .15s,background .2s,border-color .2s}
@@ -98,7 +103,7 @@ body:not(.state-landing) #landing{opacity:0;visibility:hidden;pointer-events:non
 .btn-primary{background:var(--ink);border-color:var(--ink);color:var(--page)}
 .btn-primary:hover{background:var(--accent);border-color:var(--accent);color:#fff;transform:translateY(-1px)}
 .btn-ghost:hover{border-color:var(--ink);transform:translateY(-1px)}
-.drop-hint{font:italic 400 13.5px var(--serif);color:var(--muted);margin:4px 0 0}
+.drop-hint{font:italic 400 13.5px var(--serif);color:var(--desk-meta);margin:4px 0 0}
 @media(max-width:640px){#ghost{display:none}}
 
 /* ---------- reading chrome ---------- */
@@ -611,13 +616,17 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 
 /* ---------- recent shelf on landing ---------- */
 .recent-shelf{margin-top:28px;width:100%;max-width:860px;}
-.recent-title{font:600 11.5px var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:0 0 16px;text-align:center;}
+.recent-title{font:600 11.5px var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--desk-meta);margin:0 0 16px;text-align:center;}
 .recent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,185px));gap:18px;justify-content:center;}
-.recent-card{display:flex;flex-direction:column;background:color-mix(in srgb,var(--ink) 4%,transparent);
-  border:1px solid var(--hairS);border-radius:12px;padding:8px 8px 12px;cursor:pointer;text-align:left;
+/* The shelf is desk-dwelling: it derives from the desk token set
+   (--on-desk/--desk-meta), never the page tokens (--ink/--muted). On light
+   desks those are identical; on dark desks and dark Reading Rooms (velvet,
+   paper+royal-maroon) the page ink is dark and washed out against the desk. */
+.recent-card{display:flex;flex-direction:column;background:color-mix(in srgb,var(--on-desk) 5%,transparent);
+  border:1px solid color-mix(in srgb,var(--on-desk) 32%,transparent);border-radius:12px;padding:8px 8px 12px;cursor:pointer;text-align:left;
   transition:transform .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease;
   position:relative;overflow:hidden;}
-.recent-card:hover{transform:translateY(-4px);background:color-mix(in srgb,var(--ink) 8%,transparent);border-color:var(--ink);box-shadow:0 12px 30px -8px rgba(0,0,0,.35);}
+.recent-card:hover{transform:translateY(-4px);background:color-mix(in srgb,var(--on-desk) 10%,transparent);border-color:var(--on-desk);box-shadow:0 12px 30px -8px rgba(0,0,0,.35);}
 .recent-cover-art{width:100%;aspect-ratio:2 / 3;border-radius:6px;position:relative;flex-shrink:0;
   box-shadow:0 4px 14px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.2);overflow:hidden;display:flex;flex-direction:column;
   background:var(--ink);transition:transform .2s ease,box-shadow .2s ease;}
@@ -636,13 +645,13 @@ body.search-open #searchDrawer{transform:translateX(0);visibility:visible;}
 .recent-cover-author{font:500 8.5px/1.15 var(--sans);color:var(--cover-accent,#d4ab55);text-transform:uppercase;letter-spacing:.08em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;opacity:.92;}
 .recent-info{min-width:0;width:100%;margin-top:10px;padding:0 2px;display:flex;flex-direction:column;}
-.recent-book-title{font:600 12.5px/1.3 var(--sans);color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;
+.recent-book-title{font:600 12.5px/1.3 var(--sans);color:var(--on-desk);display:-webkit-box;-webkit-line-clamp:2;
   -webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;text-align:left;}
-.recent-book-author{font:400 11px var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;text-align:left;}
-.recent-progress-bar{height:4px;background:var(--hair);border-radius:2px;margin-top:8px;overflow:hidden;}
+.recent-book-author{font:400 11px var(--sans);color:var(--desk-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;text-align:left;}
+.recent-progress-bar{height:4px;background:color-mix(in srgb,var(--on-desk) 16%,transparent);border-radius:2px;margin-top:8px;overflow:hidden;}
 .recent-progress-fill{height:100%;background:var(--accent);border-radius:2px;}
-.recent-meta{font:500 10.5px var(--sans);color:var(--muted);margin-top:4px;text-align:left;}
-.recent-chleft{font:500 10.5px var(--sans);color:color-mix(in srgb,var(--accent) 62%,var(--muted));margin-top:2px;text-align:left;}
+.recent-meta{font:500 10.5px var(--sans);color:var(--desk-meta);margin-top:4px;text-align:left;}
+.recent-chleft{font:500 10.5px var(--sans);color:color-mix(in srgb,var(--accent) 62%,var(--desk-meta));margin-top:2px;text-align:left;}
 #scrim{position:fixed;inset:0;z-index:44;background:rgba(22,16,8,.34);opacity:0;pointer-events:none;transition:opacity .3s}
 #scrim.show{opacity:1;pointer-events:auto}
 #scrim.clear{background:transparent}
@@ -963,16 +972,13 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 [data-theme="aizome"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
 [data-theme="aizome"] #loader .kicker,
 [data-theme="aizome"] .recent-title,
-[data-theme="aizome"] .recent-book-author,
-[data-theme="aizome"] .recent-meta{color:var(--desk-meta)}
+[data-theme="aizome"] .recent-book-author{color:var(--desk-meta)}
 [data-theme="aizome"] .rule-double{border-color:rgba(233,229,216,.38)}
 [data-theme="aizome"] .loader-rule{background:rgba(233,229,216,.2)}
 [data-theme="aizome"] .btn{color:var(--on-desk);border-color:rgba(233,229,216,.4)}
 [data-theme="aizome"] .btn-ghost:hover{border-color:var(--on-desk)}
 [data-theme="aizome"] .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
 [data-theme="aizome"] .btn-primary:hover{background:#d4492f;border-color:#d4492f}
-[data-theme="aizome"] .recent-card{background:rgba(233,229,216,.06);border-color:rgba(233,229,216,.22)}
-[data-theme="aizome"] .recent-book-title{color:var(--on-desk)}
 [data-theme="aizome"] .recent-progress-bar{background:rgba(233,229,216,.18)}
 /* picker cards stay legible on the cream sheet */
 [data-theme="aizome"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
@@ -1114,8 +1120,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 [data-theme="emerald"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
 [data-theme="emerald"] #loader .kicker,
 [data-theme="emerald"] .recent-title,
-[data-theme="emerald"] .recent-book-author,
-[data-theme="emerald"] .recent-meta{color:var(--desk-meta)}
+[data-theme="emerald"] .recent-book-author{color:var(--desk-meta)}
 [data-theme="emerald"] .rule-double{border-color:rgba(243,233,214,.35)}
 [data-theme="emerald"] .loader-rule{background:rgba(243,233,214,.2)}
 [data-theme="emerald"] .btn{color:var(--on-desk);border-color:rgba(243,233,214,.38)}
@@ -1125,8 +1130,6 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   border-color:#a8823c;color:#241703;
 }
 [data-theme="emerald"] .btn-primary:hover{background:linear-gradient(180deg,#eec874,#d0a848);border-color:#a8823c}
-[data-theme="emerald"] .recent-card{background:rgba(243,233,214,.07);border-color:rgba(243,233,214,.22)}
-[data-theme="emerald"] .recent-book-title{color:var(--on-desk)}
 [data-theme="emerald"] .recent-progress-fill{background:#d4ab55}
 [data-theme="emerald"] .coach-btn{background:#c29b3e;color:#241703}
 [data-theme="emerald"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
@@ -1210,8 +1213,7 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
 [data-theme="velvet"] #landing :is(.kicker,.colophon,.drop-hint,.landing-foot),
 [data-theme="velvet"] #loader .kicker,
 [data-theme="velvet"] .recent-title,
-[data-theme="velvet"] .recent-book-author,
-[data-theme="velvet"] .recent-meta{color:var(--desk-meta)}
+[data-theme="velvet"] .recent-book-author{color:var(--desk-meta)}
 [data-theme="velvet"] .rule-double{border-color:rgba(243,233,214,.35)}
 [data-theme="velvet"] .loader-rule{background:rgba(243,233,214,.2)}
 [data-theme="velvet"] .btn{color:var(--on-desk);border-color:rgba(243,233,214,.38)}
@@ -1221,8 +1223,6 @@ body.autoscroll::after{content:'';position:fixed;left:50%;top:50%;width:14px;hei
   border-color:#a8823c;color:#241703;
 }
 [data-theme="velvet"] .btn-primary:hover{background:linear-gradient(180deg,#eec874,#d0a848);border-color:#a8823c}
-[data-theme="velvet"] .recent-card{background:rgba(243,233,214,.07);border-color:rgba(243,233,214,.22)}
-[data-theme="velvet"] .recent-book-title{color:var(--on-desk)}
 [data-theme="velvet"] .recent-progress-fill{background:#d4ab55}
 [data-theme="velvet"] .coach-btn{background:#c29b3e;color:#241703}
 [data-theme="velvet"] .env-card{background:color-mix(in srgb,var(--ink) 5%,transparent)}
@@ -1814,6 +1814,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
     <dl class="help-list">
       <div><dt><kbd>→</kbd> <kbd>Space</kbd> <kbd>PgDn</kbd></dt><dd>Next page</dd></div>
       <div><dt><kbd>←</kbd> <kbd>PgUp</kbd></dt><dd>Previous page</dd></div>
+      <div><dt><kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd></dt><dd>Back / forward after a jump</dd></div>
       <div><dt><kbd>T</kbd></dt><dd>Contents &amp; bookmarks</dd></div>
       <div><dt><kbd>S</kbd></dt><dd>Typography settings</dd></div>
       <div><dt><kbd>B</kbd> / <kbd>Ctrl</kbd>+<kbd>B</kbd></dt><dd>Bookmark this page</dd></div>
@@ -4701,6 +4702,10 @@ function wireContents(contents){
           if(t){
             try{ t.scrollIntoView({ behavior: 'smooth' }); }catch(_){ try{ t.scrollIntoView(); }catch(__){} }
           } else if(state.rendition){
+            try{
+              const curLoc = state.rendition.currentLocation();
+              NavHistory.push(curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+            }catch(_){}
             try{ state.rendition.display(rawHref).catch(()=>{}); }catch(_){}
           }
           return;
@@ -4729,6 +4734,10 @@ function wireContents(contents){
         // Internal chapter navigation / folio-cache
         if(parsed.protocol === 'folio-cache:' || parsed.hostname === 'folio-cache.localhost' || parsed.protocol === 'blob:' || !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawHref)){
           if(state.rendition){
+            try{
+              const curLoc = state.rendition.currentLocation();
+              NavHistory.push(curLoc && curLoc.start ? curLoc.start.cfi : state.currentCfi, el('pageBadge') ? el('pageBadge').textContent : '', el('chapter') ? el('chapter').textContent : '');
+            }catch(_){}
             try{ state.rendition.display(rawHref).catch(()=>{}); }catch(_){}
           }
           return;
@@ -6270,11 +6279,13 @@ function updateRibbonState(cfi){
 /* ---------------- navigation safety anchor & history stack ---------------- */
 const NavHistory = {
   stack: [],
+  fwd: [],
   timer: null,
   push(cfi, pageLabel, chapterTitle) {
     if(!cfi) return;
     const top = this.peek();
     if(top && top.cfi === cfi) return;
+    this.fwd.length = 0;   // a fresh jump invalidates forward history
     this.stack.push({
       cfi,
       pageLabel: pageLabel || '',
@@ -6318,15 +6329,46 @@ const NavHistory = {
   clear() {
     clearTimeout(this.timer);
     this.stack.length = 0;
+    this.fwd.length = 0;
     this.dismiss();
   },
-  returnBack() {
-    const item = this.pop();
+  /* Live-position snapshot in push()'s field shape — used to seed the
+     opposite stack on back()/forward() (browser-style history pairs). */
+  snap() {
+    let cfi = state.currentCfi || null;
+    try{
+      const l = state.rendition && state.rendition.currentLocation();
+      if(l && l.start && l.start.cfi) cfi = l.start.cfi;
+    }catch(_){}
+    return { cfi, pageLabel: el('pageBadge') ? el('pageBadge').textContent : '',
+      chapterTitle: el('chapter') ? el('chapter').textContent : '', time: Date.now() };
+  },
+  label(item) {
+    return (item && (item.chapterTitle || item.pageLabel)) || 'your previous position';
+  },
+  back() {
+    if(state.turning || state.recreating) return false;
+    const item = this.stack.pop();
+    if(!item || !item.cfi || !state.rendition){ this.dismiss(); return false; }
+    const cur = this.snap();
+    if(cur.cfi){ this.fwd.push(cur); if(this.fwd.length > 25) this.fwd.shift(); }
     this.dismiss();
-    if(item && item.cfi && state.rendition){
-      state.rendition.display(item.cfi);
-      toast('Returned to previous page');
-    }
+    state.rendition.display(item.cfi);
+    toast('Back to ' + this.label(item));
+    return true;
+  },
+  forward() {
+    if(state.turning || state.recreating) return false;
+    const item = this.fwd.pop();
+    if(!item || !item.cfi || !state.rendition) return false;
+    const cur = this.snap();
+    if(cur.cfi){ this.stack.push(cur); if(this.stack.length > 25) this.stack.shift(); }
+    state.rendition.display(item.cfi);
+    toast('Forward to ' + this.label(item));
+    return true;
+  },
+  returnBack() {
+    this.back();
   }
 };
 
@@ -11637,6 +11679,15 @@ function onKey(e){
     syncSize();
     relayout();
     showNudgeHud('Aa Auto');
+    return;
+  }
+  if(e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')){
+    // Always swallowed: WebView2 maps bare Alt+Arrow to history navigation,
+    // which would reload the single-document app when the stack is empty.
+    e.preventDefault();
+    if(body.classList.contains('state-reading')){
+      if(e.key === 'ArrowLeft') NavHistory.back(); else NavHistory.forward();
+    }
     return;
   }
   if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.altKey)return;
