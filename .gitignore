@@ -22,6 +22,9 @@ tauri_epub_reader/bin/
 # local tool state + manual capture outputs
 .zcode/
 tauri_epub_reader/tests/manual/shots/
+# one-off probe evidence screenshots (flip/flicker/rebrand investigations);
+# probe scripts are committed, their PNG outputs are disposable
+tauri_epub_reader/tests/manual/*.png
 
 # user asset downloads + regenerable ornament intermediates (normalized
 # pieces live in src/assets/ornaments/page-art.js + VECTEEZY-LICENSE.txt)
