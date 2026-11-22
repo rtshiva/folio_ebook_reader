@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/app-icon.png" alt="Folio Logo" width="128" height="128" />
+  <img src="docs/app-icon.png" alt="Aurefolia logo" width="128" height="128" />
 </p>
 
-<h1 align="center">Folio — A Beautiful Reading Experience</h1>
+<h1 align="center">Aurefolia — A Beautiful Reading Experience</h1>
 
 <p align="center">
   <strong>An offline-first, beautifully crafted desktop ebook reader for Windows and macOS.</strong>
@@ -19,11 +19,11 @@
 
 ---
 
-Folio is designed around a simple conviction: **reading a digital book should feel as comfortable, immersive, and visually tactile as reading a finely printed volume.**
+Aurefolia is designed around a simple conviction: **reading a digital book should feel as comfortable, immersive, and visually tactile as reading a finely printed volume.**
 
-Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Folio pairs a low-overhead native backend with a bespoke reading canvas. Rather than presenting ebooks as sterile documents, Folio recreates the physical intimacy of reading — from spring-physics page turns and textured paper stock to decorative chapter openings, botanical margin vines, and full-book neural text-to-speech.
+Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Aurefolia pairs a low-overhead native backend with a bespoke reading canvas. Rather than presenting ebooks as sterile documents, Aurefolia recreates the physical intimacy of reading — from spring-physics page turns and textured paper stock to decorative chapter openings, botanical margin vines, and full-book neural text-to-speech.
 
-### What makes Folio unique?
+### What makes Aurefolia unique?
 - **Universal reflowable format support**: DRM-free **EPUB 2/3**, **MOBI** (Mobi 6/7/PalmDOC), **AZW**, and **AZW3 / KF8**.
 - **Tactile page turns**: GPU-accelerated fold-sheet page flips with paper texture, crease sheen, warm fold light, and damped-spring drag physics.
 - **Dual-axis reading aesthetics**: Independent selection of your paper/ink environment and your surrounding **Reading Room** desk wallpaper.
@@ -32,7 +32,7 @@ Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Folio pairs a l
 - **Neural Read Aloud (KittenTTS)**: High-fidelity offline neural voice synthesis powered by native multi-threaded ORT inference with fallback to WebAssembly.
 - **Local-first privacy**: Zero telemetry, no cloud accounts, and fully offline operation.
 
-![Folio's Reading Room — *Alice's Adventures in Wonderland* in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
+![Aurefolia's Reading Room — *Alice's Adventures in Wonderland* in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
 
 ## Downloads
 
@@ -41,22 +41,22 @@ Download the latest release from the **[GitHub Releases Page](https://github.com
 ### Windows (64-bit)
 - **[Windows NSIS Setup (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Recommended desktop installer with Start Menu integration and file associations.
 - **[Windows MSI Installer (.msi)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Standard Windows Installer package for managed/enterprise environments.
-- **[Standalone Portable Executable (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Single self-contained binary (`Folio.exe`) without installation.
+- **[Standalone Portable Executable (.exe)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Single self-contained binary (`Aurefolia.exe`) without installation.
 
 ### macOS (Apple Silicon arm64)
 - **[macOS Disk Image (.dmg)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Drag-and-drop installer for Apple Silicon (M1/M2/M3/M4) Macs.
 - **[macOS Application Tarball (.app.tar.gz)](https://github.com/rtshiva/folio_ebook_reader/releases/latest)** — Portable application bundle archive.
 
 > [!NOTE]
-> **macOS Gatekeeper notice**: macOS builds are currently unsigned. On first launch, right-click the application and select **Open** (twice), or run `xattr -cr "/Applications/Folio Reader.app"` in Terminal to clear the quarantine attribute.
+> **macOS Gatekeeper notice**: macOS builds are currently unsigned. On first launch, right-click the application and select **Open** (twice), or run `xattr -cr "/Applications/Aurefolia.app"` in Terminal to clear the quarantine attribute.
 
 ### Nightly CI builds (from `main`)
 
 Every successful push to `main` republishes a rolling **[nightly prerelease](https://github.com/rtshiva/folio_ebook_reader/releases/tags/nightly)** with fixed asset names, so these links always serve the newest CI build:
 
-- **[Folio-nightly.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly.exe)** — portable executable
-- **[Folio-nightly-setup.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly-setup.exe)** — NSIS installer
-- **[Folio-nightly.msi](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly.msi)** — MSI installer
+- **[Aurefolia-nightly.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Aurefolia-nightly.exe)** — portable executable
+- **[Aurefolia-nightly-setup.exe](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Aurefolia-nightly-setup.exe)** — NSIS installer
+- **[Aurefolia-nightly.msi](https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Aurefolia-nightly.msi)** — MSI installer
 
 Or fetch them from the command line — nightly downloads need no auth (the repo is public):
 
@@ -75,7 +75,7 @@ Per-run artifacts (including PR builds) remain downloadable for 30 days from eac
 
 ## Architecture Overview
 
-Folio marries a security-hardened native Rust host with an Edge WebView2 reading canvas:
+Aurefolia marries a security-hardened native Rust host with an Edge WebView2 reading canvas:
 
 ```mermaid
 flowchart TD
@@ -243,14 +243,14 @@ npm run build
 
 Compiled desktop binaries are produced in `tauri_epub_reader/src-tauri/target/release/`:
 - `app.exe` (Windows standalone binary)
-- `bundle/nsis/Folio Reader_1.0.0_x64-setup.exe` (NSIS setup installer)
-- `bundle/msi/Folio Reader_1.0.0_x64_en-US.msi` (MSI installer)
+- `bundle/nsis/Aurefolia_1.0.0_x64-setup.exe` (NSIS setup installer)
+- `bundle/msi/Aurefolia_1.0.0_x64_en-US.msi` (MSI installer)
 
 ---
 
 ## Test & Verification Standards
 
-Folio maintains an uncompromising test and security posture:
+Aurefolia maintains an uncompromising test and security posture:
 - **68 Rust Unit & Security Tests**: Full coverage for PalmDOC compression/decompression, Zip-Slip prevention, XML entity repairs, CORS isolation, cache bounds, and eviction safety.
 - **42 Invariant Static Scan Checks**: Enforces IPC conversion safety, origin reflection, theme agreement, reading font embedding, and sanitized DOM insertion.
 - **Zero Clippy Warnings**: Strict `-D warnings` enforcement across all platforms and compilation targets.

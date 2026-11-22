@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Folio Reader",
+  "productName": "Aurefolia",
   "version": "1.0.0",
   "identifier": "com.folio.reader",
   "build": {
@@ -9,7 +9,7 @@
   "app": {
     "windows": [
       {
-        "title": "Folio Reader",
+        "title": "Aurefolia",
         "width": 1280,
         "height": 820,
         "minWidth": 800,

@@ -1,4 +1,4 @@
-# Folio Reader — Current Capabilities & Roadmap
+# Aurefolia — Current Capabilities & Roadmap
 
 > Tracking doc for reader features (EPUB 2/3, MOBI, AZW, and AZW3 reading experience — no library management).
 > Last updated: 2026-11-10, against `src/index.html` (~10,500 lines) + `src-tauri` backend (`lib.rs` ~2,100 lines, `mobi.rs` ~1,800 lines).

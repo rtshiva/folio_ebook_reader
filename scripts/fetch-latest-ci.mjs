@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fetch the latest Folio CI build (Windows binaries) from GitHub.
+ * Fetch the latest Aurefolia CI build (Windows binaries) from GitHub.
  *
  *   node scripts/fetch-latest-ci.mjs [--out DIR] [--source nightly|artifact] [--dry-run]
  *
@@ -27,8 +27,8 @@ import { pathToFileURL } from "node:url";
 const REPO = "rtshiva/folio_ebook_reader";
 const API = `https://api.github.com/repos/${REPO}`;
 const WORKFLOW = "build-installers.yml";
-const ARTIFACT_NAME = "folio-windows-binaries";
-const NIGHTLY_ASSETS = ["Folio-nightly.exe", "Folio-nightly-setup.exe", "Folio-nightly.msi"];
+const ARTIFACT_NAME = "aurefolia-windows-binaries";
+const NIGHTLY_ASSETS = ["Aurefolia-nightly.exe", "Aurefolia-nightly-setup.exe", "Aurefolia-nightly.msi"];
 const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 
 // ---- args -----------------------------------------------------------------

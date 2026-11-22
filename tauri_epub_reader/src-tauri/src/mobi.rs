@@ -1,7 +1,7 @@
-//! MOBI / AZW / AZW3 unpacker and EPUB converter for Folio Reader.
+//! MOBI / AZW / AZW3 unpacker and EPUB converter for Aurefolia.
 //!
 //! Converts DRM-free Mobipocket (MOBI 6/7) and Kindle Format 8 (KF8/AZW3)
-//! files into standard OEBPS / XHTML packages stored in the Folio cache directory,
+//! files into standard OEBPS / XHTML packages stored in the Aurefolia cache directory,
 //! allowing `epub.js` to render them seamlessly with zero frontend overhead.
 
 use crate::{BookManifest, ManifestFile};

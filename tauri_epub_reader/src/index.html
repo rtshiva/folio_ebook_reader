@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Folio — EPUB reader for your books</title>
+<title>Aurefolia — EPUB reader for your books</title>
 <link rel="icon" type="image/png" href="./assets/app-icon.png">
 <script src="./vendor/jszip.min.js"></script>
 <script src="./vendor/epub.min.js"></script>
@@ -1331,6 +1331,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
      CDN with font-display:swap — the visible "font rendering changes" per
      visit. data: sources load instantly in every context. -->
 <script src="vendor/fonts/fonts-inline.js"></script>
+    <script src="./__buildflag.js"></script>
 </head>
 <body class="state-landing">
 <div id="deskDim" aria-hidden="true"></div>
@@ -1346,9 +1347,9 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 
 <!-- ============ landing / title page ============ -->
 <div id="landing">
-  <div id="ghost">F</div>
+  <div id="ghost">A</div>
   <div class="landing-card">
-    <h1 class="wordmark">Folio<span class="dot">.</span></h1>
+    <h1 class="wordmark">Aurefolia<span class="dot">.</span></h1>
     <div class="rule-double"></div>
     <p id="lede">Every book, set beautifully.</p>
     <p class="colophon" id="readingStats" style="display:none;margin-top:8px"></p>
@@ -1380,7 +1381,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <header id="topbar">
   <div class="tb-left">
     <button class="wm-btn" id="btnHome" title="Home — choose or open books (H)" aria-label="Go to home">
-      <span class="wm">Folio<span class="dot">.</span></span>
+      <span class="wm">Aurefolia<span class="dot">.</span></span>
       <svg class="home-ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     </button>
     <button id="posPill" class="pos-pill" title="Contents & position (T)" aria-haspopup="dialog" aria-expanded="false">
@@ -1619,6 +1620,9 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <span class="tx"><b>Battery saver</b><small>On battery power: pause background jobs and skip page-turn animations.</small></span></label>
       <label class="sw"><input type="checkbox" id="swMonitorLayout"><span class="tr"></span>
         <span class="tx"><b>Per-monitor layout</b><small>Remember text size, spread and margins for each monitor.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swDebugLog"><span class="tr"></span>
+        <span class="tx"><b>Debug logging</b><small>Keep a diagnostics ring (events + screenshots at flips and chapter transitions). Copy it with Ctrl+Shift+D. Off in release builds.</small></span></label>
+      <div style="margin-top:8px"><button class="chip" id="btnCopyDbg" type="button">Copy debug diagnostics</button></div>
       <label class="sw"><input type="checkbox" id="swJustify"><span class="tr"></span>
         <span class="tx"><b>Justify text</b><small>Flush edges with automatic hyphenation.</small></span></label>
       <label class="sw"><input type="checkbox" id="swIndent"><span class="tr"></span>
@@ -1831,7 +1835,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <div id="topHint"></div><div id="botHint"></div>
 <div id="drop"><div class="frame"><p>Drop your book to open it</p></div></div>
 <div id="loader" class="hide">
-  <div><span class="wm" style="font-size:22px">Folio<span class="dot">.</span></span>
+  <div><span class="wm" style="font-size:22px">Aurefolia<span class="dot">.</span></span>
     <div class="loader-rule"></div><p class="kicker" id="loaderMsg">Typesetting…</p></div>
 </div>
 <div id="guide"></div>
@@ -1860,7 +1864,7 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
 <script>
 'use strict';
 /* =====================================================================
-   Folio — a single-file EPUB reading room
+   Aurefolia — a single-file EPUB reading room
    single & two-page spread · page-flip/slide fx · dyslexia toolkit
    ===================================================================== */
 const el = id => document.getElementById(id);
@@ -2013,9 +2017,114 @@ const DEFAULTS = {
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   pageOrnaments:true,
   warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true, monitorLayout:true,
-  rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true
+  rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true,
+  debugLog:false
 };
 let settings = {...DEFAULTS};
+/* ---------------- debug diagnostics ring (Dbg) ----------------
+   Grounded in the bugs it exists for: the flip flicker (two cache pipelines,
+   last write wins), the canvas-propagation paper (computed styles lied while
+   pixels told the truth), the 1000-char location grid skipping covers, the
+   stale-binary trap. Gated twice — settings.debugLog (explicit user toggle,
+   never auto-enabled) AND __FOLIO_RELEASE_BUILD__ (the build script stamps
+   release builds; the ring is force-off there). When on: a capped event
+   ring + screenshots taken AT event time (flips, leaf transitions — after
+   the fact nothing shows a flicker) + console error/warn capture. Dump =
+   Copy debug diagnostics / Ctrl+Shift+D. */
+const Dbg = {
+  MAX: 600, SHOT_MAX: 6, SHOT_MIN_MS: 500,
+  ring: [], shots: [], lastShot: 0, t0: 0,
+  _totals: new Map(),
+  get on(){ return !!settings.debugLog && !window.__FOLIO_RELEASE_BUILD__; },
+  log(tag, msg, data){
+    if(!this.on) return;
+    if(!this.t0) this.t0 = Date.now();
+    this.ring.push({ t: Date.now() - this.t0, tag, msg: String(msg), d: data || null });
+    if(this.ring.length > this.MAX) this.ring.splice(0, this.ring.length - this.MAX);
+  },
+  /* Event-time capture: PrintWindow via the Rust command, downscaled and
+     JPEG-encoded here. Fire-and-forget; rate-limited; capped ring. */
+  shot(tag){
+    if(!this.on) return;
+    const now = Date.now();
+    if(now - this.lastShot < this.SHOT_MIN_MS) return;
+    this.lastShot = now;
+    if(!window.__TAURI_INTERNALS__) return;
+    try{
+      const inv = window.__TAURI_INTERNALS__.invoke;
+      Promise.resolve().then(() => inv('debug_capture_window')).then((r) => {
+        if(!r || !r.b64 || !r.w) return;
+        const bin = atob(r.b64);
+        const raw = new Uint8Array(bin.length);
+        for(let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
+        const tmp = document.createElement('canvas');
+        tmp.width = r.w; tmp.height = r.h;
+        const tctx = tmp.getContext('2d');
+        const im = tctx.createImageData(r.w, r.h);
+        for(let i = 0; i < raw.length; i += 4){
+          im.data[i] = raw[i + 2]; im.data[i + 1] = raw[i + 1]; im.data[i + 2] = raw[i]; im.data[i + 3] = 255;
+        }
+        tctx.putImageData(im, 0, 0);
+        const scale = Math.min(1, 820 / r.w);
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(r.w * scale));
+        cv.height = Math.max(1, Math.round(r.h * scale));
+        cv.getContext('2d').drawImage(tmp, 0, 0, cv.width, cv.height);
+        const url = cv.toDataURL('image/jpeg', 0.55);
+        if(!this.t0) this.t0 = now;
+        this.shots.push({ t: now - this.t0, tag, url });
+        if(this.shots.length > this.SHOT_MAX) this.shots.shift();
+        this.log('SHOT', tag, { ms: now - this.t0 });
+      }).catch(() => {});
+    }catch(e){}
+  },
+  initConsole(){
+    if(this.__conInit) return; this.__conInit = true;
+    ['error', 'warn'].forEach((k) => {
+      const orig = console[k].bind(console);
+      console[k] = (...args) => {
+        if(this.on){
+          const txt = args.map(a => { try{ return typeof a === 'string' ? a : JSON.stringify(a).slice(0, 240); }catch(e){ return String(a); } }).join(' ');
+          this.log('CONSOLE.' + k, txt.slice(0, 400));
+        }
+        orig(...args);
+      };
+    });
+  },
+  dump(){
+    const lines = [];
+    lines.push('=== Aurefolia debug diagnostics ===');
+    lines.push('build: ' + (window.__FOLIO_BUILD_ID__ || 'dev') + ' | release: ' + (!!window.__FOLIO_RELEASE_BUILD__ || false));
+    try{
+      const loc = state.rendition ? state.rendition.currentLocation() : null;
+      const d0 = loc && loc.start ? loc.start.displayed : null;
+      lines.push('state: ' + JSON.stringify({
+        title: getActiveTitle(), idx: loc ? loc.start.index : null,
+        disp: d0, spread: !!state.spreadOn, locsReady: LocEngine.ready(),
+        tocLen: tocItems.length, chNavIdx: chNavIdx,
+        spread_setting: settings.spread, turnFx: settings.turnFx,
+        recents: getRecents().length,
+        cacheHtmls: pageCache.chapterHtmls.size, cacheMetrics: pageCache.chapterMetrics.size,
+        viewerCls: el('viewer').className, ring: this.ring.length, shots: this.shots.length,
+      }));
+    }catch(e){ lines.push('state: (error: ' + e + ')'); }
+    for(const e of this.ring) lines.push('[+' + e.t + 'ms ' + e.tag + '] ' + e.msg + (e.d ? ' ' + JSON.stringify(e.d) : ''));
+    for(const sh of this.shots) lines.push('[SHOT +' + sh.t + 'ms ' + sh.tag + '] ' + sh.url);
+    return lines.join('\n');
+  },
+  copyDump(){
+    try{
+      const text = this.dump();
+      navigator.clipboard.writeText(text).then(
+        () => toast('Debug diagnostics copied (' + this.ring.length + ' events, ' + this.shots.length + ' shots)'),
+        () => toast('Clipboard write failed — see console'));
+      console.log('[dbg dump]\n' + text.split('\n').filter(l => !l.startsWith('[SHOT')).join('\n'));
+    }catch(e){ toast('Dump failed: ' + e); }
+  },
+  clear(){ this.ring.length = 0; this.shots.length = 0; this.t0 = Date.now(); }
+};
+Dbg.initConsole();
+Dbg.log('INIT', 'build ' + (window.__FOLIO_BUILD_ID__ || 'dev') + ', release=' + (!!window.__FOLIO_RELEASE_BUILD__));
 // Stored JSON is untrusted: a __proto__/constructor key would hijack the
 // settings prototype via Object.assign — strip it at the parse boundary.
 function parseSafeJson(raw, fallback){
@@ -2075,7 +2184,7 @@ function validateSettings(){
   // or hand-edited stores ("auto":"0" is truthy) and via Object.assign in
   // loadPerBookType, so coerce non-booleans explicitly.
   if(!Number.isFinite(settings.measure) || settings.measure < 10 || settings.measure > 90) settings.measure = DEFAULTS.measure;
-  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','batterySaver','turnFxByUser','monitorLayout','themeAuto','rrOrnaments','rrFrame'].forEach(k => {
+  ['auto','lhAuto','lsAuto','wsAuto','marginAuto','widthAuto','dropCaps','indent','oldstyle','bionic','guide','justify','perBookType','pageMarginSidesAuto','pageOrnaments','pageSound','grain','keepAwake','batterySaver','turnFxByUser','monitorLayout','themeAuto','rrOrnaments','rrFrame','debugLog'].forEach(k => {
     const v = settings[k];
     if(v === undefined || typeof v === 'boolean') return;
     settings[k] = (v === true || v === 1 || v === '1' || v === 'true');
@@ -2086,7 +2195,7 @@ function validateSettings(){
   if(typeof settings.perBookType !== 'boolean') settings.perBookType = DEFAULTS.perBookType;
   if(typeof settings.justify !== 'boolean') settings.justify = DEFAULTS.justify;
 }
-// Normalise legacy display-name font values saved by older Folio builds.
+// Normalise legacy display-name font values saved by older builds.
 {
   const legacyFont = String(settings.font || 'literata').trim().toLowerCase();
   const fontAliases = {
@@ -2511,6 +2620,7 @@ function buildCSS(){
     '|' + (state.spreadOn ? Math.round(effWidth()/2) : 0);
   if(hash === _cssHash) return _cssCache;
   _cssHash = hash;
+  Dbg.log('CSS', 'bake', { slot: state.spreadOn ? Math.round(((el('viewer')||{getBoundingClientRect:()=>({width:0})}).getBoundingClientRect().width) / 2) : 0, spread: !!state.spreadOn });
   const t = THEMES[thKey]||THEMES.paper;
   const stack = (FONTS[settings.font]||FONTS.literata).stack;
   const j = settings.justify;
@@ -3113,8 +3223,8 @@ function getActiveTitle(){
     return state.book.package.metadata.title.trim();
   }
   const elTitle = el('bookTitle') && el('bookTitle').textContent;
-  if(elTitle && elTitle !== 'Untitled' && elTitle !== 'Folio') return elTitle.trim();
-  return 'Folio';
+  if(elTitle && elTitle !== 'Untitled' && elTitle !== 'Aurefolia') return elTitle.trim();
+  return 'Aurefolia';
 }
 function getActiveAuthor(){
   if(state.currentAuthor) return state.currentAuthor;
@@ -3129,6 +3239,8 @@ function showLoader(msg){ el('loaderMsg').textContent=msg||'Typesetting…'; el(
 function hideLoader(){ const d=Date.now()-(state.t0||0); setTimeout(()=>el('loader').classList.add('hide'), Math.max(0,450-d)); }
 
 async function closeBook(){
+  Dbg.log('OPEN', 'close', { title: getActiveTitle() });
+  Dbg._totals.clear();
   flushRelocCold(); // last page turn's position must survive the close
   if(typeof _flushRecentBook === 'function' && _recentPending) _flushRecentBook();
   if(statsCache) StoreKV.set('stats', statsCache);
@@ -3358,6 +3470,9 @@ function resumeReading(){
   if(state.book && state.rendition){
     body.classList.remove('state-landing');
     body.classList.add('state-reading');
+    Dbg.log('OPEN', 'done', { title: getActiveTitle(), ms: performance.now() | 0 });
+    Dbg.shot('open-done');
+    Dbg.shot('open-done');
     resetDeskDim();
     poke();
   }
@@ -3824,7 +3939,7 @@ async function openBuffer(buf, titleHint, filePath, targetCfi, opts){
     body.classList.add('state-landing');
     updateLandingUI();
     hideLoader();
-    toast('Could not open that file — Folio reads DRM-free EPUBs');
+    toast('Could not open that file — Aurefolia reads DRM-free EPUBs');
   }finally{
     state.loading=false;
     // Drain a queued open (see the loading guard above): the pending request
@@ -3845,6 +3960,7 @@ let seenHint=false;
 /* switch between one and two pages (recreates the renderer, keeps position) */
 let spreadBusy=false;
 async function recreateRendition(){
+  Dbg.log('GEO', 'recreate', { spread: !!state.spreadOn, mw: effWidth(), inner: innerWidth + 'x' + innerHeight });
   let cfi = null;
   try{ const l=state.rendition.currentLocation(); cfi = l&&l.start ? l.start.cfi : null; }catch(e){}
   try{ state.rendition && state.rendition.destroy(); }catch(e){}
@@ -4400,6 +4516,8 @@ function onContent(contents){
       // canvas turns transparent, or the left half flashes paper
       const vEl = el('viewer');
       if(vEl) vEl.classList.add('folio-first-leaf');
+      Dbg.log('LEAF', 'early class (pre-paint)', { si: siL });
+      Dbg.shot('leaf-early');
     }
   }catch(e){}
   // Bionification continues past the first 120 text nodes on idle ticks —
@@ -4459,6 +4577,7 @@ function onContent(contents){
       // previous spine and feed the turn compositor the wrong adjacent page.
       const si = (contents && typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
       if(typeof pageCache !== 'undefined') pageCache.setChapterHtml(cleanHtml, si);
+      Dbg.log('CACHE', 'capture', { si, bytes: cleanHtml.length, hasLeaf: cleanHtml.includes('folio-first-leaf') });
     }catch(e){}
   };
   if(settings.bionic && d.body.dataset.fioBionic!=='1'){
@@ -4897,6 +5016,7 @@ const LocEngine = {
             this.data = { title, spineLen: book.spine.length, total: locs.length, locations: locs.slice() };
             this.store(this.data);
             this.refreshUI();
+            Dbg.log('LOCS', 'generated', { total: this.data.total });
           }
         }catch(e){}
       }catch(e){}
@@ -5078,6 +5198,12 @@ function onRelocated(loc){
   // file's header/posPill to its first TOC entry forever.
   updateChapterNav();
   const chTitle = refreshChapterTitle(loc);
+  Dbg.log('RELOC', 'hot', { idx: loc.start.index, page: d ? d.page : null, total: d ? d.total : null, frac: +frac.toFixed(4) });
+  if(d && d.total){
+    const lastT = Dbg._totals.get(loc.start.index);
+    if(lastT !== undefined && lastT !== d.total) Dbg.log('RELOC.TOTAL', 'displayed total changed', { idx: loc.start.index, from: lastT, to: d.total });
+    Dbg._totals.set(loc.start.index, d.total);
+  }
 
   // Chapter-cross detection drives the F2 title flash and the F4 fade-in
   const spineChanged = loc.start.index !== state.lastSpineIdx;
@@ -5180,6 +5306,7 @@ function onRelocated(loc){
 function onRelocatedCold(loc, frac, chTitle, d){
   markTocCurrent(loc.start.href, loc.start.cfi);
   StoreKV.set(state.posKey, loc.start.cfi);
+  Dbg.log('RELOC', 'cold', { idx: loc.start.index, page: d ? d.page : null, total: d ? d.total : null });
 
   // Book-on-table opening leaf (spread mode): mark the first section's doc
   // when its pagination is short (cover/titlepage/copyright files, <= 2
@@ -5193,6 +5320,8 @@ function onRelocatedCold(loc, frac, chTitle, d){
     const vLeaf = state.spreadOn && loc.start.index === 0 && d && d.total && d.total <= 2;
     const vEl0 = el('viewer');
     if(vEl0) vEl0.classList.toggle('folio-first-leaf', vLeaf);
+    Dbg.log('LEAF', 'gate', { want: vLeaf, idx: loc.start.index, total: d ? d.total : null, spread: !!state.spreadOn });
+    if(vLeaf !== vEl0.classList.contains('folio-first-leaf')) Dbg.log('LEAF', 'viewer class mismatch after gate', { want: vLeaf });
     if(loc.start.index === 0 && d && d.total){
       const m0 = state.rendition && state.rendition.manager;
       const list0 = m0 && m0.views && m0.views._views ? m0.views._views : [];
@@ -5262,6 +5391,7 @@ function onRelocatedCold(loc, frac, chTitle, d){
     chLeft = pagesToNextChapter(d);
     chNext = tocItems[chNavIdx + 1].label || null;
   }
+  Dbg.log('LEAF', 'persist', { chLeft, chNext: chNext ? chNext.slice(0, 24) : null, idx: loc.start.index });
   saveRecentBook(bTitle, bAuthor, Math.round(frac * 100), loc.start.cfi, state.currentFilePath, chLeft, chNext);
 
   updateLandingUI();
@@ -5709,7 +5839,7 @@ function fetchCoverThumb(book, title){
 }
 let _recentSaveTimer = 0, _recentPending = null;
 function saveRecentBook(title, author, pct, cfi, filePath, chLeft, chNext){
-  if(!title || title === 'Untitled' || title === 'Folio') return;
+  if(!title || title === 'Untitled' || title === 'Aurefolia') return;
   // P2: stash latest args and debounce 2s — avoids heavy work on every page turn
   _recentPending = { title, author, pct, cfi, filePath, chLeft, chNext };
   clearTimeout(_recentSaveTimer);
@@ -5717,6 +5847,7 @@ function saveRecentBook(title, author, pct, cfi, filePath, chLeft, chNext){
 }
 function _flushRecentBook(){
   const p = _recentPending; if(!p) return; _recentPending = null;
+  Dbg.log('PERSIST', 'flush', { title: p.title, pct: p.pct, chLeft: p.chLeft });
   const { title, author, pct, cfi, filePath, chLeft, chNext } = p;
   const all = getRecents();
   const existing = all.find(x => x.title === title) || {};
@@ -7489,6 +7620,7 @@ class PageCacheManager {
               // Feature 6: pre-render the neighbor chapter off-screen — fonts,
               // CSS and column layout warm before the reader ever crosses.
               this.warmFrame(spineIndex, cleanHtml);
+              Dbg.log('CACHE', 'preload (OVERWRITES capture)', { si: spineIndex, bytes: cleanHtml.length, hasLeaf: cleanHtml.includes('folio-first-leaf') });
             }catch(err){}
           }
         }
@@ -7760,6 +7892,7 @@ function populateSnap(snap, html, pageCSS, relLeft){
   // too — a paper-colored box behind a transparent leaf reads as a flash.
   const leafBack = /<html[^>]*class="[^"]*folio-first-leaf/.test(html);
   const leafBg = leafBack ? 'transparent' : 'var(--page)';
+  Dbg.log('SNAP', 'populate', { leafBack, bytes: html.length });
   snap.style.background = leafBg;
   if(snap.parentElement) snap.parentElement.style.background = leafBg;
   const rel = (relLeft !== undefined) ? relLeft : (snap.__baseRelLeft || 0);
@@ -8959,6 +9092,8 @@ window.addEventListener('pointercancel', e => turnGesture.onPointerUp(e), { pass
 let turnQueue = 0;
 async function playTurnFx(dir, fx){
   const snapInfo = snapshotPage();
+  Dbg.log('SNAP', 'start', { dir, fx, idx: snapInfo && snapInfo.spineIndex });
+  Dbg.shot('flip-start');
   if(!snapInfo || !state.rendition){
     try{ if(state.rendition) (dir>0 ? state.rendition.next() : state.rendition.prev()).catch(()=>{}); }catch(e){}
     return;
@@ -9035,6 +9170,7 @@ async function turn(dir, opts = {}){
     }
     const vElT = el('viewer');
     if(vElT && leafTarget) vElT.classList.add('folio-first-leaf');
+    Dbg.log('LEAF', 'pre-toggle', { leafTarget, curIdx, dir });
   }catch(e){}
   // opts.noAnim (AutoScroll steps) forces the instant path — the default
   // paper fold throttled autoscroll to ~one fold per step.
@@ -11413,6 +11549,11 @@ function wireCmdPalette(){
 
 /* ---------------- keyboard ---------------- */
 function onKey(e){
+  if(e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'D' || e.key === 'd')){
+    e.preventDefault();
+    Dbg.copyDump();
+    return;
+  }
   const openDialog = (document.activeElement && document.activeElement.closest && document.activeElement.closest('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show, aside[role="dialog"], div[role="dialog"]'))
     || document.querySelector('#sheet.open, #toc.open, #searchDrawer.open, #helpOverlay.show')
     || (typeof CmdPalette !== 'undefined' && CmdPalette.open && el('cmdPalette'))
@@ -12172,6 +12313,8 @@ function syncControls(){
   el('swKeepAwake').checked=settings.keepAwake !== false;
   el('swBatterySaver').checked=settings.batterySaver !== false;
   el('swMonitorLayout').checked=settings.monitorLayout !== false;
+  el('swDebugLog').checked=settings.debugLog === true;
+  el('swDebugLog').disabled = !!window.__FOLIO_RELEASE_BUILD__;
   syncSize(); syncWidthSlider(); syncMarginSlider(); syncLhSlider(); syncLsSlider(); syncWsSlider(); syncPresetUI(); syncTurnSeg(); syncSpreadUI(); syncWarm(); syncPageMargins();
   el('swPerBook').checked=!!settings.perBookType;
   syncEnvCards();
@@ -12468,6 +12611,13 @@ el('swMonitorLayout').addEventListener('change',e=>{
   settings.monitorLayout=e.target.checked; save();
   if(settings.monitorLayout) detectMonitor(true);   // adopt the current monitor's store now
 });
+el('swDebugLog').addEventListener('change',e=>{
+  settings.debugLog=e.target.checked; save();
+  if(settings.debugLog){ Dbg.clear(); Dbg.log('INIT','debug logging enabled'); }
+  else Dbg.clear();
+});
+const btnCopyDbg = el('btnCopyDbg');
+if(btnCopyDbg) btnCopyDbg.addEventListener('click', () => Dbg.copyDump());
 el('swGuide').addEventListener('change',e=>setGuide(e.target.checked));
 el('swJustify').addEventListener('change',e=>{ settings.justify=e.target.checked; save(); relayout(); });
 el('swIndent').addEventListener('change',e=>{ settings.indent=e.target.checked; save(); relayout(); });
@@ -12721,7 +12871,7 @@ async function exportBookData(){
   // break the line out of its block, and a leading #/> would fake a heading
   // or quote inside its own line.
   const mdLine = (s) => String(s || '').replace(/\r?\n/g, ' ').replace(/^(\s*)([#>])/, '$1\\$2');
-  const L = ['# ' + title, '', '_' + new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) + ' — exported from Folio_'];
+  const L = ['# ' + title, '', '_' + new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) + ' — exported from Aurefolia_'];
   if(hls.length){
     L.push('', '## Highlights');
     hls.forEach(h => {
@@ -12961,6 +13111,7 @@ function updateRailPreview(f){
 }
 function railSeekCommit(f){
   if(!state.rendition || !state.book) return;
+  Dbg.log('RAIL', 'seek', { f: +f.toFixed(4), locsReady: LocEngine.ready() });
   // 0% means the book's first page — the spine start. The location grid can
   // skip short front-matter files (an image-only cover holds < 1000 chars,
   // so location 1 lives in the next file) and cfiAtPct(0) would land past
@@ -13233,7 +13384,7 @@ async function loadDemo(){
 <h1>The Time Machine</h1>
 <p class="tp-a">by H. G. Wells</p>
 <div class="tp-rule"></div>
-<p>An abridgement in three chapters,<br/>set by Folio as a working specimen.</p>
+<p>An abridgement in three chapters,<br/>set by Aurefolia as a working specimen.</p>
 <p>London · 1895</p></div>`));
 
     zip.file('OEBPS/ch1.xhtml',XHTML('I — The Fourth Dimension',`

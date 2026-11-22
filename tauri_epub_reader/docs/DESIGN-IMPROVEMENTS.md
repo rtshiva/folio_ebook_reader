@@ -1,4 +1,4 @@
-# Folio Reader — Improvement Design Document
+# Aurefolia — Improvement Design Document
 
 > Detailed designs for the user-selected performance & appearance improvements.
 > Covers: **P-A** disk cache for unzipped books · **P-B** chunked background work ·

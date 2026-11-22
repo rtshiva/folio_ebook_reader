@@ -1,4 +1,4 @@
-# Folio Reader — Comprehensive Design Document & Low-Level Design (LLD)
+# Aurefolia — Comprehensive Design Document & Low-Level Design (LLD)
 
 > **Audience:** Core developers, new contributors, and maintainers.  
 > **Scope:** Architecture, subsystem low-level design, feature-to-code mapping, data schemas, sequence flows, and testing suite.  
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & System Architecture
 
-Folio Reader is an ultralight (~9 MB standalone executable), privacy-first, offline-native ebook reader for Windows (supporting **EPUB 2/3, MOBI, AZW, and AZW3**). It couples a native **Tauri 2.0 (Rust)** backend with **native Windows Edge WebView2**, completely eliminating the overhead of bundled Chromium browsers while delivering a 60 FPS, GPU-accelerated paper reading experience.
+Aurefolia is an ultralight (~9 MB standalone executable), privacy-first, offline-native ebook reader for Windows (supporting **EPUB 2/3, MOBI, AZW, and AZW3**). It couples a native **Tauri 2.0 (Rust)** backend with **native Windows Edge WebView2**, completely eliminating the overhead of bundled Chromium browsers while delivering a 60 FPS, GPU-accelerated paper reading experience.
 
 ### 1.1 High-Level Architecture
 
@@ -207,7 +207,7 @@ flowchart TB
      - Emits `toc.ncx` for hierarchical navigation.
      - Slices decompressed HTML into chapters (`ch_0001.xhtml`, `ch_0002.xhtml`, ...).
      - Extracts and writes image resources (`images/img_XXXX.ext`).
-     - Emits `manifest.json` for Folio's cache protocol.
+     - Emits `manifest.json` for Aurefolia's cache protocol.
 * **Code Location:** [`tauri_epub_reader/src-tauri/src/mobi.rs`](file:///f:/Siva_f/ebook_reader_glm53flash/tauri_epub_reader/src-tauri/src/mobi.rs).
 
 ---

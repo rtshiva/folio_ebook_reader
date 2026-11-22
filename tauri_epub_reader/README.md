@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src/assets/app-icon.png" alt="Folio Logo" width="96" height="96" />
+  <img src="src/assets/app-icon.png" alt="Aurefolia Logo" width="96" height="96" />
 </p>
 
-# Folio Reader — Desktop App (Tauri 2.0)
+# Aurefolia — Desktop App (Tauri 2.0)
 
 A high-performance, offline-first desktop ebook reader supporting **EPUB 2/3, MOBI, AZW, and AZW3** built with Tauri 2.0 and native WebViews (Edge WebView2 on Windows, WebKit on macOS).
 
@@ -63,12 +63,12 @@ npx tauri build --no-bundle
 ```
 Compiled artifacts are placed in `src-tauri/target/release/`:
 - `app.exe` (standalone executable)
-- `bundle/nsis/Folio Reader_1.0.0_x64-setup.exe` (NSIS setup installer)
-- `bundle/msi/Folio Reader_1.0.0_x64_en-US.msi` (MSI installer)
+- `bundle/nsis/Aurefolia_1.0.0_x64-setup.exe` (NSIS setup installer)
+- `bundle/msi/Aurefolia_1.0.0_x64_en-US.msi` (MSI installer)
 
 ### Verification & Quality Assurance
 
-Folio enforces rigorous test and verification standards:
+Aurefolia enforces rigorous test and verification standards:
 - **68 Rust unit & security tests** (`npm run test:rust`): Covers BookCache LRU, Zip-Slip prevention, PalmDOC LZ77 decompression, MOBI unpack roundtrip, and cache eviction.
 - **42 static scan tests** (`npm run scan`): Verifies IPC safety, security policies, DOM invariants, and theme tokens.
 - **Zero Clippy warnings**: Clean `-D warnings` across all compilation targets.

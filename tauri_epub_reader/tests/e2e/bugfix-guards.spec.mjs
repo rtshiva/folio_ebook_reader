@@ -288,8 +288,8 @@ test('BUG11 VocabLog.key resolves through getActiveTitle, not raw currentTitle (
     state.currentTitle = '';
     return { landing, untitled, real };
   });
-  expect(r.landing, 'empty title falls back to "Folio"').toBe('vocab:Folio');
-  expect(r.untitled, '"Untitled" falls back to "Folio" (no phantom key split)').toBe('vocab:Folio');
+  expect(r.landing, 'empty title falls back to "Aurefolia"').toBe('vocab:Aurefolia');
+  expect(r.untitled, '"Untitled" falls back to "Aurefolia" (no phantom key split)').toBe('vocab:Aurefolia');
   expect(r.real, 'real metadata title keys the vocab record').toBe('vocab:The Time Machine');
 });
 
@@ -376,7 +376,7 @@ test('BUG15 exportBookData flattens and escapes user text in the Markdown clipbo
     return captured;
   });
   expect(md, 'clipboard export captured').toBeTruthy();
-  expect(md.startsWith('# Folio'), 'document header intact').toBe(true);
+  expect(md.startsWith('# Aurefolia'), 'document header intact').toBe(true);
   expect(md).toContain('## Highlights');
   expect(md).toContain('\\# fake heading', 'leading # in user text escaped with backslash');
   expect(md).toContain('\\> fake quote', 'leading > in user note escaped with backslash');

@@ -1,4 +1,4 @@
-# Folio Reader — UX Features LLD Plan & Test Specification
+# Aurefolia — UX Features LLD Plan & Test Specification
 
 > **Version:** 2.0 — Replaces ribbon nav with edge-hover chapter panels  
 > **Date:** 2026-09-26  

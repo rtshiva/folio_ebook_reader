@@ -1186,6 +1186,122 @@ fn display_metrics(_window: tauri::WebviewWindow) -> Option<DisplayMetrics> {
     None
 }
 
+/* Debug diagnostics: window capture for the renderer's debug ring. Flicker-
+   class bugs are invisible to retrospective captures, so the ring grabs the
+   window AT event time (flip boundaries, leaf transitions) while it still
+   shows the broken frame. PrintWindow needs PW_RENDERFULLCONTENT or WebView2
+   (DirectComposition-composited) comes back black; the bitmap is downscaled
+   2x (HALFTONE) to keep the IPC payload small and returned as raw top-down
+   BGRA + dimensions — the renderer swaps to RGBA and JPEG-encodes on a
+   canvas. Debug builds only: the JS gate never invokes this in release. */
+#[derive(serde::Serialize)]
+struct DebugShot {
+    w: u32,
+    h: u32,
+    b64: String,
+}
+
+#[cfg(windows)]
+fn b64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let b0 = c[0] as u32;
+        let b1 = *c.get(1).unwrap_or(&0) as u32;
+        let b2 = *c.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if c.len() > 1 { T[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if c.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn debug_capture_window(window: tauri::WebviewWindow) -> Option<DebugShot> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER,
+        BI_RGB, DIB_RGB_COLORS, HALFTONE, HGDIOBJ, SRCCOPY,
+    };
+    use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, PW_RENDERFULLCONTENT};
+    let hwnd = window.hwnd().ok()?;
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    let w = (rect.right - rect.left).max(1) as u32;
+    let h = (rect.bottom - rect.top).max(1) as u32;
+    let hdc_win = unsafe { GetDC(Some(hwnd)) };
+    if hdc_win.0.is_null() {
+        return None;
+    }
+    let hdc_full = unsafe { CreateCompatibleDC(Some(hdc_win)) };
+    if hdc_full.0.is_null() {
+        unsafe { ReleaseDC(Some(hwnd), hdc_win) };
+        return None;
+    }
+    let bmp_full = unsafe { CreateCompatibleBitmap(hdc_win, w as i32, h as i32) };
+    if bmp_full.0.is_null() {
+        let _ = unsafe { DeleteDC(hdc_full) };
+        unsafe { ReleaseDC(Some(hwnd), hdc_win) };
+        return None;
+    }
+    let old_full = unsafe { SelectObject(hdc_full, HGDIOBJ(bmp_full.0)) };
+    // PW_RENDERFULLCONTENT: include the DirectComposition-composited webview
+    unsafe { let _ = PrintWindow(hwnd, hdc_full, PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT)); };
+    // downscale 2x — diagnostics detail beats full resolution, IPC payload quarters
+    let hw = (w / 2).max(1);
+    let hh = (h / 2).max(1);
+    let hdc_half = unsafe { CreateCompatibleDC(Some(hdc_win)) };
+    let mut shot = None;
+    if !hdc_half.0.is_null() {
+        let bmp_half = unsafe { CreateCompatibleBitmap(hdc_win, hw as i32, hh as i32) };
+        if !bmp_half.0.is_null() {
+            let old_half = unsafe { SelectObject(hdc_half, HGDIOBJ(bmp_half.0)) };
+            unsafe {
+                let _ = SetStretchBltMode(hdc_half, HALFTONE);
+                let _ = StretchBlt(hdc_half, 0, 0, hw as i32, hh as i32, Some(hdc_full), 0, 0, w as i32, h as i32, SRCCOPY);
+            }
+            let mut bi = BITMAPINFO::default();
+            bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bi.bmiHeader.biWidth = hw as i32;
+            bi.bmiHeader.biHeight = -(hh as i32); // top-down rows
+            bi.bmiHeader.biPlanes = 1;
+            bi.bmiHeader.biBitCount = 32;
+            bi.bmiHeader.biCompression = BI_RGB.0;
+            let mut buf = vec![0u8; (hw * hh * 4) as usize];
+            let copied = unsafe {
+                GetDIBits(hdc_half, bmp_half, 0, hh, Some(buf.as_mut_ptr() as *mut core::ffi::c_void), &mut bi, DIB_RGB_COLORS)
+            };
+            if copied == hh as i32 {
+                shot = Some(DebugShot { w: hw, h: hh, b64: b64_encode(&buf) });
+            }
+            unsafe { let _ = SelectObject(hdc_half, old_half); };
+            let _ = unsafe { DeleteObject(HGDIOBJ(bmp_half.0)) };
+        }
+        let _ = unsafe { DeleteDC(hdc_half) };
+    }
+    unsafe { let _ = SelectObject(hdc_full, old_full); };
+    let _ = unsafe { DeleteObject(HGDIOBJ(bmp_full.0)) };
+    let _ = unsafe { DeleteDC(hdc_full) };
+    unsafe { ReleaseDC(Some(hwnd), hdc_win) };
+    shot
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn debug_capture_window(_window: tauri::WebviewWindow) -> Option<DebugShot> {
+    None
+}
+
+#[cfg(not(windows))]
+fn b64_encode(_data: &[u8]) -> String {
+    String::new()
+}
+
 #[tauri::command]
 async fn book_open(path: String, app: tauri::AppHandle) -> Result<BookHandle, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1946,6 +2062,7 @@ pub fn run() {
             a11y_text_scale,
             a11y_screen_reader,
             display_metrics,
+            debug_capture_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

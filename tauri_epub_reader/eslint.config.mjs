@@ -1,4 +1,4 @@
-// ESLint flat config — static analysis gate for Folio Reader.
+// ESLint flat config — static analysis gate for Aurefolia.
 // See docs/CODE_QUALITY.md for the bug-class -> rule mapping.
 //
 // The whole app lives in one inline <script> inside src/index.html;

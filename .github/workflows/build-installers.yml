@@ -1,6 +1,6 @@
 name: build-installers
 
-# Builds the Folio standalone executable, NSIS installer, and MSI installer for Windows.
+# Builds the Aurefolia standalone executable, NSIS installer, and MSI installer for Windows.
 # The KittenTTS neural voice model (~78MB) is cached and bundled into application resources
 # for native multi-threaded ORT inference, with fallback to Web Worker WASM when running in browser.
 # A gated macOS job (workflow_dispatch / v* tags only — macOS runners bill at 10x minutes)
@@ -8,7 +8,7 @@ name: build-installers
 # launch; proper Gatekeeper clearance needs an Apple Developer ID + notarization.
 # Every successful push to main additionally republishes a rolling `nightly` prerelease
 # with fixed asset names, so download links never change:
-#   https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Folio-nightly.exe
+#   https://github.com/rtshiva/folio_ebook_reader/releases/download/nightly/Aurefolia-nightly.exe
 # (Tagged builds go through the `release` job; per-run artifacts keep their 30-day retention.)
 
 on:
@@ -117,18 +117,18 @@ jobs:
           VERSION=$(grep -oP '"version":\s*"\K[^"]+' ../../tauri.conf.json 2>/dev/null || grep -oP '"version":\s*"\K[^"]+' src-tauri/tauri.conf.json)
           # Copy standalone portable executable
           if [ -f "app.exe" ]; then
-            cp "app.exe" "dist/Folio.exe"
+            cp "app.exe" "dist/Aurefolia.exe"
           fi
           # Copy NSIS installer
           if compgen -G "bundle/nsis/*.exe" > /dev/null; then
             for f in bundle/nsis/*.exe; do
-              cp "$f" "dist/Folio_${VERSION}_x64-setup.exe"
+              cp "$f" "dist/Aurefolia_${VERSION}_x64-setup.exe"
             done
           fi
           # Copy MSI installer
           if compgen -G "bundle/msi/*.msi" > /dev/null; then
             for f in bundle/msi/*.msi; do
-              cp "$f" "dist/Folio_${VERSION}_x64_en-US.msi"
+              cp "$f" "dist/Aurefolia_${VERSION}_x64_en-US.msi"
             done
           fi
           echo "Release artifacts:"
@@ -137,7 +137,7 @@ jobs:
       - name: Upload installer & executable artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: folio-windows-binaries
+          name: aurefolia-windows-binaries
           retention-days: 30
           path: tauri_epub_reader/src-tauri/target/release/dist/*
 
@@ -206,13 +206,13 @@ jobs:
           # Copy arm64 .dmg (unsigned — Gatekeeper note in job summary)
           if compgen -G "bundle/dmg/*.dmg" > /dev/null; then
             for f in bundle/dmg/*.dmg; do
-              cp "$f" "dist/Folio_${VERSION}_aarch64.dmg"
+              cp "$f" "dist/Aurefolia_${VERSION}_aarch64.dmg"
             done
           fi
           # Copy the .app tarball (drag-install alternative)
           if compgen -G "bundle/macos/*.app.tar.gz" > /dev/null; then
             for f in bundle/macos/*.app.tar.gz; do
-              cp "$f" "dist/Folio_${VERSION}_aarch64.app.tar.gz"
+              cp "$f" "dist/Aurefolia_${VERSION}_aarch64.app.tar.gz"
             done
           fi
           echo "macOS artifacts:"
@@ -224,14 +224,14 @@ jobs:
           echo "### macOS build is UNSIGNED" >> "$GITHUB_STEP_SUMMARY"
           echo "First launch: right-click the app → **Open** (twice), or clear the quarantine flag:" >> "$GITHUB_STEP_SUMMARY"
           echo '```bash' >> "$GITHUB_STEP_SUMMARY"
-          echo 'xattr -cr "/Applications/Folio Reader.app"' >> "$GITHUB_STEP_SUMMARY"
+          echo 'xattr -cr "/Applications/Aurefolia.app"' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "Permanent Gatekeeper clearance requires an Apple Developer ID + notarization." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: folio-macos-binaries
+          name: aurefolia-macos-binaries
           retention-days: 30
           path: tauri_epub_reader/src-tauri/target/aarch64-apple-darwin/release/dist/*
 
@@ -246,13 +246,13 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: folio-windows-binaries
+          name: aurefolia-windows-binaries
           path: dist
 
       - name: Download macOS artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: folio-macos-binaries
+          name: aurefolia-macos-binaries
           path: dist
 
       - name: List artifacts
@@ -289,16 +289,16 @@ jobs:
       - name: Download windows artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: folio-windows-binaries
+          name: aurefolia-windows-binaries
           path: dist
 
       - name: Rename to stable nightly asset names
         working-directory: dist
         run: |
           set -e
-          mv Folio.exe Folio-nightly.exe
-          mv Folio_*_x64-setup.exe Folio-nightly-setup.exe
-          mv Folio_*_x64_en-US.msi Folio-nightly.msi
+          mv Aurefolia.exe Aurefolia-nightly.exe
+          mv Aurefolia_*_x64-setup.exe Aurefolia-nightly-setup.exe
+          mv Aurefolia_*_x64_en-US.msi Aurefolia-nightly.msi
           ls -lh
 
       - name: Publish or overwrite nightly release
@@ -315,6 +315,6 @@ jobs:
 
             - Commit: `${{ github.sha }}`
             - Built: ${{ github.event.head_commit.timestamp }}
-            - Contents: `Folio-nightly.exe` (portable executable), `Folio-nightly-setup.exe` (NSIS installer), `Folio-nightly.msi` (MSI installer)
+            - Contents: `Aurefolia-nightly.exe` (portable executable), `Aurefolia-nightly-setup.exe` (NSIS installer), `Aurefolia-nightly.msi` (MSI installer)
 
             For stable versioned releases, see [the latest release](https://github.com/rtshiva/folio_ebook_reader/releases/latest).
