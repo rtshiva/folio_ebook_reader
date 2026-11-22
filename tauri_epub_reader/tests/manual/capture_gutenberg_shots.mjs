@@ -1,5 +1,6 @@
 // Captures README screenshots featuring real Project Gutenberg books:
-//   reading-room.png      hero — Royal Maroon room, title-page spread (Alice)
+//   reading-room.png      hero — Royal Maroon room, opening leaf: Alice's
+//                         cover as a closed book (cover right, desk left)
 //   reading.png           Pride & Prejudice, single page (Natural Paper)
 //   spread.png            Pride & Prejudice, forced two-page spread
 //   contents.png          TOC drawer over the Pride & Prejudice spread

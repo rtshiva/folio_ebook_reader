@@ -32,7 +32,7 @@ Built with **Tauri 2**, **Rust**, **WebView2**, and **epub.js**, Aurefolia pairs
 - **Neural Read Aloud (KittenTTS)**: High-fidelity offline neural voice synthesis powered by native multi-threaded ORT inference with fallback to WebAssembly.
 - **Local-first privacy**: Zero telemetry, no cloud accounts, and fully offline operation.
 
-![Aurefolia's Reading Room — *Alice's Adventures in Wonderland* in the Royal Maroon room with per-chapter vine ornaments](docs/screenshots/reading-room.png)
+![Aurefolia's Reading Room — *Alice's Adventures in Wonderland* opens as a closed book in the Royal Maroon room: the cover rests on the right page, the desk itself on the left, with per-chapter vine ornaments](docs/screenshots/reading-room.png)
 
 ## Downloads
 
@@ -118,7 +118,7 @@ Every screenshot below shows a real book fetched from [Project Gutenberg](https:
 
 | Library Landing | Single Page Reading |
 |---|---|
-| ![Landing page with the recent-books shelf holding four Gutenberg classics](docs/screenshots/landing.png) | ![Single page reading — Pride and Prejudice](docs/screenshots/reading.png) |
+| ![Landing page with the Aurefolia wordmark and the recent-books shelf holding four Gutenberg classics](docs/screenshots/landing.png) | ![Single page reading — Pride and Prejudice](docs/screenshots/reading.png) |
 
 | Table of Contents | Typography & Reader Settings |
 |---|---|
