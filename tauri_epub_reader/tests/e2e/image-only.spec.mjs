@@ -272,6 +272,7 @@ test.describe('image-only full-height pages', () => {
         vW,
         vH,
         halfW,
+        imgLeft: imgRect.left,
         imgRight: imgRect.left + imgRect.width,
         imgH: imgRect.height,
         scrollW: doc.body.scrollWidth
@@ -281,8 +282,10 @@ test.describe('image-only full-height pages', () => {
     expect(spreadMetrics.isSpread).toBe(true);
     // In spread mode, height is full height
     expect(Math.abs(spreadMetrics.imgH - spreadMetrics.vH)).toBeLessThanOrEqual(2);
-    // Image stays strictly inside left page (Column 1), before half width gutter
-    expect(spreadMetrics.imgRight).toBeLessThanOrEqual(spreadMetrics.halfW);
+    // Book-on-table opening leaf (BL9): the cover shifts one slot right —
+    // image strictly inside the RIGHT page, past the half-width gutter
+    expect(spreadMetrics.imgRight).toBeLessThanOrEqual(spreadMetrics.vW + 1);
+    expect(spreadMetrics.imgLeft).toBeGreaterThanOrEqual(spreadMetrics.halfW - 1);
     // scrollWidth does not spill into extra phantom spreads
     expect(spreadMetrics.scrollW).toBeLessThanOrEqual(spreadMetrics.vW + 2);
   });

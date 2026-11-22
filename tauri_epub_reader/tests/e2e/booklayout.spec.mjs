@@ -88,7 +88,9 @@ test('BL4 drawer desk-shift: stage slides clear of the TOC and returns on close'
   await page.waitForFunction(
     (b) => Math.abs(document.getElementById('wrap').getBoundingClientRect().left - b) < 1.5,
     before, { timeout: 9000 });
-  expect((await spreadMetrics(page)).left).toBeCloseTo(before, 0);
+  // assert within the same tolerance the settle-wait uses — the ease tail
+  // can still be moving sub-pixel frames when the wait releases (racy at 0.5)
+  expect(Math.abs((await spreadMetrics(page)).left - before)).toBeLessThanOrEqual(1.5);
 });
 
 test('BL5 desk-shift is transform-only: --mw unchanged while a drawer is open', async ({ page }) => {
@@ -101,4 +103,64 @@ test('BL5 desk-shift is transform-only: --mw unchanged while a drawer is open', 
   const mwDuring = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--mw').trim());
   expect(mwDuring).toBe(mwBefore);
+});
+
+test('BL9 opening leaf shift: first section renders [blank | first page] in spread mode', async ({ page }) => {
+  await openDemoReady(page);
+  await page.waitForTimeout(1100); // cold pass + park settle
+  const r = await page.evaluate(() => {
+    const v = document.getElementById('viewer').getBoundingClientRect();
+    let best = null, area = 0;
+    for(const f of document.querySelectorAll('#viewer iframe')){
+      const rr = f.getBoundingClientRect();
+      if(rr.width * rr.height > area){ area = rr.width * rr.height; best = f; }
+    }
+    const d = best.contentDocument;
+    const first = d.body.querySelector('p, h1, h2, div, img, section');
+    const fr = first ? first.getBoundingClientRect() : null;
+    return {
+      vw: Math.round(v.width),
+      cls: d.documentElement.classList.contains('folio-first-leaf'),
+      tx: getComputedStyle(d.body).transform,
+      firstLeft: fr ? Math.round(fr.left) : null,
+      cacheHasCls: (pageCache.getChapterHtml(0) || '').includes('folio-first-leaf'),
+      viewerCls: document.getElementById('viewer').classList.contains('folio-first-leaf'),
+      viewerBg: getComputedStyle(document.getElementById('viewer')).backgroundColor,
+      htmlBgImg: getComputedStyle(d.documentElement).backgroundImage,
+    };
+  });
+  expect(r.cls, 'opening doc carries the shift class').toBe(true);
+  const slot = Math.round(r.vw / 2);
+  expect(r.tx, `body translated exactly one page slot (${slot}px)`)
+    .toBe(`matrix(1, 0, 0, 1, ${slot}, 0)`);
+  expect(r.firstLeft, 'first page content sits on the right-hand slot')
+    .toBeGreaterThan(r.vw / 2);
+  expect(r.cacheHasCls, 'compositor cache replays carry the same geometry').toBe(true);
+  expect(r.viewerCls, 'viewer yields its paper for the desk-left look').toBe(true);
+  expect(r.viewerBg, 'viewer background transparent over the desk').toBe('rgba(0, 0, 0, 0)');
+  expect(r.htmlBgImg, 'html carries a background-image (blocks canvas propagation of body paper)')
+    .not.toBe('none');
+});
+
+test('BL10 opening leaf shift: single-page mode renders unshifted', async ({ page }) => {
+  await openDemoReady(page);
+  await page.waitForTimeout(1100);
+  await page.keyboard.press('d'); // auto -> on (still spread)
+  await page.keyboard.press('d'); // on -> off (single page)
+  await page.waitForFunction(() => !document.body.classList.contains('spread'), null, { timeout: 9000 });
+  await page.waitForTimeout(900); // recreate + relocation
+  const r = await page.evaluate(() => {
+    let best = null, area = 0;
+    for(const f of document.querySelectorAll('#viewer iframe')){
+      const rr = f.getBoundingClientRect();
+      if(rr.width * rr.height > area){ area = rr.width * rr.height; best = f; }
+    }
+    const d = best.contentDocument;
+    return {
+      cls: d.documentElement.classList.contains('folio-first-leaf'),
+      tx: getComputedStyle(d.body).transform,
+    };
+  });
+  expect(r.cls, 'no shift class in single-page mode').toBe(false);
+  expect(r.tx, 'body not translated in single-page mode').toBe('none');
 });

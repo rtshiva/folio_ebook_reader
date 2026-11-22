@@ -175,6 +175,9 @@ body.state-landing #posPill{display:none}
 body.state-reading #wrap::before{opacity:1}
 @keyframes pagein{from{opacity:0;transform:scale(.985)}}
 #viewer{width:100%;height:100%;background:var(--page);touch-action:pan-y}
+/* Book-on-table opening leaf: while the shifted first section is displayed
+   the viewer's own paper background yields to the desk on the left half. */
+#viewer.folio-first-leaf{background:transparent}
 /* edge hover page-curl affordance (F1): a lifted paper corner near the
    fore-edge suggests the peel gesture; pure composited transform */
 #viewer::before,#viewer::after{content:'';position:absolute;bottom:12px;width:24px;height:24px;z-index:5;
@@ -2504,7 +2507,8 @@ function buildCSS(){
     settings.justify + '|' + settings.dropCaps + '|' + settings.indent + '|' + settings.oldstyle + '|' +
     settings.bionic + '|' + settings.guide +
     '|' + settings.pageMarginTop + '|' + settings.pageMarginBottom +
-    '|' + Math.round(spreadMetrics().gutter/2) + '|' + (settings.pageOrnaments ? 1 : 0);
+    '|' + Math.round(spreadMetrics().gutter/2) + '|' + (settings.pageOrnaments ? 1 : 0) +
+    '|' + (state.spreadOn ? Math.round(effWidth()/2) : 0);
   if(hash === _cssHash) return _cssCache;
   _cssHash = hash;
   const t = THEMES[thKey]||THEMES.paper;
@@ -2639,6 +2643,28 @@ body.folio-image-only svg{
   display:block !important;
 }
 body.folio-image-only #folio-pcs{display:none !important;}
+${state.spreadOn ? (() => {
+  /* Book-on-table opening leaf: the FIRST section (cover/titlepage, <= 2 pages,
+     gated at relocation) shifts its whole body box one page-slot right inside
+     the park canvas, so spread 0 reads [blank | first page] like an opened
+     book. Paint-only transform — body scrollWidth, epub.js column mapping and
+     CFIs are untouched. The html canvas goes TRANSPARENT: the body (shifted
+     right) still paints the right half, and the left half shows the desk
+     through — the closed-book-kept-on-the-table look. Slot = ACTUAL viewer
+     width / 2 (two slots per spread, gutter on the fold) — not effWidth(),
+     which can disagree with the clamped stage. */
+  const v0 = el('viewer');
+  const slot = v0 ? Math.round(v0.getBoundingClientRect().width / 2) : 0;
+  return slot > 0 ? `
+/* The transparent gradient is load-bearing: with html's background-color
+   alone transparent, CSS canvas propagation would repaint the WHOLE iframe
+   viewport with the body's paper (both halves). A background-image — even a
+   fully transparent one — blocks propagation, so the canvas stays clear on
+   the left half (the desk shows through) while the shifted body paints only
+   the right half. */
+html.folio-first-leaf{background:transparent linear-gradient(transparent,transparent) !important;}
+html.folio-first-leaf body{transform:translateX(${slot}px) !important;}` : '';
+})() : ''}
 `;
   return _cssCache;
 }
@@ -4359,6 +4385,23 @@ function onContent(contents){
   }catch(e){}
   // Normalize full-height image-only chapters (cover, titlepage, frontispiece, back cover)
   try{ normalizeImageOnlyDoc(d); }catch(eImg){}
+  // Book-on-table opening leaf: mark the FIRST section immediately, BEFORE
+  // pagination and first paint — a class landing at the relocation's cold
+  // pass lets a few unshifted frames paint first (user-visible flicker on
+  // image covers). The relocation cold pass stays the authority: sections
+  // longer than 2 pages lose the class there (their even-last leaf must
+  // stay reachable) and the compositor cache is re-synced on that removal.
+  // This early add runs before captureNow, so replays bake the shift too.
+  try{
+    const siL = (typeof contents.sectionIndex === 'number') ? contents.sectionIndex : undefined;
+    if(siL === 0 && state.spreadOn && d.documentElement){
+      d.documentElement.classList.add('folio-first-leaf');
+      // the viewer's paper background must yield in the same frame the doc's
+      // canvas turns transparent, or the left half flashes paper
+      const vEl = el('viewer');
+      if(vEl) vEl.classList.add('folio-first-leaf');
+    }
+  }catch(e){}
   // Bionification continues past the first 120 text nodes on idle ticks —
   // await its completion before the cache capture, or the serialized HTML
   // bakes the first ~120 bolded nodes plus plain text after them (visible
@@ -5137,6 +5180,40 @@ function onRelocated(loc){
 function onRelocatedCold(loc, frac, chTitle, d){
   markTocCurrent(loc.start.href, loc.start.cfi);
   StoreKV.set(state.posKey, loc.start.cfi);
+
+  // Book-on-table opening leaf (spread mode): mark the first section's doc
+  // when its pagination is short (cover/titlepage/copyright files, <= 2
+  // pages) so the folio-dyn shift rule slides it one page-slot right —
+  // spread 0 renders [blank | first page]. Gated here (not in onContent)
+  // because epub.js's page total only settles after pagination; the class
+  // re-syncs the compositor cache so flip replays carry the identical
+  // shifted geometry. Even-total openings skip their last leaf in spread
+  // mode (still reachable in single-page mode) — accepted trade-off.
+  try{
+    const vLeaf = state.spreadOn && loc.start.index === 0 && d && d.total && d.total <= 2;
+    const vEl0 = el('viewer');
+    if(vEl0) vEl0.classList.toggle('folio-first-leaf', vLeaf);
+    if(loc.start.index === 0 && d && d.total){
+      const m0 = state.rendition && state.rendition.manager;
+      const list0 = m0 && m0.views && m0.views._views ? m0.views._views : [];
+      const want = vLeaf;
+      list0.forEach(v => {
+        const c = v.contents;
+        if(!c || c.sectionIndex !== 0 || !c.document || !c.document.documentElement) return;
+        const de = c.document.documentElement;
+        const has = de.classList.contains('folio-first-leaf');
+        if(want !== has){
+          de.classList.toggle('folio-first-leaf', want);
+          // cache replay parity: re-serialize the mutated doc into the cache
+          try{
+            if(typeof pageCache !== 'undefined' && pageCache.setChapterHtml){
+              pageCache.setChapterHtml('<!DOCTYPE html>' + sanitizeChapterHtml(c.document.documentElement.outerHTML), 0);
+            }
+          }catch(e2){}
+        }
+      });
+    }
+  }catch(e){}
 
   // Feature 2: save context snippet for smart resume
   try{
@@ -7370,6 +7447,16 @@ class PageCacheManager {
               }catch(e1){}
               try{ if(settings.pageOrnaments && !sectionDoc.getElementById('folio-pcs')){ sectionDoc.documentElement.insertAdjacentHTML('beforeend', pageOrnMarkup(spineIndex)); } }catch(e2){}
               try{ normalizeImageOnlyDoc(sectionDoc); }catch(eImg){}
+              // Book-on-table opening leaf: this preloaded entry OVERWRITES
+              // the onContent capture in chapterHtmls (last write wins), so
+              // the first section must carry the shift class here too — or
+              // the flip compositor renders it unshifted for the whole flip
+              // (the cover flickers left, then snaps right on landing).
+              try{
+                if(spineIndex === 0 && state.spreadOn && sectionDoc.documentElement){
+                  sectionDoc.documentElement.classList.add('folio-first-leaf');
+                }
+              }catch(eLeaf){}
               // Inlining local stylesheets for instant synchronous rendering in replays
               try{
                 const links = Array.from(sectionDoc.querySelectorAll('link[rel~="stylesheet"]'));
@@ -7668,6 +7755,13 @@ function syncSnapOrnaments(d, relLeft){
 
 function populateSnap(snap, html, pageCSS, relLeft){
   if(!html || typeof html !== 'string') return;
+  // Book-on-table leaf replays: their canvas is transparent on the left half
+  // (the desk shows through), so the snap's own paper backdrops must yield
+  // too — a paper-colored box behind a transparent leaf reads as a flash.
+  const leafBack = /<html[^>]*class="[^"]*folio-first-leaf/.test(html);
+  const leafBg = leafBack ? 'transparent' : 'var(--page)';
+  snap.style.background = leafBg;
+  if(snap.parentElement) snap.parentElement.style.background = leafBg;
   const rel = (relLeft !== undefined) ? relLeft : (snap.__baseRelLeft || 0);
   try{
     const sDoc = snap.contentDocument;
@@ -8927,6 +9021,21 @@ async function turn(dir, opts = {}){
     clearTimeout(TTS.relocT);
   }
   if(atEdge(dir)) return;
+  // Book-on-table leaf: the viewer's paper must yield BEFORE the incoming
+  // cover canvas paints — the relocation's cold toggle would land a few
+  // frames late and flash paper on the left half. Backward turns into the
+  // shifted first section flip the viewer here; every other case leaves the
+  // class to the relocation gates (leaving section 0 clears it there).
+  try{
+    const curIdx = state.rendition.currentLocation().start.index;
+    let leafTarget = state.spreadOn && curIdx + dir === 0;
+    if(leafTarget && typeof pageCache !== 'undefined'){
+      const h0 = pageCache.getChapterHtml(0);
+      leafTarget = !!(h0 && /<html[^>]*class="[^"]*folio-first-leaf/.test(h0));
+    }
+    const vElT = el('viewer');
+    if(vElT && leafTarget) vElT.classList.add('folio-first-leaf');
+  }catch(e){}
   // opts.noAnim (AutoScroll steps) forces the instant path — the default
   // paper fold throttled autoscroll to ~one fold per step.
   const fx = (opts && opts.noAnim) ? 'none' : effectiveFx();
@@ -12852,6 +12961,14 @@ function updateRailPreview(f){
 }
 function railSeekCommit(f){
   if(!state.rendition || !state.book) return;
+  // 0% means the book's first page — the spine start. The location grid can
+  // skip short front-matter files (an image-only cover holds < 1000 chars,
+  // so location 1 lives in the next file) and cfiAtPct(0) would land past
+  // the cover.
+  if(f <= 0){
+    const first = state.book.spine.get(0);
+    if(first){ state.rendition.display(first.href).catch(()=>{}); return; }
+  }
   if(LocEngine.ready()){
     const cfi = LocEngine.cfiAtPct(f);
     if(cfi){
