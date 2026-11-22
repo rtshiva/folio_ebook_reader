@@ -1612,6 +1612,8 @@ if(__rr&&__rr!=='match')document.documentElement.dataset.rr=__rr;}catch(e){}</sc
         <span class="tx"><b>Reading guide</b><small>A soft band that tracks your pointer keeps your place on the line.</small></span></label>
       <label class="sw"><input type="checkbox" id="swSound"><span class="tr"></span>
         <span class="tx"><b>Page-turn sound</b><small>A soft paper swish as pages turn.</small></span></label>
+      <label class="sw"><input type="checkbox" id="swScroll"><span class="tr"></span>
+        <span class="tx"><b>Scroll reading</b><small>The mouse wheel glides through pages without the fold animation.</small></span></label>
       <label class="sw"><input type="checkbox" id="swGrain" checked><span class="tr"></span>
         <span class="tx"><b>Paper texture</b><small>A faint grain over pages and page turns.</small></span></label>
       <label class="sw"><input type="checkbox" id="swKeepAwake"><span class="tr"></span>
@@ -2017,7 +2019,7 @@ const DEFAULTS = {
   marginAuto:true, marginVertical:28, dropCaps:false, indent:false, oldstyle:false,
   pageMarginTop:20, pageMarginBottom:20, pageMarginSidesAuto:true, pageMarginSides:24,
   pageOrnaments:true,
-  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true, monitorLayout:true,
+  warmth:0, perBookType:false, pageSound:false, grain:true, keepAwake:true, batterySaver:true, monitorLayout:true, scrollMode:false,
   rrTheme:'royal-maroon', rrOrnaments:true, rrFrame:true,
   debugLog:false
 };
@@ -2179,6 +2181,7 @@ function validateSettings(){
   if(!Number.isFinite(settings.pageMarginSides) || settings.pageMarginSides < 0 || settings.pageMarginSides > 120) settings.pageMarginSides = DEFAULTS.pageMarginSides;
   if(typeof settings.pageMarginSidesAuto !== 'boolean') settings.pageMarginSidesAuto = DEFAULTS.pageMarginSidesAuto;
   if(typeof settings.pageOrnaments !== 'boolean') settings.pageOrnaments = DEFAULTS.pageOrnaments;
+  if(typeof settings.scrollMode !== 'boolean') settings.scrollMode = DEFAULTS.scrollMode;
   if(!Number.isFinite(settings.warmth) || settings.warmth < 0 || settings.warmth > 100) settings.warmth = DEFAULTS.warmth;
   // measure is a divisor in fitInfo/spreadMetrics — a string/0 value yields
   // NaN font sizes; the boolean channels arrive as strings from corrupted
@@ -12360,6 +12363,7 @@ function syncControls(){
   el('swIndent').checked=!!settings.indent;
   el('swOldstyle').checked=!!settings.oldstyle;
   el('swSound').checked=!!settings.pageSound;
+  el('swScroll').checked=!!settings.scrollMode;
   el('swGrain').checked=settings.grain !== false;
   el('swKeepAwake').checked=settings.keepAwake !== false;
   el('swBatterySaver').checked=settings.batterySaver !== false;
@@ -12646,6 +12650,7 @@ el('swDropCaps').addEventListener('change', e => {
 });
 // Page-turn sound
 el('swSound').addEventListener('change',e=>{ settings.pageSound=e.target.checked; save(); });
+el('swScroll').addEventListener('change',e=>{ settings.scrollMode=e.target.checked; save(); });
 el('swGrain').addEventListener('change',e=>{ settings.grain=e.target.checked; save(); });
 el('swKeepAwake').addEventListener('change',e=>{
   settings.keepAwake=e.target.checked; save();
@@ -13297,6 +13302,22 @@ function onWheel(e){
   if(e.altKey){ e.preventDefault(); nudgeWidth(e.deltaY < 0 ? 30 : -30); return; }
   const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
   if(!d) return;
+  if(settings.scrollMode){
+    // Scroll mode: the wheel streams instant page steps — continuous motion
+    // while input lasts, settled on a page when it stops (the same noAnim
+    // primitive AutoScroll's middle-click stepping uses). Chapter boundaries
+    // stay paginated: next()/prev() cross them as one relocation each.
+    wheelAcc += d;
+    if(Math.abs(wheelAcc) >= 55){
+      const dir = wheelAcc > 0 ? 1 : -1;
+      wheelAcc = 0;
+      turn(dir, { noAnim: true });
+    } else {
+      clearTimeout(wheelT);
+      wheelT = setTimeout(() => { wheelAcc = 0; }, 180);
+    }
+    return;
+  }
   wheelAcc += d;
   if(Math.abs(wheelAcc) >= 90){
     const dir = wheelAcc > 0 ? 1 : -1;

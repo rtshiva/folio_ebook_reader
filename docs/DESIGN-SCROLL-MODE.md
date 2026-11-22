@@ -1,8 +1,15 @@
 # DESIGN — Scoped Scroll Mode (chapter-bounded glide)
 
-Status: **PROPOSED 2026-11-22 — awaiting approval. No code written.**
-Scope decision from the user: implement after the jump-back / shelf-legibility batch;
-the Rust-side pagination service (P2.5) stays queued behind this.
+Status: **v1 IMPLEMENTATION DECISION (2026-11-22, user asked to start):** the wheel
+path ships as a **streaming stepper** — in scroll mode the wheel routes to
+`turn(dir, {noAnim:true})` (the exact primitive AutoScroll's middle-click
+stepping already uses) at a lower accumulator threshold, so input streams pages
+instantly without the fold animation, always settling on a page when input
+stops, crossing chapter boundaries as one relocation each. The sub-page
+transform-interpolation glide described in §4 becomes **v2, pending feel
+feedback** — it composes on top of the same toggle. Drag-pan stays deferred
+(fights the fold-drag machinery). Defaults chosen: `scrollMode:false` (opt-in
+per user), boundary = auto-advance.
 
 ## 1. Goal
 
@@ -33,9 +40,9 @@ What already exists and will be reused:
 
 ## 3. UX spec
 
-- **Setting**: `settings.scroll = 'off' | 'on'` (default `off` for this release),
-  toggle in the Typography sheet next to spread; per-book preference memory
-  follows the existing `perBookType` path.
+- **Setting**: `settings.scrollMode` (boolean, default `false`), toggle in the
+  Typography sheet next to page-turn sound; **global** (v1 — perBookType only
+  carries typography channels; per-book memory is a v2 candidate).
 - **Wheel / trackpad**: accumulated delta drives a velocity; rAF loop glides the
   column offset; when input stops, damped settle to the nearest page (existing
   damped-spring constants reused for feel parity with the fold drag).
